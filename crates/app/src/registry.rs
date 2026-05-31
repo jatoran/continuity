@@ -36,13 +36,13 @@ use crate::error::Error;
 use crate::registry_closed_history::{archive_closed_window, smart_reopen_handler};
 use continuity_buffer::{BufferId, WindowId};
 use continuity_command::{
-    register_buffer_history_commands, register_clipboard_commands, register_editor_primitives,
-    register_file_commands, register_help_commands, register_keymap_commands,
-    register_markdown_commands, register_markdown_links_clipboard, register_motion_extras,
-    register_pane_commands, register_rich_editing, register_search_commands,
-    register_selection_commands, register_settings_commands, register_spell_commands,
-    register_tab_commands, register_theme_commands, register_undo_commands, register_view_commands,
-    register_window_commands, Registry,
+    register_buffer_history_commands, register_clipboard_commands, register_diagnostics_commands,
+    register_editor_primitives, register_file_commands, register_help_commands,
+    register_keymap_commands, register_markdown_commands, register_markdown_links_clipboard,
+    register_motion_extras, register_pane_commands, register_rich_editing,
+    register_search_commands, register_selection_commands, register_settings_commands,
+    register_spell_commands, register_tab_commands, register_theme_commands,
+    register_undo_commands, register_view_commands, register_window_commands, Registry,
 };
 use continuity_config::{ConfigEvent, Settings};
 use continuity_core::{EditorHandle, SnapshotPolicy};
@@ -396,6 +396,7 @@ fn make_persistence(
 fn build_registry(ctx: &RegistryCtx) -> Registry {
     let mut registry = Registry::new();
     register_editor_primitives(&mut registry);
+    register_diagnostics_commands(&mut registry);
     register_selection_commands(&mut registry);
     register_keymap_commands(&mut registry);
     register_motion_extras(&mut registry);

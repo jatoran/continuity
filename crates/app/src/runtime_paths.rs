@@ -166,9 +166,8 @@ mod tests {
 
     #[test]
     fn beside_exe_data_dir_selects_portable_mode() {
-        let opts =
-            StartupOptions::from_args_with_auto_portable([OsString::from("a.md")], true)
-                .expect("auto portable args parse");
+        let opts = StartupOptions::from_args_with_auto_portable([OsString::from("a.md")], true)
+            .expect("auto portable args parse");
 
         assert_eq!(opts.startup_paths.files, vec![PathBuf::from("a.md")]);
         assert!(opts.runtime_paths.backups_dir.is_some());

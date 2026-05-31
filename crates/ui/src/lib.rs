@@ -103,6 +103,7 @@ pub mod window_control;
 mod window_decoration;
 mod window_decoration_prune;
 mod window_decoration_watchdog;
+mod window_diagnostics;
 mod window_dismiss;
 mod window_dispatch;
 mod window_display_prewarm;

@@ -35,6 +35,11 @@ pub trait ViewContext {
         Err(Error::UnsupportedContext("reload_theme"))
     }
 
+    /// Capture a layout/system diagnostic snapshot to disk.
+    fn capture_layout_diagnostics(&mut self) -> Result<(), Error> {
+        Err(Error::UnsupportedContext("capture_layout_diagnostics"))
+    }
+
     /// Open `ChooseFontW` and apply the chosen prose family.
     fn pick_font_family(&mut self) -> Result<(), Error> {
         Err(Error::UnsupportedContext("pick_font_family"))

@@ -47,6 +47,9 @@ impl continuity_command::ViewContext for Window {
     fn reload_theme(&mut self) -> Result<(), continuity_command::Error> {
         self.reload_theme_impl().map_err(map_ui_to_command_error)
     }
+    fn capture_layout_diagnostics(&mut self) -> Result<(), continuity_command::Error> {
+        self.capture_layout_diagnostics_impl()
+    }
     fn pick_font_family(&mut self) -> Result<(), continuity_command::Error> {
         self.pick_font_family_impl()
             .map_err(map_ui_to_command_error)

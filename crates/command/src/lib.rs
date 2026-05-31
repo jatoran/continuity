@@ -7,6 +7,7 @@
 pub mod buffer_history;
 pub mod clipboard;
 pub mod context;
+pub mod diagnostics;
 pub mod editor;
 pub mod editor_extras;
 pub mod error;
@@ -41,6 +42,7 @@ pub use clipboard::{
     EDITOR_PASTE_FROM_HISTORY,
 };
 pub use context::Context;
+pub use diagnostics::{register_diagnostics_commands, DIAGNOSTICS_CAPTURE_LAYOUT};
 pub use editor::{
     register_editor_primitives, register_keymap_commands, EDITOR_DELETE_BACK,
     EDITOR_DELETE_FORWARD, EDITOR_INSERT_CHAR, EDITOR_INSERT_NEWLINE, EDITOR_MOVE_CHAR_BACKWARD,
@@ -177,6 +179,7 @@ pub use windows::{
 pub fn default_registry() -> Registry {
     let mut registry = Registry::new();
     register_editor_primitives(&mut registry);
+    register_diagnostics_commands(&mut registry);
     register_selection_commands(&mut registry);
     register_keymap_commands(&mut registry);
     register_motion_extras(&mut registry);

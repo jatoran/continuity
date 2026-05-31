@@ -136,6 +136,10 @@ command = "keymap.show_conflicts"
 keys = ["ctrl+shift+r"]
 command = "keymap.reload"
 
+[[binding]]
+keys = ["ctrl+alt+shift+d"]
+command = "diagnostics.capture_layout"
+
 # --- Phase 6: word + paragraph motion ---
 
 [[binding]]

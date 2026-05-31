@@ -1,0 +1,24 @@
+[package]
+name             = "continuity-persist"
+version          = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+publish.workspace      = true
+
+[dependencies]
+continuity-text   = { workspace = true }
+continuity-buffer = { workspace = true }
+continuity-trace  = { workspace = true }
+rusqlite          = { workspace = true }
+zstd              = { workspace = true }
+serde_json        = { workspace = true }
+uuid              = { workspace = true }
+crossbeam-channel = { workspace = true }
+thiserror         = { workspace = true }
+
+[dev-dependencies]
+continuity-test-support = { workspace = true }
+proptest                = { workspace = true }
+tempfile                = { workspace = true }
+ropey                   = { workspace = true }

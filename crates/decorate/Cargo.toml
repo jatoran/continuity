@@ -1,0 +1,20 @@
+[package]
+name             = "continuity-decorate"
+version          = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+publish.workspace      = true
+
+[dependencies]
+continuity-text   = { workspace = true }
+ropey             = { workspace = true }
+tree-sitter       = { workspace = true }
+tree-sitter-md    = { workspace = true }
+ahash             = { workspace = true }
+crossbeam-channel = { workspace = true }
+thiserror         = { workspace = true }
+
+[dev-dependencies]
+continuity-test-support = { workspace = true }
+proptest                = { workspace = true }

@@ -1,0 +1,367 @@
+//! Generate `crates/command/assets/tutorial.md` deterministically from
+//! the existing documentation surface.
+//!
+//! No hand-written prose lives in the tutorial — every byte is derived
+//! from sources that agents already maintain as part of normal
+//! feature work:
+//!
+//! - `.docs/design/features/*.md` — per-feature design docs. We take
+//!   each file's H1 title and the prose between it and the first
+//!   sub-heading as a per-feature "Overview" section. Feature docs are
+//!   already kept current via the doc-as-code rule in `CLAUDE.md`.
+//! - `crates/keymap/assets/default.toml` — the default keymap.
+//!   Surfaced as a sorted hotkey table grouped by command prefix.
+//!
+//! Output is sorted, stable, and idempotent so a CI drift check can
+//! regenerate the asset and diff it against the checked-in copy.
+//!
+//! Invoke via `cargo xtask gen-tutorial`.
+
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
+
+/// Path of the generated tutorial asset, relative to the workspace
+/// root. `cargo xtask gen-tutorial` writes here; `continuity-command`
+/// embeds it via `include_str!`.
+pub const TUTORIAL_PATH: &str = "crates/command/assets/tutorial.md";
+
+/// Directory of per-feature design docs, relative to the workspace
+/// root. Every `*.md` file directly under this dir contributes one
+/// "Overview" section to the generated tutorial.
+pub const FEATURES_DIR: &str = ".docs/design/features";
+
+/// Path of the default keymap TOML, relative to the workspace root.
+pub const KEYMAP_PATH: &str = "crates/keymap/assets/default.toml";
+
+/// Run the generator. Writes [`TUTORIAL_PATH`] and prints the byte
+/// count to stdout so the user knows the operation produced output.
+///
+/// # Errors
+///
+/// Propagates I/O errors from reading the feature docs or keymap, and
+/// parse errors from the TOML. Filesystem write failures bubble up
+/// from [`std::fs::write`].
+pub fn run() -> Result<()> {
+    let workspace = workspace_root()?;
+    let body = generate(&workspace)?;
+    let out_path = workspace.join(TUTORIAL_PATH);
+    if let Some(parent) = out_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("creating tutorial output dir {}", parent.display()))?;
+    }
+    fs::write(&out_path, &body)
+        .with_context(|| format!("writing tutorial asset {}", out_path.display()))?;
+    println!(
+        "xtask gen-tutorial: wrote {} bytes to {}",
+        body.len(),
+        out_path.display()
+    );
+    Ok(())
+}
+
+/// Build the tutorial body in memory without touching the filesystem.
+/// Exposed for unit tests + the CI drift check (regenerate to memory,
+/// diff against the checked-in file, fail on mismatch).
+///
+/// # Errors
+///
+/// Same conditions as [`run`].
+pub fn generate(workspace: &Path) -> Result<String> {
+    let mut out = String::new();
+    write_header(&mut out);
+    write_features(&mut out, workspace)?;
+    write_hotkeys(&mut out, workspace)?;
+    write_commands(&mut out, workspace)?;
+    settings::write_settings(&mut out, workspace)?;
+    Ok(out)
+}
+
+/// Drift check: regenerate the tutorial in memory and compare against
+/// the checked-in asset. Returns `Ok(())` when they match (byte-for-
+/// byte) and a descriptive `Err` otherwise. Called from
+/// `cargo xtask conventions` so a feature doc or keymap change that
+/// invalidates the tutorial fails CI immediately and the fix message
+/// is "run `cargo xtask gen-tutorial`".
+///
+/// # Errors
+///
+/// Returns an error if the regenerated content differs from the
+/// checked-in file, if the file is missing, or if the generator's
+/// inputs can't be read.
+pub fn check_drift() -> Result<()> {
+    let workspace = workspace_root()?;
+    let generated = generate(&workspace)?;
+    let on_disk_path = workspace.join(TUTORIAL_PATH);
+    let on_disk = fs::read_to_string(&on_disk_path)
+        .with_context(|| format!("reading tutorial asset {}", on_disk_path.display()))?;
+    if generated == on_disk {
+        return Ok(());
+    }
+    let generated_bytes = generated.len();
+    let on_disk_bytes = on_disk.len();
+    Err(anyhow::anyhow!(
+        "tutorial drift detected at {} (on-disk = {on_disk_bytes} bytes, \
+         regenerated = {generated_bytes} bytes). Run `cargo xtask gen-tutorial` \
+         to update the checked-in asset, then commit the result.",
+        on_disk_path.display()
+    ))
+}
+
+fn workspace_root() -> Result<PathBuf> {
+    // CARGO_MANIFEST_DIR for xtask points at workspace/xtask; parent
+    // is the workspace root.
+    let manifest = std::env::var("CARGO_MANIFEST_DIR")
+        .context("CARGO_MANIFEST_DIR not set (run via cargo)")?;
+    let dir = PathBuf::from(manifest);
+    let parent = dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("xtask manifest dir has no parent"))?;
+    Ok(parent.to_path_buf())
+}
+
+fn write_header(out: &mut String) {
+    out.push_str("# Continuity — Tutorial\n");
+    out.push('\n');
+    out.push_str(
+        "_Auto-generated by `cargo xtask gen-tutorial` from `.docs/design/features/*.md` \
+         and `crates/keymap/assets/default.toml`. Do not edit by hand — every byte is \
+         derived from sources agents already maintain._\n",
+    );
+    out.push('\n');
+    out.push_str(
+        "This is a synthetic, read-only buffer. The rope is real (so find, copy, and \
+         click-on-link all work) but edits are rejected before they reach the rope. \
+         Run `help.tutorial` from the command palette any time to bring it back.\n",
+    );
+    out.push('\n');
+}
+
+fn write_features(out: &mut String, workspace: &Path) -> Result<()> {
+    let dir = workspace.join(FEATURES_DIR);
+    let mut entries: Vec<PathBuf> = fs::read_dir(&dir)
+        .with_context(|| format!("listing features dir {}", dir.display()))?
+        .filter_map(|res| res.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|ext| ext == "md"))
+        .collect();
+    entries.sort();
+    out.push_str("## Features\n");
+    out.push('\n');
+    out.push_str("_One section per feature, taken verbatim from the per-feature design docs._\n");
+    out.push('\n');
+    for path in entries {
+        let content = fs::read_to_string(&path)
+            .with_context(|| format!("reading feature doc {}", path.display()))?;
+        let Some(section) = extract_feature_section(&content) else {
+            continue;
+        };
+        out.push_str(&section);
+        out.push('\n');
+    }
+    Ok(())
+}
+
+/// Pull the H1 title and the prose between it and the first sub-
+/// heading out of a feature doc. Returns `None` for docs missing an
+/// H1 (defensively — every feature doc should have one). The returned
+/// string is rendered as a `### <Title>` block under the `## Features`
+/// H2 so the tutorial flattens to one heading-level per feature.
+fn extract_feature_section(content: &str) -> Option<String> {
+    let mut lines = content.lines();
+    let title_line = lines.find(|line| line.starts_with("# "))?;
+    let title = title_line[2..].trim();
+    let mut intro = String::new();
+    for line in lines {
+        if line.starts_with("## ") || line.starts_with("# ") {
+            break;
+        }
+        intro.push_str(line);
+        intro.push('\n');
+    }
+    let intro = intro.trim();
+    if intro.is_empty() {
+        return None;
+    }
+    let mut section = String::with_capacity(intro.len() + title.len() + 16);
+    section.push_str("### ");
+    section.push_str(title);
+    section.push('\n');
+    section.push('\n');
+    section.push_str(intro);
+    section.push('\n');
+    Some(section)
+}
+
+fn write_hotkeys(out: &mut String, workspace: &Path) -> Result<()> {
+    let path = workspace.join(KEYMAP_PATH);
+    let text = fs::read_to_string(&path)
+        .with_context(|| format!("reading keymap toml {}", path.display()))?;
+    let parsed: KeymapDoc =
+        toml::from_str(&text).with_context(|| format!("parsing keymap toml {}", path.display()))?;
+    let mut by_prefix: BTreeMap<&str, Vec<&KeyBinding>> = BTreeMap::new();
+    for binding in &parsed.binding {
+        let prefix = binding
+            .command
+            .split_once('.')
+            .map_or(binding.command.as_str(), |(p, _)| p);
+        by_prefix.entry(prefix).or_default().push(binding);
+    }
+    out.push_str("## Hotkeys\n");
+    out.push('\n');
+    out.push_str(
+        "_Auto-extracted from `crates/keymap/assets/default.toml`, grouped by command \
+         prefix and sorted within each group._\n",
+    );
+    out.push('\n');
+    for (prefix, mut bindings) in by_prefix {
+        bindings.sort_by(|a, b| a.command.cmp(&b.command).then_with(|| a.keys.cmp(&b.keys)));
+        out.push_str("### `");
+        out.push_str(prefix);
+        out.push_str(".*`\n");
+        out.push('\n');
+        out.push_str("| Keys | Command |\n");
+        out.push_str("|---|---|\n");
+        for binding in bindings {
+            out.push_str("| `");
+            out.push_str(&binding.keys.join(" → "));
+            out.push_str("` | `");
+            out.push_str(&binding.command);
+            out.push_str("` |\n");
+        }
+        out.push('\n');
+    }
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct KeymapDoc {
+    #[serde(default)]
+    pub(crate) binding: Vec<KeyBinding>,
+}
+
+#[derive(serde::Deserialize, Clone)]
+pub(crate) struct KeyBinding {
+    pub(crate) keys: Vec<String>,
+    pub(crate) command: String,
+    #[serde(default)]
+    pub(crate) when: Option<String>,
+}
+
+/// Emit one row per registered command: id, palette-safe flag,
+/// description (if any), and any keybinding from default.toml that
+/// targets the command. Sorted by command id within a `command.prefix`
+/// group so the layout mirrors the hotkey table.
+///
+/// Drives off [`continuity_command::default_registry`] so adding a
+/// new `register_*_commands` call updates the tutorial appendix
+/// automatically — provided the new function is also added to
+/// `default_registry`. The CI drift check catches the discrepancy.
+fn write_commands(out: &mut String, workspace: &Path) -> Result<()> {
+    let keymap_path = workspace.join(KEYMAP_PATH);
+    let keymap_text = fs::read_to_string(&keymap_path)
+        .with_context(|| format!("reading keymap toml {}", keymap_path.display()))?;
+    let keymap: KeymapDoc = toml::from_str(&keymap_text)
+        .with_context(|| format!("parsing keymap toml {}", keymap_path.display()))?;
+    let mut bindings_by_command: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for binding in &keymap.binding {
+        bindings_by_command
+            .entry(binding.command.clone())
+            .or_default()
+            .push(binding.keys.join(" → "));
+    }
+    for chords in bindings_by_command.values_mut() {
+        chords.sort();
+    }
+
+    let registry = continuity_command::default_registry();
+    let mut by_prefix: BTreeMap<&str, Vec<continuity_command::CommandId>> = BTreeMap::new();
+    let ids: Vec<continuity_command::CommandId> = registry.ids().collect();
+    for id in ids {
+        let prefix = id.0.split_once('.').map_or(id.0, |(p, _)| p);
+        by_prefix.entry(prefix).or_default().push(id);
+    }
+    out.push_str("## Commands\n");
+    out.push('\n');
+    out.push_str(
+        "_Every command registered by `continuity_command::default_registry`, grouped by \
+         prefix and sorted within each group. `palette` = surfaces in the slash palette \
+         (`palette_safe = true`). Keys are pulled from the default keymap._\n",
+    );
+    out.push('\n');
+    for (prefix, mut ids) in by_prefix {
+        ids.sort_by(|a, b| a.0.cmp(b.0));
+        out.push_str("### `");
+        out.push_str(prefix);
+        out.push_str(".*`\n");
+        out.push('\n');
+        out.push_str("| Command | Keys | Palette | Description |\n");
+        out.push_str("|---|---|---|---|\n");
+        for id in ids {
+            let description = registry.description(id.0).unwrap_or("");
+            let palette = if registry.is_palette_safe(id.0) {
+                "yes"
+            } else {
+                ""
+            };
+            let keys = bindings_by_command
+                .get(id.0)
+                .map(|v| v.join(", "))
+                .unwrap_or_default();
+            let keys_cell = if keys.is_empty() {
+                String::new()
+            } else {
+                format!("`{keys}`")
+            };
+            out.push_str("| `");
+            out.push_str(id.0);
+            out.push_str("` | ");
+            out.push_str(&keys_cell);
+            out.push_str(" | ");
+            out.push_str(palette);
+            out.push_str(" | ");
+            out.push_str(&escape_md_table_cell(description));
+            out.push_str(" |\n");
+        }
+        out.push('\n');
+    }
+    Ok(())
+}
+
+/// Escape `|` so a description containing one doesn't break the table.
+/// Newlines collapse to spaces — descriptions are expected to be a
+/// single line; this is defensive against future descriptions that
+/// embed line breaks.
+pub(crate) fn escape_md_table_cell(s: &str) -> String {
+    s.replace('|', "\\|").replace('\n', " ")
+}
+
+pub(crate) mod settings;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_skips_doc_without_h1() {
+        let content = "no heading here\n\nsome text\n";
+        assert!(extract_feature_section(content).is_none());
+    }
+
+    #[test]
+    fn extract_takes_prose_up_to_first_h2() {
+        let content = "# Caret\n\nThe caret is a thin bar.\n\n## Blink\n\nblink details\n";
+        let out = extract_feature_section(content).expect("section");
+        assert!(out.starts_with("### Caret\n"));
+        assert!(out.contains("The caret is a thin bar."));
+        assert!(!out.contains("Blink"));
+        assert!(!out.contains("blink details"));
+    }
+
+    #[test]
+    fn extract_returns_none_when_intro_is_empty() {
+        let content = "# Heading\n## Sub\nbody\n";
+        assert!(extract_feature_section(content).is_none());
+    }
+}

@@ -1,0 +1,125 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/text",
+    "crates/buffer",
+    "crates/core",
+    "crates/persist",
+    "crates/decorate",
+    "crates/display_map",
+    "crates/search",
+    "crates/layout",
+    "crates/render",
+    "crates/input",
+    "crates/command",
+    "crates/keymap",
+    "crates/theme",
+    "crates/config",
+    "crates/win",
+    "crates/trace",
+    "crates/ui",
+    "crates/app",
+    "crates/test_support",
+    "xtask",
+]
+
+[workspace.package]
+edition      = "2021"
+rust-version = "1.89"
+license      = "LicenseRef-Proprietary"
+publish      = false
+
+[workspace.dependencies]
+# Internal crates
+continuity-text         = { path = "crates/text" }
+continuity-buffer       = { path = "crates/buffer" }
+continuity-core         = { path = "crates/core" }
+continuity-persist      = { path = "crates/persist" }
+continuity-decorate     = { path = "crates/decorate" }
+continuity-display-map  = { path = "crates/display_map" }
+continuity-search       = { path = "crates/search" }
+continuity-layout       = { path = "crates/layout" }
+continuity-render       = { path = "crates/render" }
+continuity-input        = { path = "crates/input" }
+continuity-command      = { path = "crates/command" }
+continuity-keymap       = { path = "crates/keymap" }
+continuity-theme        = { path = "crates/theme" }
+continuity-config       = { path = "crates/config" }
+continuity-win          = { path = "crates/win" }
+continuity-trace        = { path = "crates/trace" }
+continuity-ui           = { path = "crates/ui" }
+continuity-test-support = { path = "crates/test_support" }
+
+# Buffer / text
+ropey                = "1.6"
+unicode-segmentation = "1.11"
+unicode-bidi         = "0.3"
+ahash                = "0.8"
+uuid                 = { version = "1.10", features = ["v7"] }
+
+# Concurrency
+crossbeam-channel = "0.5"
+
+# Persistence
+rusqlite = { version = "0.32", features = ["bundled", "blob", "uuid", "backup"] }
+zstd     = "0.13"
+
+# Decoration / markdown
+tree-sitter    = "0.23"
+tree-sitter-md = "0.3"
+pulldown-cmark = { version = "0.12", default-features = false }
+
+# Image encoding — F5. PNG encoder only; smallest reasonable
+# dependency footprint (decoder lives elsewhere; we go DIB → RGBA →
+# PNG and never decode back).
+png = { version = "0.17", default-features = false }
+
+# Search
+grep-matcher  = "0.1"
+grep-regex    = "0.1"
+grep-searcher = "0.1"
+memchr        = "2.7"
+regex-syntax  = "0.8"
+
+# Win32 (features enabled per consumer crate).
+# windows-sys: low-level FFI for Foundation, UI, Shell, Input, COM init, GDI.
+# windows: idiomatic bindings for the graphics surfaces (Direct2D, DirectWrite,
+# D3D11, DXGI, DWM) — these were removed from windows-sys.
+windows-sys = "0.59"
+windows     = "0.59"
+
+# Config / IO
+toml       = "0.8"
+toml_edit  = "0.22"
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+notify     = "6"
+
+# Errors
+thiserror = "1"
+anyhow    = "1"
+
+# Test support
+proptest  = "1"
+tempfile  = "3"
+dhat      = "0.3"
+criterion = { version = "0.5", default-features = false, features = ["html_reports", "cargo_bench_support"] }
+blake3    = "1.5"
+
+[profile.release]
+lto           = "fat"
+codegen-units = 1
+panic         = "abort"
+strip         = "symbols"
+opt-level     = 3
+
+[profile.release-small]
+inherits      = "release"
+opt-level     = "z"
+panic         = "unwind"
+
+[profile.dev]
+opt-level = 1
+
+[profile.bench]
+lto = "thin"

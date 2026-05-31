@@ -1,0 +1,13 @@
+[package]
+name             = "continuity-text"
+version          = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+publish.workspace      = true
+
+[dependencies]
+ropey                = { workspace = true }
+unicode-bidi         = { workspace = true }
+serde                = { workspace = true }
+thiserror            = { workspace = true }

@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix
+  xmlns="http://wixtoolset.org/schemas/v4/wxs"
+  xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package
+    Name="Continuity"
+    Manufacturer="Continuity"
+    Version="$(var.ProductVersion)"
+    UpgradeCode="{72F1203E-DF0A-4A53-A69F-1C5C10C7B7D6}"
+    Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Continuity is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="ContinuityIcon.ico" SourceFile="$(var.ArtifactDir)\continuity.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ContinuityIcon.ico" />
+    <Property Id="CREATE_DESKTOP_SHORTCUT" Value="1" />
+    <ui:WixUI Id="WixUI_Minimal" />
+    <Property
+      Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT"
+      Value="Open Windows Default Apps to choose Continuity for markdown/text files" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <CustomAction
+      Id="OpenDefaultAppsSettings"
+      Directory="INSTALLFOLDER"
+      Execute="immediate"
+      ExeCommand="[SystemFolder]cmd.exe /c start &quot;&quot; &quot;ms-settings:defaultapps&quot;"
+      Return="asyncNoWait"
+      Impersonate="yes" />
+    <UI>
+      <Dialog Id="InstallOptionsDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="340" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Install options" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="320" Height="20" Transparent="yes" NoPrefix="yes" Text="Choose how Continuity should be added to Windows." />
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="DesktopShortcut" Type="CheckBox" X="25" Y="80" Width="320" Height="17" Property="CREATE_DESKTOP_SHORTCUT" CheckBoxValue="1" Text="Create a desktop shortcut" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
+          <Publish Event="NewDialog" Value="WelcomeEulaDlg" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+          <Publish Event="NewDialog" Value="VerifyReadyDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+      <Publish
+        Dialog="WelcomeEulaDlg"
+        Control="Next"
+        Event="NewDialog"
+        Value="InstallOptionsDlg"
+        Order="100"
+        Condition="LicenseAccepted = &quot;1&quot;" />
+      <Publish
+        Dialog="VerifyReadyDlg"
+        Control="Back"
+        Event="NewDialog"
+        Value="InstallOptionsDlg"
+        Order="100"
+        Condition="NOT Installed" />
+      <Publish
+        Dialog="ExitDialog"
+        Control="Finish"
+        Event="DoAction"
+        Value="OpenDefaultAppsSettings"
+        Order="998"
+        Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Continuity">
+        <Component Id="ContinuityExecutable" Guid="{8CF87859-8C1D-4C25-A57E-C60CDE40A3FE}">
+          <File
+            Id="ContinuityExeFile"
+            Source="$(var.ArtifactDir)\continuity.exe"
+            KeyPath="yes" />
+        </Component>
+
+        <Component Id="RegisteredApplication" Guid="{C30F08E9-D844-40AA-A421-FAE6D8F4CE0A}">
+          <RegistryValue Root="HKLM" Key="Software\Continuity" Name="InstallDir" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+          <RegistryValue Root="HKLM" Key="Software\RegisteredApplications" Name="Continuity" Type="string" Value="Software\Continuity\Capabilities" />
+          <RegistryValue Root="HKLM" Key="Software\Continuity\Capabilities" Name="ApplicationName" Type="string" Value="Continuity" />
+          <RegistryValue Root="HKLM" Key="Software\Continuity\Capabilities" Name="ApplicationDescription" Type="string" Value="Native markdown notes editor" />
+          <RegistryValue Root="HKLM" Key="Software\Continuity\Capabilities\FileAssociations" Name=".md" Type="string" Value="Continuity.Markdown" />
+          <RegistryValue Root="HKLM" Key="Software\Continuity\Capabilities\FileAssociations" Name=".markdown" Type="string" Value="Continuity.Markdown" />
+          <RegistryValue Root="HKLM" Key="Software\Continuity\Capabilities\FileAssociations" Name=".mdown" Type="string" Value="Continuity.Markdown" />
+          <RegistryValue Root="HKLM" Key="Software\Continuity\Capabilities\FileAssociations" Name=".txt" Type="string" Value="Continuity.Text" />
+        </Component>
+
+        <Component Id="MarkdownFileTypes" Guid="{FE77FA4D-B59C-448C-BC52-291CB79B18F1}">
+          <RegistryValue Root="HKLM" Key="Software\Classes\.md\OpenWithProgids" Name="Continuity.Markdown" Type="string" Value="" KeyPath="yes" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\.markdown\OpenWithProgids" Name="Continuity.Markdown" Type="string" Value="" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\.mdown\OpenWithProgids" Name="Continuity.Markdown" Type="string" Value="" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Continuity.Markdown" Type="string" Value="Continuity Markdown Document" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Continuity.Markdown\DefaultIcon" Type="string" Value="[#ContinuityExeFile],0" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Continuity.Markdown\shell\open\command" Type="string" Value="&quot;[#ContinuityExeFile]&quot; &quot;%1&quot;" />
+        </Component>
+
+        <Component Id="TextFileTypes" Guid="{BE51B0F3-B906-4456-8EE2-1FF8C64840FA}">
+          <RegistryValue Root="HKLM" Key="Software\Classes\.txt\OpenWithProgids" Name="Continuity.Text" Type="string" Value="" KeyPath="yes" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Continuity.Text" Type="string" Value="Text Document" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Continuity.Text\DefaultIcon" Type="string" Value="[#ContinuityExeFile],0" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Continuity.Text\shell\open\command" Type="string" Value="&quot;[#ContinuityExeFile]&quot; &quot;%1&quot;" />
+        </Component>
+
+        <Component Id="OpenWithApplication" Guid="{28EE095D-50C9-402A-BCC2-56E60BC7E10E}">
+          <RegistryValue Root="HKLM" Key="Software\Classes\Applications\continuity.exe" Name="FriendlyAppName" Type="string" Value="Continuity" KeyPath="yes" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Applications\continuity.exe\shell\open\command" Type="string" Value="&quot;[#ContinuityExeFile]&quot; &quot;%1&quot;" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Applications\continuity.exe\SupportedTypes" Name=".md" Type="string" Value="" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Applications\continuity.exe\SupportedTypes" Name=".markdown" Type="string" Value="" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Applications\continuity.exe\SupportedTypes" Name=".mdown" Type="string" Value="" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Applications\continuity.exe\SupportedTypes" Name=".txt" Type="string" Value="" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Continuity">
+        <Component Id="StartMenuShortcut" Guid="{3C5375BD-5E82-41B9-9C9D-87F57DCD312D}">
+          <Shortcut
+            Id="ApplicationStartMenuShortcut"
+            Name="Continuity"
+            Target="[#ContinuityExeFile]"
+            Icon="ContinuityIcon.ico"
+            WorkingDirectory="INSTALLFOLDER" />
+          <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
+          <RegistryValue Root="HKLM" Key="Software\Continuity" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="{1F1B05D9-C743-45EF-9EFD-F09F86721A75}" Condition="CREATE_DESKTOP_SHORTCUT = 1">
+        <Shortcut
+          Id="ApplicationDesktopShortcut"
+          Name="Continuity"
+          Target="[#ContinuityExeFile]"
+          Icon="ContinuityIcon.ico"
+          WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="Software\Continuity" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="Continuity" Level="1">
+      <ComponentRef Id="ContinuityExecutable" />
+      <ComponentRef Id="RegisteredApplication" />
+      <ComponentRef Id="MarkdownFileTypes" />
+      <ComponentRef Id="TextFileTypes" />
+      <ComponentRef Id="OpenWithApplication" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+  </Package>
+</Wix>

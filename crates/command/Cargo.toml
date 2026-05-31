@@ -1,0 +1,16 @@
+[package]
+name             = "continuity-command"
+version          = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+publish.workspace      = true
+
+[dependencies]
+continuity-buffer = { workspace = true }
+continuity-core   = { workspace = true }
+continuity-trace  = { workspace = true }
+ahash             = { workspace = true }
+serde_json        = { workspace = true }
+thiserror         = { workspace = true }
+uuid              = { workspace = true }

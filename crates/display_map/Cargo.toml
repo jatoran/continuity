@@ -1,0 +1,20 @@
+[package]
+name             = "continuity-display-map"
+version          = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+publish.workspace      = true
+
+[dependencies]
+continuity-buffer    = { workspace = true }
+continuity-decorate  = { workspace = true }
+continuity-text      = { workspace = true }
+ropey                = { workspace = true }
+unicode-segmentation = { workspace = true }
+ahash                = { workspace = true }
+thiserror            = { workspace = true }
+
+[dev-dependencies]
+continuity-test-support = { workspace = true }
+proptest                = { workspace = true }

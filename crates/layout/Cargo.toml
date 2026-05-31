@@ -1,0 +1,21 @@
+[package]
+name             = "continuity-layout"
+version          = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+publish.workspace      = true
+
+[dependencies]
+continuity-win  = { workspace = true }
+windows         = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct2D",
+    "Win32_Graphics_DirectWrite",
+    "Win32_Graphics_Imaging",
+] }
+ahash           = { workspace = true }
+thiserror       = { workspace = true }
+
+[dev-dependencies]
+proptest        = { workspace = true }

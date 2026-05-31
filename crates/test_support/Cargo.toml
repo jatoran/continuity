@@ -1,0 +1,36 @@
+[package]
+name             = "continuity-test-support"
+version          = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+publish.workspace      = true
+
+[dependencies]
+continuity-text    = { workspace = true }
+continuity-buffer  = { workspace = true }
+continuity-persist = { workspace = true }
+continuity-core    = { workspace = true }
+# Phase 17.9 §C: win32_harness needs these for spawning a hidden
+# Window on its own message-pump thread. They were dev-deps before
+# 17.9; moved to regular deps so `src/win32_harness.rs` can use
+# them. test_support is itself dev-only, so this doesn't bloat
+# production builds.
+continuity-ui      = { workspace = true }
+continuity-command = { workspace = true }
+continuity-keymap  = { workspace = true }
+continuity-win     = { workspace = true }
+crossbeam-channel  = { workspace = true }
+tempfile           = { workspace = true }
+proptest           = { workspace = true }
+windows            = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
+] }
+
+[dev-dependencies]
+continuity-decorate = { workspace = true }
+continuity-search   = { workspace = true }
+serde_json          = { workspace = true }
+dhat                = { workspace = true }

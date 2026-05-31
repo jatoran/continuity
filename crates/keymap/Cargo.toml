@@ -1,0 +1,14 @@
+[package]
+name             = "continuity-keymap"
+version          = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+publish.workspace      = true
+
+[dependencies]
+continuity-command = { workspace = true }
+continuity-input   = { workspace = true }
+toml               = { workspace = true }
+serde              = { workspace = true }
+thiserror          = { workspace = true }

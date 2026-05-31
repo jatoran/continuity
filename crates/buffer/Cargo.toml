@@ -1,0 +1,23 @@
+[package]
+name             = "continuity-buffer"
+version          = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+publish.workspace      = true
+
+[dependencies]
+continuity-text = { workspace = true }
+ahash           = { workspace = true }
+uuid            = { workspace = true }
+ropey           = { workspace = true }
+thiserror       = { workspace = true }
+
+[dev-dependencies]
+continuity-test-support = { workspace = true }
+criterion               = { workspace = true }
+proptest                = { workspace = true }
+
+[[bench]]
+name    = "edit"
+harness = false

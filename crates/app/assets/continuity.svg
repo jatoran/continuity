@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Continuity icon">
+  <rect width="256" height="256" rx="54" fill="#121923"/>
+  <path d="M66 37h88l45 45v137H66z" fill="#f8f2e7"/>
+  <path d="M154 37v45h45z" fill="#cbd6e2"/>
+  <path d="M154 37v45h45" fill="none" stroke="#a9b8c8" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M177 101c-13-17-34-27-57-24-34 4-60 33-60 68 0 38 31 69 69 69 21 0 40-10 53-25" fill="none" stroke="#162130" stroke-width="22" stroke-linecap="round"/>
+  <path d="M172 96c-12-14-30-22-50-20-34 4-60 33-60 68 0 38 31 69 69 69 18 0 35-7 48-19" fill="none" stroke="#34d399" stroke-width="18" stroke-linecap="round"/>
+  <path d="M133 93h50" stroke="#34d399" stroke-width="12" stroke-linecap="round"/>
+  <path d="M133 194h50" stroke="#34d399" stroke-width="12" stroke-linecap="round"/>
+</svg>

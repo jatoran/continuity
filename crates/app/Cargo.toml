@@ -1,0 +1,32 @@
+[package]
+name             = "continuity-app"
+version          = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+publish.workspace      = true
+
+[[bin]]
+name = "continuity"
+path = "src/main.rs"
+
+[dependencies]
+continuity-ui      = { workspace = true }
+continuity-core    = { workspace = true }
+continuity-buffer  = { workspace = true }
+continuity-text    = { workspace = true }
+continuity-persist = { workspace = true }
+continuity-command = { workspace = true }
+continuity-keymap  = { workspace = true }
+continuity-config  = { workspace = true }
+continuity-trace   = { workspace = true }
+continuity-win     = { workspace = true }
+anyhow             = { workspace = true }
+crossbeam-channel  = { workspace = true }
+serde_json         = { workspace = true }
+thiserror          = { workspace = true }
+
+[dev-dependencies]
+continuity-decorate = { workspace = true }
+tempfile = { workspace = true }
+uuid     = { workspace = true }

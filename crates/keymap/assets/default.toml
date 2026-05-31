@@ -1,0 +1,1110 @@
+[[binding]]
+keys = ["enter"]
+command = "editor.insert_newline_smart"
+
+[[binding]]
+keys = ["shift+enter"]
+command = "editor.insert_newline"
+
+[[binding]]
+keys = ["backspace"]
+command = "editor.delete_back"
+
+[[binding]]
+keys = ["delete"]
+command = "editor.delete_forward"
+
+[[binding]]
+keys = ["right"]
+command = "editor.move_char_forward"
+
+[[binding]]
+keys = ["shift+right"]
+command = "editor.extend_char_forward"
+
+[[binding]]
+keys = ["left"]
+command = "editor.move_char_backward"
+
+[[binding]]
+keys = ["shift+left"]
+command = "editor.extend_char_backward"
+
+[[binding]]
+keys = ["up"]
+command = "editor.move_line_up"
+
+[[binding]]
+keys = ["shift+up"]
+command = "editor.extend_line_up"
+
+[[binding]]
+keys = ["down"]
+command = "editor.move_line_down"
+
+[[binding]]
+keys = ["shift+down"]
+command = "editor.extend_line_down"
+
+[[binding]]
+keys = ["home"]
+command = "editor.smart_home"
+
+[[binding]]
+keys = ["shift+home"]
+command = "editor.extend_smart_home"
+
+[[binding]]
+keys = ["end"]
+command = "editor.move_line_end"
+
+[[binding]]
+keys = ["shift+end"]
+command = "editor.extend_line_end"
+
+[[binding]]
+keys = ["ctrl+home"]
+command = "editor.move_doc_start"
+
+[[binding]]
+keys = ["ctrl+shift+home"]
+command = "editor.extend_doc_start"
+
+[[binding]]
+keys = ["ctrl+end"]
+command = "editor.move_doc_end"
+
+[[binding]]
+keys = ["ctrl+shift+end"]
+command = "editor.extend_doc_end"
+
+[[binding]]
+keys = ["ctrl+alt+up"]
+command = "editor.add_cursor_above"
+
+[[binding]]
+keys = ["ctrl+alt+down"]
+command = "editor.add_cursor_below"
+
+[[binding]]
+keys = ["ctrl+d"]
+command = "editor.add_cursor_at_next_match"
+
+[[binding]]
+keys = ["ctrl+shift+d"]
+command = "editor.add_cursor_at_all_matches"
+
+[[binding]]
+keys = ["ctrl+shift+alt+up"]
+command = "editor.column_select_up"
+
+[[binding]]
+keys = ["ctrl+shift+alt+down"]
+command = "editor.column_select_down"
+
+[[binding]]
+keys = ["escape"]
+command = "editor.clear_secondary_cursors"
+
+[[binding]]
+# Ctrl+W is `tab.close` by Windows / browser convention (Phase 13 chord
+# below); selection of the word at the caret moves to Alt+W.
+keys = ["alt+w"]
+command = "editor.select_word"
+
+[[binding]]
+keys = ["ctrl+l"]
+command = "editor.select_line"
+
+[[binding]]
+keys = ["ctrl+shift+l"]
+command = "editor.select_paragraph"
+
+[[binding]]
+keys = ["ctrl+shift+space"]
+command = "editor.expand_selection_smart"
+
+[[binding]]
+keys = ["ctrl+a"]
+command = "editor.select_all"
+
+[[binding]]
+keys = ["ctrl+shift+k"]
+command = "keymap.show_conflicts"
+
+[[binding]]
+keys = ["ctrl+shift+r"]
+command = "keymap.reload"
+
+# --- Phase 6: word + paragraph motion ---
+
+[[binding]]
+keys = ["ctrl+right"]
+command = "editor.move_word_forward"
+
+[[binding]]
+keys = ["ctrl+left"]
+command = "editor.move_word_backward"
+
+[[binding]]
+keys = ["ctrl+shift+right"]
+command = "editor.extend_word_forward"
+
+[[binding]]
+keys = ["ctrl+shift+left"]
+command = "editor.extend_word_backward"
+
+[[binding]]
+keys = ["ctrl+down"]
+command = "editor.move_paragraph_forward"
+
+[[binding]]
+keys = ["ctrl+up"]
+command = "editor.move_paragraph_backward"
+
+[[binding]]
+keys = ["alt+shift+down"]
+command = "editor.extend_paragraph_forward"
+
+[[binding]]
+keys = ["alt+shift+up"]
+command = "editor.extend_paragraph_backward"
+
+[[binding]]
+keys = ["ctrl+alt+space"]
+command = "editor.shrink_selection_smart"
+
+# --- Phase 6: rich editing ---
+
+[[binding]]
+keys = ["ctrl+shift+enter"]
+command = "editor.insert_newline_above"
+
+[[binding]]
+keys = ["ctrl+enter"]
+command = "editor.insert_newline_below"
+
+[[binding]]
+keys = ["alt+enter"]
+command = "editor.insert_newline_smart"
+
+[[binding]]
+keys = ["ctrl+backspace"]
+command = "editor.delete_word_backward"
+
+[[binding]]
+keys = ["ctrl+delete"]
+command = "editor.delete_word_forward"
+
+[[binding]]
+keys = ["ctrl+shift+backspace"]
+command = "editor.delete_to_line_start"
+
+[[binding]]
+keys = ["ctrl+shift+delete"]
+command = "editor.delete_to_line_end"
+
+[[binding]]
+keys = ["ctrl+shift+m"]
+command = "editor.delete_to_bracket"
+
+[[binding]]
+keys = ["ctrl+shift+y"]
+command = "editor.duplicate_line"
+
+[[binding]]
+keys = ["ctrl+alt+y"]
+command = "editor.duplicate_selection"
+
+[[binding]]
+keys = ["ctrl+shift+up"]
+command = "editor.move_line_up_block"
+
+[[binding]]
+keys = ["ctrl+shift+down"]
+command = "editor.move_line_down_block"
+
+[[binding]]
+keys = ["ctrl+j"]
+command = "editor.join_lines"
+
+[[binding]]
+keys = ["ctrl+alt+s"]
+command = "editor.sort_lines_asc"
+
+[[binding]]
+keys = ["ctrl+alt+r"]
+command = "editor.reverse_lines"
+
+[[binding]]
+keys = ["ctrl+alt+u"]
+command = "editor.unique_lines"
+
+[[binding]]
+keys = ["ctrl+alt+t"]
+command = "editor.trim_trailing_whitespace"
+
+[[binding]]
+keys = ["ctrl+alt+q"]
+command = "editor.reflow_paragraph"
+
+[[binding]]
+# Ctrl+T is `tab.new` by browser convention (Phase 13 chord below);
+# the niche transpose moves to a chord nothing else wants.
+keys = ["ctrl+shift+alt+t"]
+command = "editor.transpose_chars"
+
+[[binding]]
+keys = ["alt+t"]
+command = "editor.transpose_words"
+
+[[binding]]
+keys = ["ctrl+u"]
+command = "editor.change_case_upper"
+
+[[binding]]
+keys = ["ctrl+shift+u"]
+command = "editor.change_case_lower"
+
+[[binding]]
+keys = ["ctrl+alt+c"]
+command = "editor.change_case_toggle"
+
+[[binding]]
+keys = ["tab"]
+command = "editor.indent"
+
+[[binding]]
+keys = ["shift+tab"]
+command = "editor.outdent"
+
+[[binding]]
+keys = ["ctrl+shift+9"]
+command = "editor.surround_parens"
+
+[[binding]]
+keys = ["ctrl+shift+["]
+command = "editor.surround_brackets"
+
+[[binding]]
+keys = ["ctrl+shift+{"]
+command = "editor.surround_braces"
+
+[[binding]]
+keys = ["ctrl+shift+'"]
+command = "editor.surround_double_quotes"
+
+# --- Phase 6: markdown ---
+
+[[binding]]
+keys = ["ctrl+b"]
+command = "markdown.toggle_bold"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["ctrl+i"]
+command = "markdown.toggle_italic"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["ctrl+shift+s"]
+command = "markdown.toggle_strikethrough"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["ctrl+`"]
+command = "markdown.toggle_inline_code"
+when = "language == 'markdown'"
+
+# Markdown heading chords. Originally on `ctrl+1..6` per spec §7, but
+# the Phase-13 `tab.go_to_N` bindings (`ctrl+1..9`) have no `when`
+# predicate, and the keymap's "later binding wins" rule shadowed the
+# heading commands in every markdown buffer. Moved to `alt+1..6` so both
+# surfaces stay reachable; the spec doc has been noted.
+[[binding]]
+keys = ["alt+1"]
+command = "markdown.set_heading_1"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["alt+2"]
+command = "markdown.set_heading_2"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["alt+3"]
+command = "markdown.set_heading_3"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["alt+4"]
+command = "markdown.set_heading_4"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["alt+5"]
+command = "markdown.set_heading_5"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["alt+6"]
+command = "markdown.set_heading_6"
+when = "language == 'markdown'"
+
+# `alt+`` (backtick, the key left of `1`) clears the heading prefix on the
+# current line — "no heading", the natural zero-point of the alt+1..6 row.
+[[binding]]
+keys = ["alt+`"]
+command = "markdown.remove_heading"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["alt+0"]
+command = "markdown.cycle_heading_up"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["alt+9"]
+command = "markdown.cycle_heading_down"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["ctrl+shift+."]
+command = "markdown.demote_section"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["ctrl+shift+,"]
+command = "markdown.promote_section"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["ctrl+shift+pageup"]
+command = "markdown.move_section_up"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["ctrl+shift+pagedown"]
+command = "markdown.move_section_down"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["ctrl+shift+8"]
+command = "markdown.toggle_bullet"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["ctrl+shift+7"]
+command = "markdown.toggle_numbered"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["ctrl+shift+x"]
+command = "markdown.toggle_checkbox"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["ctrl+shift+q"]
+command = "markdown.wrap_in_blockquote"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["ctrl+shift+c"]
+command = "markdown.insert_code_fence"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["ctrl+k"]
+command = "markdown.insert_link"
+when = "language == 'markdown'"
+
+# Phase F3 inline color / highlight markup.
+[[binding]]
+keys = ["ctrl+alt+h"]
+command = "markdown.highlight_selection"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["ctrl+alt+shift+h"]
+command = "markdown.clear_inline_color"
+when = "language == 'markdown'"
+
+# `markdown.color_selection` intentionally has no default chord: it opens
+# the hex-input palette mode. Users can bind it via their own
+# keymap.toml if they prefer a direct chord.
+
+# --- Phase 6: view ---
+
+[[binding]]
+keys = ["ctrl+="]
+command = "view.zoom_in"
+
+[[binding]]
+keys = ["ctrl+-"]
+command = "view.zoom_out"
+
+[[binding]]
+# Now that markdown heading chords live on `alt+0..9`, zoom-reset's
+# `when` clause is redundant — it works in every buffer.
+keys = ["ctrl+0"]
+command = "view.zoom_reset"
+
+# --- Phase 7: undo ---
+
+[[binding]]
+keys = ["ctrl+z"]
+command = "editor.undo"
+
+[[binding]]
+keys = ["ctrl+shift+z"]
+command = "editor.redo"
+
+[[binding]]
+keys = ["ctrl+y"]
+command = "editor.redo"
+
+# Phase 7 niche surfaces moved off `ctrl+alt+y` / `ctrl+alt+u` to make
+# room for Phase 6's `editor.duplicate_selection` / `editor.unique_lines`
+# on the same chord. The earlier conflict resolved to "later binding
+# wins", shadowing the more common Phase-6 commands.
+[[binding]]
+keys = ["ctrl+shift+alt+z"]
+command = "editor.redo_alternate_branch"
+
+[[binding]]
+keys = ["ctrl+k", "ctrl+u"]
+command = "editor.undo_tree_pick"
+
+# Phase 8 — search / palette / goto / find-bar navigation
+[[binding]]
+keys = ["ctrl+f"]
+command = "editor.find"
+
+[[binding]]
+keys = ["ctrl+h"]
+command = "editor.replace"
+
+# Phase G6 override (spec §10): Ctrl+Shift+F find-in-all-buffers
+# removed. All search is within-pane only. `editor.find_in_all`
+# command + `find_in_all.rs` module + `fts_buffers` schema remain
+# until the §L spec-delta sweep retires them as a unit (paired
+# with the D9 quick-open cleanup).
+# [[binding]]
+# keys = ["ctrl+shift+f"]
+# command = "editor.find_in_all"
+
+# Phase D9 override (spec §10): Ctrl+P quick-open removed. Buffer
+# navigation is now tab strip → reopen-closed (Ctrl+Shift+T) → trash UI
+# → Ctrl+O native file dialog. The quick_open.show command itself is
+# retained (no caller; left for opt-in user rebinding) until the §L
+# spec-delta sweep retires it alongside the fts_buffers schema.
+[[binding]]
+keys = ["ctrl+shift+p"]
+command = "palette.show"
+
+# δ.4 — previous-buffer browser. Lists every buffer ever opened (live
+# in SQLite), so users can re-open closed buffers beyond the single-step
+# `tab.reopen_closed` history. Distinct from the file-open dialog
+# (Ctrl+O): this is the in-DB buffer set, not the filesystem.
+[[binding]]
+keys = ["ctrl+shift+o"]
+command = "view.previous_buffer_browser_show"
+
+# Buffer-history tab — visual swimlane chart with one row per
+# persisted buffer and snapshot dots along a horizontal time axis.
+# Complements the previous-buffer browser overlay (Ctrl+Shift+O):
+# the overlay is the keyboard-fast lookup when you know the title;
+# the history tab is the visual browse when you remember when you
+# last touched it.
+[[binding]]
+keys = ["ctrl+shift+h"]
+command = "view.buffer_history"
+
+[[binding]]
+keys = ["ctrl+g"]
+command = "editor.goto_line"
+
+[[binding]]
+keys = ["ctrl+r"]
+command = "editor.toggle_bullet_at_line_start"
+
+[[binding]]
+keys = ["ctrl+shift+g"]
+command = "editor.goto_heading"
+
+[[binding]]
+keys = ["f3"]
+command = "editor.find_next"
+
+[[binding]]
+keys = ["shift+f3"]
+command = "editor.find_prev"
+
+# Phase G3: convert every find-bar match into a cursor + close the
+# bar; predicate-gated to `find_bar.visible`.
+[[binding]]
+keys = ["alt+enter"]
+command = "editor.find_matches_to_cursors"
+when = "find_bar.visible"
+
+# Phase G3: Sublime-style skip — drop primary cursor, jump to next
+# occurrence. Works whether or not the find bar is open.
+[[binding]]
+keys = ["ctrl+k", "ctrl+d"]
+command = "editor.skip_current_match"
+
+# Phase G1: find-bar mode toggles. Predicate-gated to `find_bar.visible`,
+# so these chords are inert outside the find bar.
+[[binding]]
+keys = ["alt+c"]
+command = "editor.find_toggle_case"
+when = "find_bar.visible"
+
+[[binding]]
+keys = ["alt+w"]
+command = "editor.find_toggle_word"
+when = "find_bar.visible"
+
+[[binding]]
+keys = ["alt+r"]
+command = "editor.find_toggle_regex"
+when = "find_bar.visible"
+
+[[binding]]
+keys = ["alt+p"]
+command = "editor.find_toggle_preserve_case"
+when = "find_bar.visible"
+
+[[binding]]
+keys = ["alt+s"]
+command = "editor.find_toggle_scope"
+when = "find_bar.visible"
+
+# --- Phase 9: scroll + view toggles ---
+
+[[binding]]
+keys = ["pageup"]
+command = "view.scroll_page_up"
+
+[[binding]]
+keys = ["pagedown"]
+command = "view.scroll_page_down"
+
+[[binding]]
+keys = ["alt+z"]
+command = "view.toggle_wrap"
+
+
+# --- Phase 10: markdown link + clipboard ---
+
+[[binding]]
+keys = ["ctrl+enter"]
+command = "editor.open_link_at_caret"
+when = "language == 'markdown'"
+
+[[binding]]
+keys = ["ctrl+enter"]
+command = "editor.find_replace_one"
+when = "find_bar.visible"
+
+[[binding]]
+keys = ["ctrl+shift+enter"]
+command = "editor.find_replace_all"
+when = "find_bar.visible"
+
+[[binding]]
+keys = ["ctrl+alt+enter"]
+command = "editor.find_replace_all"
+when = "find_bar.visible"
+
+[[binding]]
+keys = ["ctrl+shift+c"]
+command = "editor.copy_rendered_text"
+when = "language == 'markdown'"
+
+# `markdown.copy_as_html` originally lived on `ctrl+alt+h`, which
+# collided with `markdown.highlight_selection` once Phase F3 landed
+# (later binding wins → the niche HTML-copy command was silently
+# stealing the highlight chord). Moved to `ctrl+alt+shift+c` so the
+# Phase F3 inline-highlight chord works in production.
+[[binding]]
+keys = ["ctrl+alt+shift+c"]
+command = "markdown.copy_as_html"
+when = "language == 'markdown'"
+
+
+# --- Phase 11: themes / fonts / view toggles ---
+
+[[binding]]
+keys = ["ctrl+k", "ctrl+t"]
+command = "view.cycle_theme"
+
+[[binding]]
+keys = ["ctrl+k", "ctrl+r"]
+command = "theme.reload"
+
+[[binding]]
+keys = ["ctrl+k", "ctrl+f"]
+command = "view.set_font_family"
+
+[[binding]]
+keys = ["alt+f10"]
+command = "view.toggle_line_numbers"
+
+[[binding]]
+keys = ["alt+f11"]
+command = "view.toggle_indent_guides"
+
+[[binding]]
+keys = ["alt+f12"]
+command = "view.toggle_whitespace"
+
+[[binding]]
+keys = ["ctrl+alt+m"]
+command = "view.toggle_minimap"
+
+[[binding]]
+keys = ["ctrl+alt+l"]
+command = "view.toggle_current_line_highlight"
+
+# Phase 6's `editor.trim_trailing_whitespace` already lives on
+# `ctrl+alt+t`; the view-toggle moves to a discoverable ctrl+k chord so
+# both surfaces stay reachable.
+[[binding]]
+keys = ["ctrl+k", "ctrl+w"]
+command = "view.toggle_trailing_whitespace"
+
+[[binding]]
+keys = ["ctrl+k", "ctrl+l"]
+command = "view.toggle_ligatures"
+
+[[binding]]
+keys = ["ctrl+k", "ctrl+c"]
+command = "view.cycle_caret_style"
+
+# ---- Phase 13 — pane / tab manipulation ----
+
+[[binding]]
+keys = ["ctrl+alt+1"]
+command = "pane.layout_single"
+
+[[binding]]
+keys = ["ctrl+alt+2"]
+command = "pane.layout_two_cols"
+
+[[binding]]
+keys = ["ctrl+alt+shift+2"]
+command = "pane.layout_two_rows"
+
+[[binding]]
+keys = ["ctrl+alt+3"]
+command = "pane.layout_three_cols"
+
+[[binding]]
+keys = ["ctrl+alt+4"]
+command = "pane.layout_four_cols"
+
+[[binding]]
+keys = ["ctrl+alt+5"]
+command = "pane.layout_grid_2x2"
+
+[[binding]]
+keys = ["ctrl+alt+8"]
+command = "pane.layout_grid_2x4"
+
+# Alt+Shift+N mirrors Ctrl+Alt+N exactly so users have a one-hand
+# alternative. (TwoRows stays on Ctrl+Alt+Shift+2 only — no Alt+Shift
+# slot for it.)
+[[binding]]
+keys = ["alt+shift+1"]
+command = "pane.layout_single"
+
+[[binding]]
+keys = ["alt+shift+2"]
+command = "pane.layout_two_cols"
+
+[[binding]]
+keys = ["alt+shift+3"]
+command = "pane.layout_three_cols"
+
+[[binding]]
+keys = ["alt+shift+4"]
+command = "pane.layout_four_cols"
+
+[[binding]]
+keys = ["alt+shift+5"]
+command = "pane.layout_grid_2x2"
+
+[[binding]]
+keys = ["alt+shift+8"]
+command = "pane.layout_grid_2x4"
+
+[[binding]]
+keys = ["ctrl+alt+\\"]
+command = "pane.split_horizontal"
+
+[[binding]]
+keys = ["ctrl+alt+-"]
+command = "pane.split_vertical"
+
+[[binding]]
+keys = ["ctrl+shift+w"]
+command = "pane.close"
+
+[[binding]]
+keys = ["alt+left"]
+command = "pane.focus_left"
+
+[[binding]]
+keys = ["alt+right"]
+command = "pane.focus_right"
+
+[[binding]]
+keys = ["alt+up"]
+command = "pane.focus_up"
+
+[[binding]]
+keys = ["alt+down"]
+command = "pane.focus_down"
+
+[[binding]]
+keys = ["ctrl+alt+left"]
+command = "pane.resize_left"
+
+[[binding]]
+keys = ["ctrl+alt+right"]
+command = "pane.resize_right"
+
+[[binding]]
+keys = ["ctrl+alt+up"]
+command = "pane.resize_up"
+
+[[binding]]
+keys = ["ctrl+alt+down"]
+command = "pane.resize_down"
+
+[[binding]]
+keys = ["ctrl+alt+z"]
+command = "pane.maximize_toggle"
+
+[[binding]]
+keys = ["ctrl+t"]
+command = "tab.new"
+
+[[binding]]
+keys = ["ctrl+w"]
+command = "tab.close"
+
+# δ.1 — toggle pin on the active tab; pinned tabs anchor leftmost.
+[[binding]]
+keys = ["ctrl+k", "ctrl+p"]
+command = "tab.pin_toggle"
+
+[[binding]]
+keys = ["ctrl+pageup"]
+command = "tab.prev"
+
+[[binding]]
+keys = ["ctrl+pagedown"]
+command = "tab.next"
+
+# §H6 spec override (§L#1): Ctrl+Tab is **positional** (left-to-right
+# tab order), not MRU. MRU traversal moves to Ctrl+Alt+Tab so the
+# spec §6 MRU semantics remain reachable.
+[[binding]]
+keys = ["ctrl+tab"]
+command = "tab.next"
+
+[[binding]]
+keys = ["ctrl+shift+tab"]
+command = "tab.prev"
+
+[[binding]]
+keys = ["ctrl+alt+tab"]
+command = "tab.mru_next"
+
+[[binding]]
+keys = ["ctrl+alt+shift+tab"]
+command = "tab.mru_prev"
+
+[[binding]]
+keys = ["ctrl+shift+t"]
+command = "tab.reopen_closed"
+
+[[binding]]
+keys = ["ctrl+1"]
+command = "tab.go_to_1"
+
+[[binding]]
+keys = ["ctrl+2"]
+command = "tab.go_to_2"
+
+[[binding]]
+keys = ["ctrl+3"]
+command = "tab.go_to_3"
+
+[[binding]]
+keys = ["ctrl+4"]
+command = "tab.go_to_4"
+
+[[binding]]
+keys = ["ctrl+5"]
+command = "tab.go_to_5"
+
+[[binding]]
+keys = ["ctrl+6"]
+command = "tab.go_to_6"
+
+[[binding]]
+keys = ["ctrl+7"]
+command = "tab.go_to_7"
+
+[[binding]]
+keys = ["ctrl+8"]
+command = "tab.go_to_8"
+
+[[binding]]
+keys = ["ctrl+9"]
+command = "tab.go_to_9"
+
+# ---- Phase 12 — settings ----
+
+[[binding]]
+keys = ["ctrl+,"]
+command = "settings.open"
+
+# ---- Phase 14 — multi-window ----
+
+[[binding]]
+keys = ["ctrl+n"]
+command = "window.new_window"
+
+# Mirror of `ctrl+n` — many editors put "new window" on `ctrl+shift+n` and
+# muscle memory wants both to work.
+[[binding]]
+keys = ["ctrl+shift+n"]
+command = "window.new_window"
+
+# ---- Phase 15 — file interaction ----
+
+[[binding]]
+keys = ["ctrl+o"]
+command = "file.open"
+
+[[binding]]
+keys = ["ctrl+s"]
+command = "file.save"
+
+[[binding]]
+keys = ["ctrl+shift+s"]
+command = "file.save_as"
+
+# ---- Phase 16 — clipboard / paste history / spell-check ----
+
+[[binding]]
+keys = ["ctrl+c"]
+command = "editor.copy"
+
+[[binding]]
+keys = ["ctrl+x"]
+command = "editor.cut"
+
+[[binding]]
+keys = ["ctrl+v"]
+command = "editor.paste"
+
+[[binding]]
+keys = ["ctrl+shift+v"]
+command = "editor.paste_as_plain_text"
+
+[[binding]]
+keys = ["ctrl+alt+v"]
+command = "editor.paste_from_history"
+
+# δ.1 — quick-yank: copy the caret's line without requiring a selection.
+[[binding]]
+keys = ["ctrl+k", "ctrl+y"]
+command = "editor.copy_line"
+
+# δ.1 — jump back to the most-recently-edited position in the active buffer.
+[[binding]]
+keys = ["ctrl+k", "ctrl+q"]
+command = "editor.goto_last_edit"
+
+[[binding]]
+keys = ["f7"]
+command = "spell.toggle"
+
+[[binding]]
+keys = ["shift+f10"]
+command = "spell.show_suggestions"
+
+# ---- Phase H — outline manipulation, focus modes, folds, slash ----
+
+# §H4: Tab / Shift+Tab on a heading line promote/demote the section.
+# Predicate-gated to `editor.line_is_heading` so the unconditional
+# `editor.indent` / `editor.outdent` bindings above keep firing on
+# non-heading lines (later binding wins only when its `when` matches).
+[[binding]]
+keys = ["tab"]
+command = "markdown.demote_section"
+when = "editor.line_is_heading == 'true'"
+
+[[binding]]
+keys = ["shift+tab"]
+command = "markdown.promote_section"
+when = "editor.line_is_heading == 'true'"
+
+# §H4: Alt+Up / Alt+Down on a heading line moves the whole section.
+# Predicate-gated so the existing `pane.focus_up/down` bindings fall
+# through on non-heading lines.
+[[binding]]
+keys = ["alt+up"]
+command = "markdown.move_section_up"
+when = "editor.line_is_heading == 'true'"
+
+[[binding]]
+keys = ["alt+down"]
+command = "markdown.move_section_down"
+when = "editor.line_is_heading == 'true'"
+
+# §H1 focus modes
+[[binding]]
+keys = ["ctrl+k", "ctrl+1"]
+command = "view.focus_line"
+
+[[binding]]
+keys = ["ctrl+k", "ctrl+2"]
+command = "view.focus_sentence"
+
+[[binding]]
+keys = ["ctrl+k", "ctrl+3"]
+command = "view.focus_paragraph"
+
+[[binding]]
+keys = ["ctrl+k", "ctrl+0"]
+command = "view.focus_off"
+
+[[binding]]
+keys = ["ctrl+k", "ctrl+9"]
+command = "view.cycle_focus"
+
+# §H2 distraction-free mode
+[[binding]]
+keys = ["f11"]
+command = "view.toggle_distraction_free"
+
+# §H3 indent folding
+[[binding]]
+keys = ["ctrl+k", "ctrl+["]
+command = "view.fold"
+
+[[binding]]
+keys = ["ctrl+k", "ctrl+]"]
+command = "view.unfold"
+
+[[binding]]
+keys = ["ctrl+k", "ctrl+/"]
+command = "view.toggle_fold_at_caret"
+
+[[binding]]
+keys = ["ctrl+k", "ctrl+\\"]
+command = "view.fold_all"
+
+[[binding]]
+keys = ["ctrl+k", "ctrl+j"]
+command = "view.unfold_all"
+
+# §H5 slash-command palette (explicit-show; the typed `/` trigger
+# fires from the editor input path)
+[[binding]]
+keys = ["ctrl+/"]
+command = "view.slash_palette_show"
+
+# §I1 time-machine slider + named snapshots
+[[binding]]
+keys = ["ctrl+alt+t"]
+command = "buffer.timeline"
+
+# §I2 metrics buffer (WPM + activity heatmap)
+[[binding]]
+keys = ["ctrl+alt+m"]
+command = "view.metrics"
+
+# Cell-scoped overrides inside a pipe-table cell. The keymap is
+# last-match-wins among bindings whose `when` predicate is true, so
+# these supersede the global Ctrl+A / Home / End / Shift+Home /
+# Shift+End bindings whenever the primary caret sits inside a table
+# block. The handlers return `UnsupportedContext` when no caret is
+# actually inside a cell (e.g. caret on a pipe boundary), which lets
+# higher layers re-dispatch the global binding.
+[[binding]]
+keys = ["ctrl+a"]
+command = "markdown.table.select_cell"
+when = "editor.in_table"
+
+[[binding]]
+keys = ["home"]
+command = "markdown.table.caret_cell_start"
+when = "editor.in_table"
+
+[[binding]]
+keys = ["end"]
+command = "markdown.table.caret_cell_end"
+when = "editor.in_table"
+
+[[binding]]
+keys = ["shift+home"]
+command = "markdown.table.extend_cell_start"
+when = "editor.in_table"
+
+[[binding]]
+keys = ["shift+end"]
+command = "markdown.table.extend_cell_end"
+when = "editor.in_table"
+
+# Phase C — cell-aware navigation. Tab/Shift+Tab walk cells in source
+# order; at the last cell, Tab inserts a new body row. Enter moves to
+# the cell directly below (skipping the alignment row); at the last
+# body row, inserts a new row. Ctrl+Enter inserts a literal `<br>` for
+# the caret to continue writing past (visual line break inside a cell
+# arrives with Phase F). Up/Down cross cell boundaries (same column);
+# at the table's top/bottom row they return `UnsupportedContext` so the
+# keymap layer falls through to the global motion.
+[[binding]]
+keys = ["tab"]
+command = "markdown.table.tab_next"
+when = "editor.in_table"
+
+[[binding]]
+keys = ["shift+tab"]
+command = "markdown.table.tab_prev"
+when = "editor.in_table"
+
+[[binding]]
+keys = ["enter"]
+command = "markdown.table.enter"
+when = "editor.in_table"
+
+[[binding]]
+keys = ["ctrl+enter"]
+command = "markdown.table.insert_break"
+when = "editor.in_table"
+
+# Shift+Enter moves UP a cell (inverse of Enter). At the header row it
+# stays put — it never exits the table or inserts a raw newline that
+# would split the table.
+[[binding]]
+keys = ["shift+enter"]
+command = "markdown.table.cell_up"
+when = "editor.in_table"
+
+[[binding]]
+keys = ["up"]
+command = "markdown.table.move_up"
+when = "editor.in_table"
+
+[[binding]]
+keys = ["down"]
+command = "markdown.table.move_down"
+when = "editor.in_table"

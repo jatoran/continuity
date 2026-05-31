@@ -1,0 +1,62 @@
+[package]
+name             = "continuity-ui"
+version          = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+publish.workspace      = true
+
+[dependencies]
+continuity-render  = { workspace = true }
+continuity-display-map = { workspace = true }
+continuity-layout  = { workspace = true }
+continuity-input   = { workspace = true }
+continuity-command = { workspace = true }
+continuity-decorate = { workspace = true }
+continuity-search   = { workspace = true }
+continuity-keymap  = { workspace = true }
+continuity-buffer  = { workspace = true }
+continuity-text    = { workspace = true }
+continuity-win     = { workspace = true }
+continuity-trace   = { workspace = true }
+continuity-theme   = { workspace = true }
+continuity-core    = { workspace = true }
+continuity-config  = { workspace = true }
+continuity-persist = { workspace = true }
+crossbeam-channel  = { workspace = true }
+notify             = { workspace = true }
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+toml_edit          = { workspace = true }
+uuid               = { workspace = true }
+ropey              = { workspace = true }
+pulldown-cmark     = { workspace = true, features = ["html"] }
+png                = { workspace = true }
+windows            = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_System_Com",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Power",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_Ime",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_Controls_Dialogs",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_DirectWrite",
+] }
+thiserror          = { workspace = true }
+
+[dev-dependencies]
+continuity-test-support = { workspace = true }
+tempfile                = { workspace = true }

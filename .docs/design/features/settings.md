@@ -3,7 +3,7 @@
 TOML schema at `settings.toml`, parsed and validated at load time. A single watcher fans `ConfigEvent::Changed` out to every live window for hot reload. The full type definition lives in `crates/config/src/settings.rs::Settings`; live-toggle handlers in `Window::apply_settings` keep on-screen state in sync without restart.
 
 ## What it is
-- TOML-loaded settings at `%APPDATA%\continuity\settings.toml`. Hot-reloaded by a single watcher; fan-out to live windows. Validated at parse time. The full schema lives in `crates/config/src/settings.rs::Settings`.
+- TOML-loaded settings at the runtime config path: `%APPDATA%\continuity\settings.toml` for normal launches, or `<exe>\data\settings.toml` when `--portable` is passed or a `data\` directory sits beside the executable. Hot-reloaded by a single watcher; fan-out to live windows. Validated at parse time. The full schema lives in `crates/config/src/settings.rs::Settings`.
 
 ## Key concepts
 - **`Settings`** — `serde(default)` top-level struct: `[editor]`, `[markdown]`, `[ui]`, `[window]`, `[workers]`, `[persistence]`, `[backup]`. Defaults match spec §§9–11 plus worker-health defaults.

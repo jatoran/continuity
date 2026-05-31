@@ -4,7 +4,8 @@
 //! top-level event loop.
 //!
 //! Phase 14 — multi-window registry:
-//!   1. Resolve `%APPDATA%\continuity\continuity.db`.
+//!   1. Resolve the runtime data directory (`%APPDATA%\continuity` or
+//!      beside-exe portable `data\`).
 //!   2. Spawn the persistence thread (PersistHandle).
 //!   3. Spawn the editor core thread (EditorHandle).
 //!   4. Spawn the backup scheduler (15-min cadence, 24 retained).

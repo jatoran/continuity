@@ -1,9 +1,9 @@
 # Theme
 
-TOML-loaded color sets keyed by stable name. Seventeen bundled themes ship with the binary (`deep_minimal`, `paper`, `solarized_dark`, `solarized_darker`, `solarized_light`, `monokai`, `rose_pine`, `catppuccin_mocha`, `catppuccin_macchiato`, `catppuccin_frappe`, `catppuccin_latte`, `tokyo_night`, `nord`, `one_dark`, `gruvbox_dark`, `gruvbox_light`, `dracula`); user customs live under `%APPDATA%\continuity\themes\` and are managed entirely through the δ.5 workflow commands. Bundled themes are read-only — edits surface a clone-first banner.
+TOML-loaded color sets keyed by stable name. Seventeen bundled themes ship with the binary (`deep_minimal`, `paper`, `solarized_dark`, `solarized_darker`, `solarized_light`, `monokai`, `rose_pine`, `catppuccin_mocha`, `catppuccin_macchiato`, `catppuccin_frappe`, `catppuccin_latte`, `tokyo_night`, `nord`, `one_dark`, `gruvbox_dark`, `gruvbox_light`, `dracula`); user customs live under the runtime themes directory (`%APPDATA%\continuity\themes\` normally, `<exe>\data\themes\` in portable mode) and are managed entirely through the δ.5 workflow commands. Bundled themes are read-only — edits surface a clone-first banner.
 
 ## What it is
-- TOML-loaded color sets keyed by stable string names. Seventeen bundled themes (`deep_minimal`, `paper`, `solarized_dark`, `solarized_darker`, `solarized_light`, `monokai`, `rose_pine`, `catppuccin_mocha`, `catppuccin_macchiato`, `catppuccin_frappe`, `catppuccin_latte`, `tokyo_night`, `nord`, `one_dark`, `gruvbox_dark`, `gruvbox_light`, `dracula`) plus an embedded neutral fallback. User-installed customs live under `%APPDATA%\continuity\themes\` and are managed entirely from inside continuity via the δ.5 workflow commands — the filesystem is an implementation detail the user shouldn't have to touch.
+- TOML-loaded color sets keyed by stable string names. Seventeen bundled themes (`deep_minimal`, `paper`, `solarized_dark`, `solarized_darker`, `solarized_light`, `monokai`, `rose_pine`, `catppuccin_mocha`, `catppuccin_macchiato`, `catppuccin_frappe`, `catppuccin_latte`, `tokyo_night`, `nord`, `one_dark`, `gruvbox_dark`, `gruvbox_light`, `dracula`) plus an embedded neutral fallback. User-installed customs live under the runtime themes directory and are managed entirely from inside continuity via the δ.5 workflow commands — the filesystem is an implementation detail the user shouldn't have to touch.
 - Bundled themes are baked into the binary (`include_str!`) and **read-only**. Edits or deletes against a bundled theme surface a "clone first" banner. Customs are freely renamed, edited, and soft-deleted; the underlying TOMLs are still hot-reloaded by the settings watcher.
 
 ## Key concepts
@@ -34,7 +34,7 @@ Themes expose `Theme::editor_background()`, `Theme::editor_cursor_primary()`, `T
 ### Load
 1. `Theme::from_toml(src)` parses + validates required keys; `Theme::validate_required` returns `Err(Error::MissingKey)` listing any missing keys.
 2. `bundled_set()` loads the two bundled themes via `include_str!`.
-3. `installed_themes(dir)` scans `%APPDATA%\continuity\themes\*.toml` and parses each; failures log + skip (don't crash).
+3. `installed_themes(dir)` scans the runtime `themes\*.toml` directory and parses each; failures log + skip (don't crash).
 4. `resolve_active(theme_name, mode, system_dark, installed, bundled)` returns the best match: name → installed → bundled → neutral fallback.
 
 ### Live reload
@@ -98,7 +98,7 @@ impl ActiveTheme {
 
 ## Configuration
 - `[ui] theme_dark` / `theme_light` / `theme_mode` (`"dark" | "light" | "system"`) in `settings.toml`. The δ.5 install commands (`theme.clone`, `theme.duplicate`, `theme.create_blank`) rewrite these keys in place, preserving comments and unrelated keys.
-- User-installed themes drop into `%APPDATA%\continuity\themes\<name>.toml`. Soft-deleted customs live under `%APPDATA%\continuity\themes\.trash\<name>-<unix-ms>.toml` for recovery.
+- User-installed themes drop into the runtime themes directory (`%APPDATA%\continuity\themes\<name>.toml`, or `<exe>\data\themes\<name>.toml` in portable mode). Soft-deleted customs live under `themes\.trash\<name>-<unix-ms>.toml` for recovery.
 - Theme picker (Phase E4) opens the palette in theme mode; δ.5 adds row-level inline actions: **Ctrl+E** edits, **Ctrl+D** duplicates, **Ctrl+Backspace** soft-deletes a custom row. Bundled rows expose only Enter + Ctrl+D and surface a banner when the user attempts edit or delete.
 
 ## δ.5 — workflow commands
@@ -112,7 +112,7 @@ Every command is `palette_safe` and gated on `editor.focused`. Inputs come as JS
 | `theme.duplicate` | `{source?: string, name?: string}` | Clone any installed theme (bundled or custom). Same auto-naming and activation as `theme.clone`. |
 | `theme.rename` | `{old?: string, new: string}` | Rename a custom theme on disk. Updates `[ui] theme_dark` / `theme_light` when the renamed theme is currently bound. Rejects bundled targets and name collisions. |
 | `theme.delete` | `{target?: string}` | Soft-delete a custom theme by moving it under `themes/.trash/`. Falls back to `deep_minimal` and rewrites the binding when the deleted theme was active. |
-| `theme.reveal_folder` | (none) | Open `%APPDATA%\continuity\themes\` in Explorer. Escape hatch for copy-between-machines or sharing. |
+| `theme.reveal_folder` | (none) | Open the runtime themes directory in Explorer. Escape hatch for copy-between-machines or sharing. |
 | `theme.create_blank` | `{name?: string}` | Write a minimal valid theme (every `REQUIRED_KEYS` entry populated from `neutral_fallback()`) and open it for editing. Default auto-name is `custom`. |
 
 ### Live validation when editing a theme TOML

@@ -19,7 +19,7 @@ Continuity is early, Windows-only software. It is usable enough to package, but 
 - Every keystroke is durable to a local SQLite WAL database.
 - Saving is export. The database is the truth.
 - Multi-pane, multi-tab, multi-window session restore.
-- Portable mode that keeps data beside the executable.
+- Portable mode that keeps settings, themes, keymap, notes, and backups beside the executable.
 - Installed mode with Start Menu shortcut, optional desktop shortcut, uninstall support, and Windows Default Apps registration for markdown/text files.
 - Configurable themes, keymap, settings, fonts, wrapping, and view behavior.
 - Fast large-buffer projection and soft-wrap work aimed at keeping writing responsive.
@@ -36,8 +36,8 @@ Continuity is early, Windows-only software. It is usable enough to package, but 
 GitHub Releases are the normal way to get builds.
 
 - `continuity-<version>-setup.msi`: recommended for normal use. Installs under Program Files and supports in-place upgrades.
-- `continuity-<version>-portable.zip`: no-install build. App data lives in the extracted folder.
-- `continuity-<version>-standalone.zip`: just `continuity.exe` for manual use.
+- `continuity-<version>-portable.zip`: no-install build. Extract the folder and run `continuity.exe`; app data stays in that folder.
+- `continuity-<version>-standalone.zip`: just `continuity.exe`; settings, themes, and notes use your normal Windows AppData.
 - `SHA256SUMS.txt`: hashes for release assets.
 
 Unsigned builds may trigger Windows SmartScreen until release signing is in place.

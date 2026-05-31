@@ -3,7 +3,7 @@
 TOML-driven chord → command-id bindings. The bundled default keymap (`crates/keymap/assets/default.toml`) is layered under a user keymap at `keymap.toml`; user bindings win on collision. Multi-key sequences (e.g. `Ctrl+K, Ctrl+S`) ride on a per-window pending-chord accumulator.
 
 ## What it is
-- TOML-driven chord → command-id bindings. Layered: defaults (bundled) + user overrides (`%APPDATA%\continuity\keymap.toml`). Conflict checker reports collisions. Multi-key sequences (`Ctrl+K Ctrl+S`) are supported via a pending-chord accumulator on the window.
+- TOML-driven chord → command-id bindings. Layered: defaults (bundled) + user overrides from the runtime config path (`%APPDATA%\continuity\keymap.toml`, or `<exe>\data\keymap.toml` in portable mode). Conflict checker reports collisions. Multi-key sequences (`Ctrl+K Ctrl+S`) are supported via a pending-chord accumulator on the window.
 
 ## Key concepts
 - **`KeyChord { vk: u16, modifiers: Modifiers }`** — one keypress; produced from `WM_KEYDOWN` (`vk`) + `GetKeyState` (`Modifiers`).
@@ -82,7 +82,7 @@ Find-bar bindings are predicate-gated on `find_bar.visible`, so they are inert i
 
 ### Layered loading
 1. Load `crates/keymap/assets/default.toml` (bundled, `include_str!`).
-2. If `%APPDATA%\continuity\keymap.toml` exists, parse it and overlay — later entries take precedence over earlier.
+2. If the runtime `keymap.toml` exists, parse it and overlay — later entries take precedence over earlier. Normal launches use `%APPDATA%\continuity\keymap.toml`; portable launches use `<exe>\data\keymap.toml`.
 3. Settings watcher reloads on save; UI calls `keymap.reload` and refreshes conflicts.
 
 ## API surface
@@ -93,7 +93,7 @@ Find-bar bindings are predicate-gated on `find_bar.visible`, so they are inert i
 - `commands` re-exported `KEYMAP_RELOAD`, `KEYMAP_SHOW_CONFLICTS` (in `command::editor`).
 
 ## Configuration
-- `%APPDATA%\continuity\keymap.toml` — user overrides.
+- Runtime `keymap.toml` — user overrides (`%APPDATA%\continuity\keymap.toml`, or `<exe>\data\keymap.toml` in portable mode).
 - No `[keymap]` section in `settings.toml`; binding data lives in its own file so the conflict checker can run standalone.
 
 ## Key files

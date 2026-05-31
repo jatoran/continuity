@@ -1,6 +1,13 @@
 # Changelog
 
-## 0.1.0 - Unreleased
+## 0.1.1 - Unreleased
+
+- Portable zip launches now auto-detect a beside-the-exe `data\` directory, so
+  double-clicking `continuity.exe` keeps settings, themes, keymap, notes, and
+  backups inside the extracted folder.
+- License changed to MIT.
+
+## 0.1.0
 
 - Native Win32 markdown editor with durable SQLite-backed editing.
 - Plain-text source editing with live markdown projection and preview-oriented

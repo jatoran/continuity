@@ -113,6 +113,11 @@ impl Renderer {
         };
         unsafe {
             self.d2d_context.SetTarget(&bitmap);
+            // Re-bind the drawing transform to the window DPI (see
+            // `construction.rs`): the target bitmap's DPI alone does not set
+            // the DIP→pixel mapping for draw commands, and a `WM_DPICHANGED`
+            // resize must update it so layout keeps filling the back buffer.
+            self.d2d_context.SetDpi(dpi, dpi);
         }
         self.target_width_px = width;
         self.target_height_px = height;

@@ -79,7 +79,18 @@ impl Renderer {
         };
         let bitmap =
             unsafe { d2d_context.CreateBitmapFromDxgiSurface(&surface, Some(&bitmap_props))? };
-        unsafe { d2d_context.SetTarget(&bitmap) };
+        unsafe {
+            d2d_context.SetTarget(&bitmap);
+            // The target *bitmap* carries `dpi`, but that only fixes the DIP
+            // size the bitmap reports — it does not change how the device
+            // context maps DIP draw coordinates to physical pixels. Without
+            // an explicit `SetDpi`, the context paints at the default 96 DPI
+            // (1 DIP = 1 px), so the DIP-native layout fills only
+            // `client_px / scale` of the back buffer at high DPI (the dark
+            // right/bottom band at 125%+). Bind the drawing transform to the
+            // window DPI so DIPs scale to physical pixels.
+            d2d_context.SetDpi(dpi, dpi);
+        };
 
         let dwrite_factory: IDWriteFactory =
             unsafe { DWriteCreateFactory::<IDWriteFactory>(DWRITE_FACTORY_TYPE_SHARED)? };

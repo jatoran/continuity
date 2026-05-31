@@ -107,6 +107,11 @@ impl Renderer {
             unsafe { d2d_context.CreateBitmapFromDxgiSurface(&surface, Some(&bitmap_props))? };
         unsafe {
             d2d_context.SetTarget(&bitmap);
+            // Bind the drawing transform to the capture DPI (see
+            // `construction.rs`). The canary captures at 96 DPI, so this is a
+            // no-op there, but it keeps both constructor paths identical and
+            // correct if a high-DPI capture is ever taken.
+            d2d_context.SetDpi(dpi, dpi);
             // Force grayscale text antialiasing for byte determinism.
             // ClearType subpixel positioning depends on per-channel
             // glyph offsets that vary by font version + LCD orientation;

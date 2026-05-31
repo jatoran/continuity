@@ -1,10 +1,12 @@
 # Continuity
 
-Continuity is a native Windows markdown notes editor.
+Continuity is a native Windows markdown notes editor for writing notes. Period. Code notes included, but this is not trying to be a code editor.
 
-I wanted a notes app that treats writing like the important part: plain text, fast rendering, no project scaffolding, no cloud account, no plugin runtime, and no "did I save?" anxiety. Every keystroke is written to a local SQLite database; saving a file is export, not durability.
+I wanted something with the speed, ephemerality, and safety I like in Sublime Text, but aimed at notes: better Windows virtual desktop behavior, WYSIWYG markdown editing, and no "did I save?" anxiety. Every keystroke is written to a local SQLite database; saving a file is export, not durability.
 
-It is built as a small Win32 Rust app with DirectWrite/Direct2D rendering and a live markdown projection that keeps the source text canonical.
+The markdown surface is my own flavor of WYSIWYG. The source stays plain markdown, but Continuity projects it through a custom live renderer so headings, lists, checkboxes, links, tables, inline code, and images can feel integrated instead of bolted on.
+
+It is built in Rust as a small Win32 app with DirectWrite/Direct2D rendering, rope-backed text, explicit worker threads, bounded caches, and SQLite WAL persistence. WYSIWYG adds performance pressure, so I benchmark and optimize the projection/rendering path to keep large notes responsive.
 
 ## Status
 
@@ -15,7 +17,8 @@ Continuity is early, Windows-only software. It is usable enough to package, but 
 - Native Win32 editor for Windows 10 and Windows 11.
 - Plain text and markdown source stays canonical.
 - Live markdown rendering for headings, emphasis, lists, checkboxes, links, code blocks, tables, and inline images.
-- Integrated markdown table editing, so pipe tables can be worked with without constantly fighting raw markdown alignment.
+- Integrated markdown table editing with a more spreadsheet-like feel, so pipe tables can be worked with without constantly fighting raw markdown alignment.
+- Note-friendly markdown niceties such as inline code handling and copyable code snippets.
 - Every keystroke is durable to a local SQLite WAL database.
 - Saving is export. The database is the truth.
 - Multi-pane, multi-tab, multi-window session restore.

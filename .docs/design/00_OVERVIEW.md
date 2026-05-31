@@ -17,6 +17,7 @@
 - [Data model](data_model.md) — SQLite schema, key types, ID newtypes.
 - [Interfaces](interfaces.md) — `Command` / `Context` / `EditorMessage` / `EditEvent` contracts.
 - [Performance](performance.md) — budgets (§spec 15) and the caches that protect them.
+- [Public release](public-release.md) — public staging repo, release artifacts, GitHub Releases flow.
 
 ### Features
 - [Buffer](features/buffer.md) — rope, revisions, selections, undo tree.

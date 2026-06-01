@@ -1,9 +1,6 @@
 # File Tree
 
-The file tree lets a window expose one opened folder beside the editor without
-making the filesystem canonical. It is a bounded UI projection: directory reads
-happen on the file-I/O worker, file clicks route through normal file-open
-handling, and the pane never edits disk.
+The file tree lets a window expose one opened folder beside the editor without making the filesystem canonical. It is a bounded UI projection: directory reads happen on the file-I/O worker, file clicks route through normal file-open handling, and the pane never edits disk.
 
 ## What it is
 - Left pane for browsing one opened folder and opening text files from that folder.

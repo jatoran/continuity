@@ -1,8 +1,6 @@
 # Image paste / drop / inline render
 
-Phase F5. Pasted clipboard image bytes and dropped image files import
-into a hash-deduped shared store; the buffer references the file with a
-plain markdown image link; the renderer paints inline thumbnails.
+Phase F5. Pasted clipboard image bytes and dropped image files import into a hash-deduped shared store; the buffer references the file with a plain markdown image link; the renderer paints inline thumbnails.
 
 ## Surfaces
 

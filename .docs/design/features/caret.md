@@ -39,6 +39,23 @@ Future reflow-causing call sites must route through `with_caret_line_anchored`. 
 
 The pure function `selection_vertical::move_line_with_column` is unit-tested headless — clips to EOL on short lines but the column memory survives so a wider next line restores the original column. The same invariant holds for `move_visual_row` in the soft-wrap path: the stored display-byte target survives narrow rows, so `Up` through an empty wrapped row onto a wider one restores the original column.
 
+### Caret visibility after edits
+
+`Window::ensure_primary_caret_visible` keeps the primary caret inside the
+viewport after edit and motion commands without forcing the full
+caret-anchor projection on every keystroke. It first reuses compatible
+painted / mouse-hit-test / spectator `FrameDisplay` row indexes, then
+falls back to `resolve_caret_display_line` only when the cache estimate is
+unsafe.
+
+EOF appends on documents that appear soft-wrapped arm the same
+`Window::pending_doc_end_scroll` paint-side snap used by document-end
+commands. When the previous painted frame proves the edit appended a final
+source line, the UI thread also applies a monotonic one-display-row minimum
+reveal before arming the snap. This prevents a provisional paint row count
+from finalizing at the old bottom while still letting the paint frame
+converge to the exact display-map bottom.
+
 ### Blink (B5)
 `on_caret_blink_tick`:
 1. Evict expired jump_glow + caret_tween opportunistically; active motion is driven by `MOTION_TIMER_ID`.

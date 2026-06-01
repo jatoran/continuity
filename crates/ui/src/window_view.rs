@@ -20,6 +20,17 @@ use crate::{Error, Window};
 
 mod caret_visibility;
 
+fn compute_eof_append_minimum_reveal(
+    previous_display_rows: u32,
+    viewport_height_dip: f32,
+    scroll_y_dip: f32,
+) -> Option<(f32, f32)> {
+    let scroll_extent_h = (previous_display_rows.max(1) as f32 + 1.0) * LINE_HEIGHT_DIP
+        + END_OF_BUFFER_BOTTOM_PADDING_DIP;
+    let target = (scroll_extent_h - viewport_height_dip).max(0.0);
+    (target > scroll_y_dip + 0.5).then_some((target, scroll_extent_h))
+}
+
 impl Window {
     /// Adjust per-pane font zoom by `factor`. Invalidates the layout cache
     /// for the previous font state.
@@ -318,6 +329,21 @@ impl Window {
                 (self.estimated_content_height() / LINE_HEIGHT_DIP).round() as usize;
             let doc_appears_wrapped = estimated_display_rows > total_source_lines;
             if caret_at_doc_end && doc_appears_wrapped {
+                if let Some((_, frame)) = self.last_painted_frame_display.as_ref() {
+                    let frame_source_lines = frame.row_index().source_line_count() as usize;
+                    let appended_final_source_line = frame_source_lines.saturating_add(1)
+                        == total_source_lines
+                        && caret_source_line == frame_source_lines;
+                    if appended_final_source_line {
+                        if let Some((target, extent)) = compute_eof_append_minimum_reveal(
+                            frame.display_line_count(),
+                            self.view.viewport_height_dip,
+                            self.view.scroll_y_dip,
+                        ) {
+                            self.view.jump_to(target, extent);
+                        }
+                    }
+                }
                 self.pending_doc_end_scroll = true;
                 self.pending_doc_end_scroll_attempts = 0;
                 return;
@@ -494,5 +520,43 @@ impl Window {
             .content_height_covering(display_row)
             .max(caret_display_line.total_display_rows.max(1) as f32 * LINE_HEIGHT_DIP);
         self.view.jump_to(target, content_h);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compute_eof_append_minimum_reveal;
+    use crate::window::{END_OF_BUFFER_BOTTOM_PADDING_DIP, LINE_HEIGHT_DIP};
+
+    #[test]
+    fn eof_append_minimum_reveal_scrolls_one_new_display_row() {
+        let previous_rows = 160;
+        let viewport_h = 700.0;
+        let current =
+            previous_rows as f32 * LINE_HEIGHT_DIP + END_OF_BUFFER_BOTTOM_PADDING_DIP - viewport_h;
+
+        let (target, extent) =
+            compute_eof_append_minimum_reveal(previous_rows, viewport_h, current)
+                .expect("appended EOF row should move the viewport down");
+
+        assert_eq!(target, current + LINE_HEIGHT_DIP);
+        assert_eq!(
+            extent,
+            (previous_rows as f32 + 1.0) * LINE_HEIGHT_DIP + END_OF_BUFFER_BOTTOM_PADDING_DIP
+        );
+    }
+
+    #[test]
+    fn eof_append_minimum_reveal_does_not_chase_high_water_scroll() {
+        let previous_rows = 160;
+        let viewport_h = 700.0;
+        let current = previous_rows as f32 * LINE_HEIGHT_DIP + END_OF_BUFFER_BOTTOM_PADDING_DIP
+            - viewport_h
+            + LINE_HEIGHT_DIP;
+
+        assert_eq!(
+            compute_eof_append_minimum_reveal(previous_rows, viewport_h, current),
+            None
+        );
     }
 }

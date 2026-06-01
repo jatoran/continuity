@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn try_use_accepts_matching_stamp_and_rejects_mismatched() {
-        use crate::projection_worker::{MeasureMode, ProjectionPlan};
+        use crate::projection_worker::{MeasureMode, ProjectionPlan, WorkerFontMetrics};
         use ropey::Rope;
         use std::time::{Duration, Instant};
 
@@ -283,6 +283,7 @@ mod tests {
             &reservations,
             &[],
             8.0,
+            WorkerFontMetrics::fallback(8.0),
             ProjectionPlan::Cold,
         );
         assert!(worker.submit(request));
@@ -330,6 +331,7 @@ mod tests {
             &reservations,
             &[],
             8.0,
+            WorkerFontMetrics::fallback(8.0),
             ProjectionPlan::Cold,
         );
         assert!(worker.submit(new_request));

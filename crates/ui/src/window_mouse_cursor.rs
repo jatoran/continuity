@@ -75,6 +75,7 @@ impl Window {
             None if self.cursor_over_open_link(pt.x, pt.y) => IDC_HAND,
             None if ctrl_held && self.cursor_over_ctrl_click_target(pt.x, pt.y) => IDC_HAND,
             None if self.cursor_over_checkbox(pt.x, pt.y) => IDC_ARROW,
+            None if self.cursor_over_line_number_gutter(xf, yf) => IDC_ARROW,
             None => IDC_IBEAM,
         };
         let Ok(cursor) = (unsafe { LoadCursorW(None, name) }) else {
@@ -84,5 +85,32 @@ impl Window {
             SetCursor(Some(cursor));
         }
         true
+    }
+
+    /// `true` when `(xf, yf)` (client coords) is over the focused pane's
+    /// line-number gutter — the column holding the line numbers and the
+    /// collapse/expand fold icons. Over it the cursor shows a normal
+    /// arrow instead of the text I-beam. The width tracks
+    /// [`continuity_render::chrome::gutter_width_for_line_count`], so the
+    /// hit region adapts to font size and to the buffer's line count
+    /// exactly like the painted gutter.
+    fn cursor_over_line_number_gutter(&self, xf: f32, yf: f32) -> bool {
+        if !self.view_options.line_numbers {
+            return false;
+        }
+        let body = self.focused_body_rect();
+        if yf < body.y || yf >= body.y + body.h || xf < body.x {
+            return false;
+        }
+        let source_line_count = self
+            .editor
+            .snapshot(self.buffer_id)
+            .map(|snapshot| snapshot.rope_snapshot().rope().len_lines())
+            .unwrap_or(1);
+        let gutter_width = continuity_render::chrome::gutter_width_for_line_count(
+            self.scaled_font_size(),
+            source_line_count,
+        );
+        xf < body.x + gutter_width
     }
 }

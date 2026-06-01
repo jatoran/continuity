@@ -27,8 +27,12 @@ DirectWrite layout cache + Direct2D paint pipeline + DXGI swap chain. Body text,
   caret-anchor projection on every keystroke. It reuses geometry-compatible
   painted / mouse-hit-test / spectator `FrameDisplay` row indexes for a
   projection-backed row estimate, then falls back to the exact resolver only
-  when no cache can safely answer. Reflow anchors and centered navigation
-  still use the exact `resolve_caret_display_line` path. Ctrl+End /
+  when no cache can safely answer. EOF appends on wrapped-looking documents
+  arm `pending_doc_end_scroll`; when the previous painted frame proves the
+  edit appended a final source line, the UI applies a one-display-row
+  minimum reveal before the paint-side exact-bottom snap converges. Reflow
+  anchors and centered navigation still use the exact
+  `resolve_caret_display_line` path. Ctrl+End /
   Shift+Ctrl+End defer the exact bottom snap to the paint path:
   `editor.move_doc_end` / `editor.extend_doc_end` set
   `Window::pending_doc_end_scroll` after moving the caret, then `on_paint`

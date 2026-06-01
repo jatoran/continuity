@@ -193,6 +193,7 @@ impl Window {
                 &context.image_reservations,
                 &context.suppressed_table_blocks,
                 projection_char_width.max(1.0),
+                self.projection_font_metrics(),
                 ProjectionPlan::Cold,
             );
             if let Some(worker) = self.projection_worker.as_ref() {

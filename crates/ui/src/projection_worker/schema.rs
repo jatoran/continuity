@@ -11,10 +11,12 @@ use ropey::Rope;
 
 use continuity_decorate::Decorations;
 use continuity_display_map::{FoldRange, ImageRowReservation, RowSplice};
-use continuity_render::FrameDisplay;
+use continuity_render::{FrameDisplay, DEFAULT_HEADING_SCALE};
+use windows::Win32::Graphics::DirectWrite::IDWriteTextFormat;
 
 use crate::pane_tree::PaneId;
 
+use super::measure::SendCom;
 use super::stamp::ProjectionStamp;
 
 /// What the worker should do with this request.
@@ -40,6 +42,35 @@ pub(crate) enum ProjectionPlan {
         /// [`continuity_display_map::DisplayRowIndex::dirty_after_rope_edits`].
         splice: RowSplice,
     },
+}
+
+/// DirectWrite font metrics carried per request so the worker holds no
+/// baked font state (RC1: a font-family / font-size change must be
+/// reflected on the next build, not frozen at worker spawn). `format`
+/// is `None` on paths without a live text format, which selects the
+/// fixed-width fallback measurer.
+#[derive(Clone)]
+pub(crate) struct WorkerFontMetrics {
+    /// Current text format (family + base size). Cloned per request —
+    /// a single COM `AddRef`.
+    pub format: Option<SendCom<IDWriteTextFormat>>,
+    /// Base font size in DIPs the renderer paints with this frame.
+    pub font_size_dip: f32,
+    /// Per-heading-level font scale `[h1..h6]`.
+    pub heading_scale: [f32; 6],
+}
+
+impl WorkerFontMetrics {
+    /// Fixed-width fallback metrics (no DirectWrite format). Used by
+    /// tests and any submit path without a live text format.
+    #[must_use]
+    pub fn fallback(font_size_dip: f32) -> Self {
+        Self {
+            format: None,
+            font_size_dip,
+            heading_scale: DEFAULT_HEADING_SCALE,
+        }
+    }
 }
 
 /// One unit of work submitted to the worker.
@@ -74,6 +105,10 @@ pub(crate) struct ProjectionRequest {
     /// when its own DirectWrite call fails. Mirrors the production
     /// call site.
     pub fallback_char_width_dip: f32,
+    /// Live DirectWrite font metrics for this build. Carried per
+    /// request so the worker measures at the current font — see
+    /// [`WorkerFontMetrics`] (RC1 stale-font fix).
+    pub font_metrics: WorkerFontMetrics,
     /// Plan classification.
     pub plan: ProjectionPlan,
 }

@@ -26,24 +26,21 @@ struct GutterLabel {
     is_active: bool,
 }
 
-/// Right-side inset applied to every gutter label layout so trailing
-/// alignment lands a few DIPs inside the gutter rather than flush against
-/// the gutter↔body divider rule. `gutter_width_for_line_count` already
-/// reserves ~1 char of slack inside the column; this inset converts that
-/// slack into visible breathing room.
-const GUTTER_NUMBER_RIGHT_PADDING_DIP: f32 = 5.0;
-
 /// Width passed to `CreateTextLayout` for a gutter label: the column
-/// width minus the trailing inset, floored at 1 DIP so DirectWrite never
-/// sees a non-positive max width when the font is tiny.
-fn label_layout_width(gutter_width: f32) -> f32 {
-    (gutter_width - GUTTER_NUMBER_RIGHT_PADDING_DIP).max(1.0)
+/// width minus the fold-icon / breathing-room gap reserved on the right
+/// ([`crate::chrome::gutter_fold_gap_dip`]), floored at 1 DIP so
+/// DirectWrite never sees a non-positive max width when the font is tiny.
+/// Trailing-aligned digits therefore end exactly at the left edge of the
+/// fold-icon gap — the icons sit to their right and never overlap.
+fn label_layout_width(gutter_width: f32, font_size_dip: f32) -> f32 {
+    (gutter_width - crate::chrome::gutter_fold_gap_dip(font_size_dip)).max(1.0)
 }
 
 /// Apply `TRAILING` alignment to a freshly-built gutter layout so the
 /// digits hug the right edge of the layout box (which is inset from the
-/// divider by [`GUTTER_NUMBER_RIGHT_PADDING_DIP`]) instead of left-flowing
-/// from x=0. Cheap: one DirectWrite call per layout.
+/// divider by the fold-icon gap, [`crate::chrome::gutter_fold_gap_dip`])
+/// instead of left-flowing from x=0. Cheap: one DirectWrite call per
+/// layout.
 fn align_trailing(layout: &IDWriteTextLayout) {
     let _ = unsafe { layout.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING) };
 }
@@ -138,8 +135,14 @@ fn draw_gutter_label(
 ) -> Result<(), Error> {
     let label = build_label(source_line, active_line, fold_body_count, relative);
     let wide: Vec<u16> = label.encode_utf16().collect();
+    let font_size_dip = unsafe { format.GetFontSize() };
     let layout = unsafe {
-        factory.CreateTextLayout(&wide, format, label_layout_width(gutter_width), line_height)?
+        factory.CreateTextLayout(
+            &wide,
+            format,
+            label_layout_width(gutter_width, font_size_dip),
+            line_height,
+        )?
     };
     align_trailing(&layout);
     let y = display_row as f32 * line_height - scroll_y;

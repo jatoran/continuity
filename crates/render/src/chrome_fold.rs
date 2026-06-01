@@ -19,14 +19,11 @@ use ropey::Rope;
 use windows::Win32::Graphics::Direct2D::Common::{D2D_POINT_2F, D2D_RECT_F};
 use windows::Win32::Graphics::Direct2D::D2D1_DRAW_TEXT_OPTIONS_NONE;
 use windows::Win32::Graphics::Direct2D::{ID2D1DeviceContext, ID2D1SolidColorBrush};
-use windows::Win32::Graphics::DirectWrite::{IDWriteFactory, IDWriteTextFormat};
+use windows::Win32::Graphics::DirectWrite::{
+    IDWriteFactory, IDWriteTextFormat, DWRITE_TEXT_ALIGNMENT_CENTER,
+};
 
 use crate::Error;
-
-/// Width (DIPs) reserved on the gutter's right edge for the fold-
-/// triangle glyph column. `pub` so the UI's click hit-tester can use
-/// the same width when mapping a mouse-down to a fold toggle.
-pub const FOLD_TRIANGLE_WIDTH_DIP: f32 = 12.0;
 
 /// Glyph used when a line is foldable and currently expanded.
 const GLYPH_EXPANDED: char = '▾';
@@ -317,7 +314,11 @@ pub(crate) fn paint_fold_triangles(
     let fold_all = folded_lines.contains(&u32::MAX);
     let font_size_dip = unsafe { format.GetFontSize() };
     let gutter_width = crate::chrome::gutter_width_for_line_count(font_size_dip, rope.len_lines());
-    let triangle_x = (gutter_width - FOLD_TRIANGLE_WIDTH_DIP).max(0.0);
+    // The fold icons live inside the gutter's right-edge gap — the same
+    // gap the line-number digits are inset from — so digits and icons
+    // never overlap, at any font size or buffer line count.
+    let fold_gap = crate::chrome::gutter_fold_gap_dip(font_size_dip);
+    let triangle_x = (gutter_width - fold_gap).max(0.0);
     let triangle_rect_left = triangle_x;
     // Paint a faint background panel so the triangle column reads as a
     // distinct gutter sub-region. Caller (chrome_post) is responsible
@@ -341,9 +342,13 @@ pub(crate) fn paint_fold_triangles(
         };
         let y = line_idx as f32 * line_height - scroll_y;
         let wide: Vec<u16> = std::iter::once(glyph as u16).collect();
-        let layout = unsafe {
-            factory.CreateTextLayout(&wide, format, FOLD_TRIANGLE_WIDTH_DIP, line_height)?
-        };
+        let layout = unsafe { factory.CreateTextLayout(&wide, format, fold_gap, line_height)? };
+        // Center the glyph within the fold gap so it sits midway between
+        // the last digit and the gutter↔body divider, scaling with the
+        // gap (and therefore the font size).
+        unsafe {
+            let _ = layout.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        }
         unsafe {
             ctx.DrawTextLayout(
                 D2D_POINT_2F { x: triangle_x, y },
@@ -356,7 +361,7 @@ pub(crate) fn paint_fold_triangles(
         let _hit_rect = D2D_RECT_F {
             left: triangle_x,
             top: y,
-            right: triangle_x + FOLD_TRIANGLE_WIDTH_DIP,
+            right: triangle_x + fold_gap,
             bottom: y + line_height,
         };
     }

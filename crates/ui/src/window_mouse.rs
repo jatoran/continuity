@@ -97,6 +97,13 @@ impl Window {
             click_trace.claim("fold_triangle");
             return true;
         }
+        // A click anywhere else in the line-number gutter moves the caret
+        // to the start of the clicked line. The fold-toggle stage above
+        // already consumed clicks on a collapse/expand toggle, so this
+        // only fires for the rest of the gutter.
+        if self.try_gutter_line_caret(x, y) {
+            return true;
+        }
         // Vertical scrollbar: thumb-grab starts a drag, track click
         // pages by one viewport. Routed before image hits / caret
         // placement so a click on the thumb (which lives at the right

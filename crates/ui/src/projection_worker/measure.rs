@@ -15,7 +15,9 @@ use std::sync::Arc;
 use continuity_display_map::wrap::{FixedCharWidth, WidthMeasure};
 use continuity_layout::{FontStateId, RunCache};
 use continuity_render::DirectWriteWidthMeasure;
-use windows::Win32::Graphics::DirectWrite::{IDWriteFactory, IDWriteTextFormat};
+use windows::Win32::Graphics::DirectWrite::IDWriteFactory;
+
+use super::schema::WorkerFontMetrics;
 
 /// Measurement backend the worker uses to build the projection.
 ///
@@ -23,16 +25,13 @@ use windows::Win32::Graphics::DirectWrite::{IDWriteFactory, IDWriteTextFormat};
 /// advances). `FixedCharWidth` is the deterministic fallback used in
 /// unit tests so they don't depend on system fonts.
 pub(crate) enum MeasureMode {
-    /// Production: DirectWrite-backed measurer.
+    /// Production: DirectWrite-backed measurer. Font size + text format
+    /// are NOT baked here — they arrive per request via
+    /// [`WorkerFontMetrics`], so a font-family / font-size change is
+    /// reflected on the next build without respawning the worker (RC1).
     DirectWrite {
         /// Shared factory (thread-safe per DirectWrite docs).
         factory: SendCom<IDWriteFactory>,
-        /// Immutable text format (thread-safe per DirectWrite docs).
-        format: SendCom<IDWriteTextFormat>,
-        /// Base font size in DIPs the renderer paints with.
-        font_size_dip: f32,
-        /// Per-heading-level font scale `[h1, h2, h3, h4, h5, h6]`.
-        heading_scale: [f32; 6],
         /// Shared row-count run cache.
         run_cache: Arc<RunCache>,
         /// DirectWrite locale.
@@ -46,31 +45,37 @@ impl MeasureMode {
     /// Build a `Box<dyn WidthMeasure>` for one projection build. The
     /// returned box is dropped after the build completes — measurer
     /// caches do not survive across requests. The lifetime is tied to
-    /// `&self` because `DirectWriteWidthMeasure` borrows the COM
-    /// handles owned by `Self::DirectWrite`.
+    /// both `&self` (factory / run cache) and `font_metrics` (the
+    /// per-request text format the measurer borrows).
+    ///
+    /// In `DirectWrite` mode the measurement uses the request's live
+    /// `font_metrics` (format + size + heading scale), not values baked
+    /// at spawn — this is the RC1 fix for stale-font soft-wrap overflow.
+    /// A request without a format falls back to the fixed-width scalar.
     pub(super) fn build_measure<'a>(
         &'a self,
+        font_metrics: &'a WorkerFontMetrics,
         fallback_char_width_dip: f32,
         font_state: FontStateId,
     ) -> Box<dyn WidthMeasure + 'a> {
         match self {
             Self::DirectWrite {
                 factory,
-                format,
-                font_size_dip,
-                heading_scale,
                 run_cache,
                 locale,
-            } => Box::new(DirectWriteWidthMeasure::new_with_run_cache(
-                factory.as_ref(),
-                format.as_ref(),
-                *font_size_dip,
-                *heading_scale,
-                fallback_char_width_dip,
-                Some(Arc::clone(run_cache)),
-                font_state,
-                locale,
-            )),
+            } => match font_metrics.format.as_ref() {
+                Some(format) => Box::new(DirectWriteWidthMeasure::new_with_run_cache(
+                    factory.as_ref(),
+                    format.as_ref(),
+                    font_metrics.font_size_dip,
+                    font_metrics.heading_scale,
+                    fallback_char_width_dip,
+                    Some(Arc::clone(run_cache)),
+                    font_state,
+                    locale,
+                )),
+                None => Box::new(FixedCharWidth::new(fallback_char_width_dip.max(1.0))),
+            },
             Self::Fixed => Box::new(FixedCharWidth::new(fallback_char_width_dip.max(1.0))),
         }
     }
@@ -87,6 +92,7 @@ impl MeasureMode {
 /// can be shared freely. This wrapper is **not** safe for mutable COM
 /// interfaces like `IDWriteTextLayout` (which the layout cache
 /// explicitly notes are non-`Send`).
+#[derive(Clone)]
 pub(crate) struct SendCom<T>(T);
 
 impl<T> SendCom<T> {

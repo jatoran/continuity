@@ -1,15 +1,8 @@
 # Previous-buffer browser (δ.4)
 
-A palette-mode overlay listing every buffer that has ever been persisted to
-the SQLite DB, so users can re-open closed buffers without resorting to
-direct SQLite queries.
+A palette-mode overlay listing every buffer that has ever been persisted to the SQLite DB, so users can re-open closed buffers without resorting to direct SQLite queries.
 
-> **See also: [Buffer-history tab](buffer-history-tab.md).** That surface is
-> the visual / temporal complement to this overlay — the overlay is best
-> when you know the title, the history tab is best when you remember when
-> you last edited it. Both surfaces share the same `BufferListFilter`
-> discriminant and the same recovery helper. Use `Ctrl+Shift+O` for the
-> overlay, `Ctrl+Shift+H` for the history tab.
+> **See also: [Buffer-history tab](buffer-history-tab.md).** That surface is the visual / temporal complement to this overlay — the overlay is best when you know the title, the history tab is best when you remember when you last edited it. Both surfaces share the same `BufferListFilter` discriminant and the same recovery helper. Use `Ctrl+Shift+O` for the overlay, `Ctrl+Shift+H` for the history tab.
 
 ## Why
 

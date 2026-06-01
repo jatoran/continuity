@@ -254,6 +254,7 @@ impl Window {
                     image_reservations,
                     &suppressed_table_blocks,
                     projection_char_width,
+                    self.projection_font_metrics(),
                     plan,
                 );
                 let submitted = worker.submit_with_reason(request, submission_reason);

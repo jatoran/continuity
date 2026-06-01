@@ -14,7 +14,9 @@ use continuity_display_map::{FoldRange, ImageRowReservation};
 use ropey::Rope;
 
 use crate::pane_tree::PaneId;
-use crate::projection_worker::{ProjectionPlan, ProjectionRequest, ProjectionStamp};
+use crate::projection_worker::{
+    ProjectionPlan, ProjectionRequest, ProjectionStamp, WorkerFontMetrics,
+};
 
 /// Assemble a [`ProjectionRequest`] from the paint inputs + stamp +
 /// chosen plan.
@@ -30,6 +32,7 @@ pub(crate) fn build_projection_request(
     image_reservations: &[ImageRowReservation],
     suppressed_table_blocks: &[std::ops::Range<usize>],
     fallback_char_width_dip: f32,
+    font_metrics: WorkerFontMetrics,
     plan: ProjectionPlan,
 ) -> ProjectionRequest {
     ProjectionRequest {
@@ -43,6 +46,7 @@ pub(crate) fn build_projection_request(
         image_reservations: Arc::from(image_reservations.to_vec()),
         suppressed_table_blocks: Arc::from(suppressed_table_blocks.to_vec()),
         fallback_char_width_dip,
+        font_metrics,
         plan,
     }
 }

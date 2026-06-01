@@ -48,6 +48,12 @@ pub(crate) const METRICS_FLUSH_INTERVAL_MS: u64 = 1_000;
 /// treated as idle.
 pub(crate) const METRICS_ACTIVE_GAP_CAP_MS: u64 = 2_000;
 
+/// §I2 — tab-strip label pinned on the metrics dashboard buffer. Its
+/// rope stays empty (the renderer paints the panel overlay on top), so
+/// without an explicit override the tab would resolve to `"Untitled"`.
+/// Matches the panel's own `"Metrics"` header.
+pub(crate) const METRICS_TAB_LABEL: &str = "Metrics";
+
 /// Why a keystroke was recorded into the metrics tap. Drives which
 /// counters in [`MetricsDailyDelta`] are incremented.
 #[derive(Debug, Clone, Copy)]
@@ -143,7 +149,12 @@ impl Window {
             self.adopt_buffer_as_new_tab(id);
             id
         };
-        let _ = target;
+        // The metrics buffer's rope stays empty — the renderer paints
+        // the panel overlay over it — so the tab would otherwise resolve
+        // to "Untitled". Pin the dashboard label, mirroring the
+        // buffer-history tab. Idempotent across re-focus / re-adopt.
+        self.tree
+            .set_label_override_for_buffer(target, METRICS_TAB_LABEL);
         self.view_options.time_machine.metrics_repaint_due = true;
         self.start_metrics_repaint_timer();
         self.request_repaint();

@@ -389,6 +389,7 @@ impl Window {
                 &image_reservations,
                 &suppressed_table_blocks,
                 projection_metrics.char_width_dip,
+                self.projection_font_metrics(),
                 plan,
             )
         };

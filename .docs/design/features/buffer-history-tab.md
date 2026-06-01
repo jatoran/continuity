@@ -1,9 +1,6 @@
 # Buffer-history tab
 
-A non-buffer tab that renders a **horizontal swimlane chart** of every
-persisted buffer: one row per buffer, snapshot dots laid out along a
-shared time axis. Complement (not replacement) of the
-[previous-buffer browser](previous-buffer-browser.md) overlay.
+A non-buffer tab that renders a **horizontal swimlane chart** of every persisted buffer: one row per buffer, snapshot dots laid out along a shared time axis. Complement (not replacement) of the [previous-buffer browser](previous-buffer-browser.md) overlay.
 
 ## Why
 

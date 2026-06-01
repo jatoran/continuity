@@ -434,6 +434,26 @@ impl PaneTree {
         id
     }
 
+    /// Pin `label` as the explicit `label_override` on every tab whose
+    /// `buffer_id` matches. Used for synthetic surfaces (e.g. the
+    /// metrics dashboard buffer) whose rope stays empty and would
+    /// otherwise resolve to `"Untitled"` in the tab strip. Idempotent;
+    /// returns the number of tabs relabeled.
+    pub(crate) fn set_label_override_for_buffer(
+        &mut self,
+        buffer_id: BufferId,
+        label: &str,
+    ) -> usize {
+        let mut relabeled = 0;
+        for tab in self.tabs.values_mut() {
+            if tab.buffer_id == buffer_id {
+                tab.label_override = Some(label.to_string());
+                relabeled += 1;
+            }
+        }
+        relabeled
+    }
+
     /// Insert a buffer tab with an id that is unused in this tree.
     pub(crate) fn insert_fresh_buffer_tab(
         &mut self,

@@ -52,11 +52,33 @@ pub fn gutter_digit_count_for_line_count(source_line_count: usize) -> u32 {
     digits.max(GUTTER_MIN_DIGITS)
 }
 
+/// Horizontal gap reserved on the right side of the line-number gutter,
+/// between the digits and the gutter↔body divider. The collapse/expand
+/// fold icons are painted entirely inside this gap (to the right of the
+/// digits), so numbers and icons never overlap and the digits keep a
+/// comfortable distance from the body text.
+///
+/// Font-scaled because the fold glyph is drawn at the body font size;
+/// floored so small fonts still leave a clickable icon column.
+/// [`gutter_width_for_line_count`] reserves this gap *on top of* the
+/// digit columns, so widening the gap — or growing the buffer's line
+/// count — never clips the line numbers.
+#[must_use]
+pub fn gutter_fold_gap_dip(font_size_dip: f32) -> f32 {
+    let font_size_dip = if font_size_dip > 0.0 {
+        font_size_dip
+    } else {
+        GUTTER_BASELINE_FONT_SIZE_DIP
+    };
+    (font_size_dip * 1.15).max(15.0)
+}
+
 /// Gutter width for the given font size and source line count in DIPs.
-/// Sized to fit the largest full line number in the buffer plus one char
-/// of right margin so digits do not butt against the gutter↔body
-/// divider. Scales linearly with font size so larger UIs get
-/// proportionally wider gutters.
+/// Sized to fit the largest full line number in the buffer plus the
+/// fold-icon / breathing-room gap ([`gutter_fold_gap_dip`]) on the right,
+/// so digits never butt against the gutter↔body divider and the fold
+/// icons have a column of their own. Scales linearly with font size so
+/// larger UIs get proportionally wider gutters.
 #[must_use]
 pub fn gutter_width_for_line_count(font_size_dip: f32, source_line_count: usize) -> f32 {
     let font_size_dip = if font_size_dip > 0.0 {
@@ -65,7 +87,11 @@ pub fn gutter_width_for_line_count(font_size_dip: f32, source_line_count: usize)
         GUTTER_BASELINE_FONT_SIZE_DIP
     };
     let digits = gutter_digit_count_for_line_count(source_line_count) as f32;
-    let scaled = font_size_dip * 0.55 * (digits + 1.0);
+    // Digit columns at ~0.55 em each, plus the fold-icon / breathing-room
+    // gap on the right edge. Reserving the gap explicitly (rather than
+    // folding it into a fixed "+1 char") keeps the digits from clipping
+    // when the gap widens or the buffer's line count grows.
+    let scaled = font_size_dip * 0.55 * digits + gutter_fold_gap_dip(font_size_dip);
     scaled.max(GUTTER_WIDTH_DIP)
 }
 

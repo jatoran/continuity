@@ -163,7 +163,11 @@ fn build_for_request(
     wrap_cache: &WrapCache,
     segment_cache: &SegmentCache,
 ) -> ProjectionResult {
-    let mut measure = measure_mode.build_measure(req.fallback_char_width_dip, req.stamp.font_state);
+    let mut measure = measure_mode.build_measure(
+        &req.font_metrics,
+        req.fallback_char_width_dip,
+        req.stamp.font_state,
+    );
     let measure_ref: &mut dyn WidthMeasure = &mut *measure;
     let decorations = req.decorations.as_deref();
     let frame_display = match &req.plan {
@@ -238,7 +242,7 @@ mod tests {
 
     use super::*;
     use crate::pane_tree::PaneId;
-    use crate::projection_worker::{PendingProjectionRequest, ProjectionStamp};
+    use crate::projection_worker::{PendingProjectionRequest, ProjectionStamp, WorkerFontMetrics};
 
     fn request(seq: u64, target_pane: PaneId, revision: u64) -> ProjectionRequest {
         let caret_bytes: Arc<[usize]> = Arc::from(vec![0]);
@@ -269,6 +273,7 @@ mod tests {
             image_reservations: reservations,
             suppressed_table_blocks: Arc::from(Vec::new()),
             fallback_char_width_dip: 8.0,
+            font_metrics: WorkerFontMetrics::fallback(8.0),
             plan: ProjectionPlan::Cold,
         }
     }

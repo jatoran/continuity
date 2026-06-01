@@ -54,11 +54,10 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crossbeam_channel::{bounded, Sender};
-use windows::Win32::Graphics::DirectWrite::{IDWriteFactory, IDWriteTextFormat};
+use windows::Win32::Graphics::DirectWrite::IDWriteFactory;
 
 use continuity_display_map::{SegmentCache, WrapCache};
 use continuity_layout::RunCache;
-use continuity_render::DEFAULT_HEADING_SCALE;
 
 use crate::pane_tree::PaneId;
 
@@ -71,7 +70,7 @@ mod worker_loop;
 mod tests;
 
 pub(crate) use measure::{MeasureMode, SendCom};
-pub(crate) use schema::{ProjectionPlan, ProjectionRequest, ProjectionResult};
+pub(crate) use schema::{ProjectionPlan, ProjectionRequest, ProjectionResult, WorkerFontMetrics};
 pub(crate) use stamp::{ProjectionStamp, StampMismatchField};
 
 use self::worker_loop::worker_loop;
@@ -200,29 +199,20 @@ impl ProjectionWorker {
         }
     }
 
-    /// Build the production [`MeasureMode::DirectWrite`] from
-    /// UI-thread DirectWrite handles. Cloning a COM handle is a single
-    /// atomic `AddRef`; cloning here keeps the worker independent of
-    /// the UI thread's borrow lifetimes.
+    /// Build the production [`MeasureMode::DirectWrite`] from the
+    /// UI-thread DirectWrite factory. Font size + text format are NOT
+    /// baked here; they arrive per request via [`WorkerFontMetrics`],
+    /// so a font change needs no worker respawn (RC1 stale-font fix).
+    /// Cloning the factory COM handle is a single atomic `AddRef`.
     #[must_use]
     pub(crate) fn direct_write_mode(
         factory: IDWriteFactory,
-        format: IDWriteTextFormat,
-        font_size_dip: f32,
-        heading_scale: [f32; 6],
         run_cache: Arc<RunCache>,
     ) -> MeasureMode {
         MeasureMode::DirectWrite {
-            // SAFETY: IDWriteFactory and IDWriteTextFormat are
-            // documented as thread-safe by Microsoft DirectWrite docs.
+            // SAFETY: IDWriteFactory is documented as thread-safe by
+            // Microsoft DirectWrite docs.
             factory: unsafe { SendCom::new(factory) },
-            format: unsafe { SendCom::new(format) },
-            font_size_dip,
-            heading_scale: if heading_scale == [0.0; 6] {
-                DEFAULT_HEADING_SCALE
-            } else {
-                heading_scale
-            },
             run_cache,
             locale: crate::window::FONT_LOCALE,
         }

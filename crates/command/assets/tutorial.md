@@ -14,10 +14,7 @@ User-editable literal-or-regex replacement rules at `autocorrect.toml`. Off by d
 
 ### Buffer-history tab
 
-A non-buffer tab that renders a **horizontal swimlane chart** of every
-persisted buffer: one row per buffer, snapshot dots laid out along a
-shared time axis. Complement (not replacement) of the
-[previous-buffer browser](previous-buffer-browser.md) overlay.
+A non-buffer tab that renders a **horizontal swimlane chart** of every persisted buffer: one row per buffer, snapshot dots laid out along a shared time axis. Complement (not replacement) of the [previous-buffer browser](previous-buffer-browser.md) overlay.
 
 ### Buffer
 
@@ -49,16 +46,11 @@ Open, save, save-as, drag-drop import, bounded directory listing, external-chang
 
 ### File Tree
 
-The file tree lets a window expose one opened folder beside the editor without
-making the filesystem canonical. It is a bounded UI projection: directory reads
-happen on the file-I/O worker, file clicks route through normal file-open
-handling, and the pane never edits disk.
+The file tree lets a window expose one opened folder beside the editor without making the filesystem canonical. It is a bounded UI projection: directory reads happen on the file-I/O worker, file clicks route through normal file-open handling, and the pane never edits disk.
 
 ### Image paste / drop / inline render
 
-Phase F5. Pasted clipboard image bytes and dropped image files import
-into a hash-deduped shared store; the buffer references the file with a
-plain markdown image link; the renderer paints inline thumbnails.
+Phase F5. Pasted clipboard image bytes and dropped image files import into a hash-deduped shared store; the buffer references the file with a plain markdown image link; the renderer paints inline thumbnails.
 
 ### Keymap
 
@@ -86,16 +78,9 @@ SQLite-backed durable storage with WAL journaling, FNV-1a checksummed edit log, 
 
 ### Previous-buffer browser (δ.4)
 
-A palette-mode overlay listing every buffer that has ever been persisted to
-the SQLite DB, so users can re-open closed buffers without resorting to
-direct SQLite queries.
+A palette-mode overlay listing every buffer that has ever been persisted to the SQLite DB, so users can re-open closed buffers without resorting to direct SQLite queries.
 
-> **See also: [Buffer-history tab](buffer-history-tab.md).** That surface is
-> the visual / temporal complement to this overlay — the overlay is best
-> when you know the title, the history tab is best when you remember when
-> you last edited it. Both surfaces share the same `BufferListFilter`
-> discriminant and the same recovery helper. Use `Ctrl+Shift+O` for the
-> overlay, `Ctrl+Shift+H` for the history tab.
+> **See also: [Buffer-history tab](buffer-history-tab.md).** That surface is the visual / temporal complement to this overlay — the overlay is best when you know the title, the history tab is best when you remember when you last edited it. Both surfaces share the same `BufferListFilter` discriminant and the same recovery helper. Use `Ctrl+Shift+O` for the overlay, `Ctrl+Shift+H` for the history tab.
 
 ### Rendering
 

@@ -271,27 +271,34 @@ impl WidthMeasure for DirectWriteWidthMeasure<'_> {
     }
 
     fn max_byte_advance(&self, style: &SpanStyle) -> f32 {
-        // Upper bound on the advance of a single byte under this
-        // measurer's font. We delegate to the `FixedCharWidth`
-        // fallback that was built with `fallback_char_width_dip` —
-        // the caller-provided per-char advance (`scaled_font_size *
-        // 0.55` in the UI path, matching the existing
-        // `projection_char_width` heuristic). That is a realistic
-        // upper bound for ASCII in both Cascadia Mono (~0.55 em)
-        // and Segoe UI Variable (~0.6 em); multi-byte UTF-8 chars
-        // advance one glyph spread across 2-4 bytes, so per-byte
-        // advance only shrinks. Heading runs scale via
-        // `style.font_scale.as_f32()` (`FontScale::HEADING == 1.42`).
+        // True upper bound on a single byte's advance under this font.
         //
-        // The previous bound used the full em (`base_font_size_dip *
-        // scale`) — ~2× too conservative for the trivial-fit fast
-        // path in `count_soft_wrap_rows`. The manual-lag trace
-        // captured `frame_display:cold_build 400+ ms` because most
-        // markdown lines (80-160 bytes) failed the over-conservative
-        // `byte_count * 14 dip ≤ wrap_width` test and fell through
-        // to per-segment `IDWriteTextLayout` measure. The tighter
-        // bound lets the same lines pass on byte length alone.
-        self.fallback.max_byte_advance(style)
+        // The trivial-fit fast path in `count_soft_wrap_rows` only
+        // takes the byte-length shortcut (no DirectWrite call) when
+        // `byte_count * max_byte_advance(style) <= wrap_width`. For that
+        // shortcut to be SOUND this must be a genuine ceiling, not the
+        // average advance — otherwise wide-glyph and heading lines slip
+        // through as "fits in one display row", are never split, and
+        // paint past the right margin. The overflow scales with the
+        // font size (RC2): the larger the em, the larger the gap
+        // between an average-width estimate and the widest real glyph.
+        //
+        // One em per single-byte glyph is a safe ceiling for the
+        // editor's text/prose fonts (the widest ASCII advance in
+        // Cascadia Mono / Segoe UI Variable stays under 1 em); a
+        // multi-byte UTF-8 char spreads one glyph across 2-4 bytes, so
+        // its per-byte advance only shrinks. Heading runs scale by the
+        // same per-level factor the renderer paints with, so the bound
+        // tracks the painted glyph size at every font scale.
+        //
+        // Trade-off: this is the original full-em bound (tighter
+        // 0.55-em averages over-claimed "fits" and caused the overflow).
+        // Lines that don't clear the byte-length test fall through to
+        // the accurate per-segment measure path, which is viewport-
+        // bounded under the partial row-count walker and run-cache-
+        // backed, so the cost stays low on the interactive path.
+        let scale = style_font_scale(*style, self.heading_scale).unwrap_or(1.0);
+        self.base_font_size_dip * scale
     }
 }
 

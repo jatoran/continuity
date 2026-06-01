@@ -13,6 +13,7 @@ use crate::footnotes::footnote_definition_spans;
 use crate::inline::{block_inline_spans, ByteRange, InlineKind, InlineSpan, MarkerKind};
 use crate::inline_color::{inline_color_spans, InlineColorSpan};
 use crate::spans::{block_spans, BlockKind, BlockSpan};
+use crate::syntax::{highlight, HighlightSpan};
 use crate::table_block_fixup::fill_empty_pipe_rows_for_parser;
 use crate::table_eval::{evaluate_tables, EvaluatedTable};
 use crate::MarkdownParser;
@@ -87,6 +88,9 @@ pub struct Decorations {
     /// Inline-level spans (emphasis, code, links, image refs, checkboxes,
     /// markers). Document-absolute byte ranges; sorted by `range.start`.
     pub inlines: Vec<InlineSpan>,
+    /// Syntax-highlight spans for fenced code-block bodies or whole-file
+    /// code buffers. Document-absolute byte ranges; sorted by `start`.
+    pub highlights: Vec<HighlightSpan>,
     /// Phase F3 — inline color / highlight spans (`==…==` and
     /// `{#hex:…}`). Document order; non-overlapping; never cross newlines.
     /// Empty for a buffer with no inline color markup.
@@ -106,6 +110,20 @@ impl Decorations {
             revision,
             blocks: Vec::new(),
             inlines: Vec::new(),
+            highlights: Vec::new(),
+            inline_color_spans: Vec::new(),
+            evaluated_tables: Vec::new(),
+        }
+    }
+
+    /// Compute syntax-only decorations for a non-markdown code buffer.
+    #[must_use]
+    pub fn compute_code(source: &str, revision: u64, language_tag: &str) -> Self {
+        Self {
+            revision,
+            blocks: Vec::new(),
+            inlines: Vec::new(),
+            highlights: highlight(language_tag, source),
             inline_color_spans: Vec::new(),
             evaluated_tables: Vec::new(),
         }
@@ -181,12 +199,14 @@ impl Decorations {
         }
         inlines.extend(footnote_definition_spans(source));
         inlines.sort_by_key(|s| s.range.start);
+        let highlights = fenced_code_highlights(source, &blocks);
         let inline_color_spans = inline_color_spans(source);
         let evaluated_tables = evaluate_tables(source, &blocks);
         Self {
             revision,
             blocks,
             inlines,
+            highlights,
             inline_color_spans,
             evaluated_tables,
         }
@@ -390,89 +410,97 @@ impl Decorations {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn compute_returns_blocks_and_inlines() {
-        let src = "# Title\n\n**bold** and *em*.\n";
-        let d = Decorations::compute(src, 7).unwrap();
-        assert_eq!(d.revision, 7);
-        assert!(!d.blocks.is_empty());
-        assert!(d
-            .inlines
-            .iter()
-            .any(|s| matches!(s.kind, InlineKind::Strong)));
-    }
-
-    #[test]
-    fn hidden_markers_excludes_block_with_caret() {
-        let src = "# heading\n\nplain para";
-        let d = Decorations::compute(src, 0).unwrap();
-        // Caret at byte 0 (inside heading block)
-        let h = d.hidden_marker_ranges(&[0]);
-        // Heading hash should *not* be hidden because caret is in the block.
-        assert!(h.iter().all(|r| !(r.start == 0 && r.end == 2)));
-        // With caret far past the heading: hash hidden.
-        let caret = src.len() - 1;
-        let h2 = d.hidden_marker_ranges(&[caret]);
-        assert!(
-            h2.iter().any(|r| r.start == 0 && r.end == 2),
-            "expected hash marker to be hidden when caret is in another block; got {:?}",
-            h2
+fn fenced_code_highlights(source: &str, blocks: &[BlockSpan]) -> Vec<HighlightSpan> {
+    let mut out = Vec::new();
+    for block in blocks
+        .iter()
+        .filter(|block| matches!(block.kind, BlockKind::FencedCodeBlock))
+    {
+        let Some(block_src) = source.get(block.start_byte..block.end_byte) else {
+            continue;
+        };
+        let Some((language_tag, body_start, body_end)) = fenced_code_body(block_src) else {
+            continue;
+        };
+        let Some(body) = block_src.get(body_start..body_end) else {
+            continue;
+        };
+        out.extend(
+            highlight(language_tag, body)
+                .into_iter()
+                .map(|span| HighlightSpan {
+                    start: block.start_byte + body_start + span.start,
+                    end: block.start_byte + body_start + span.end,
+                    kind: span.kind,
+                }),
         );
     }
-
-    #[test]
-    fn structural_marker_classification() {
-        let src = "## h\n";
-        let d = Decorations::compute(src, 0).unwrap();
-        assert!(d.is_structural_marker_byte(0));
-        assert!(!d.is_emphasis_marker_byte(0));
-    }
-
-    #[test]
-    fn checkbox_lookup_returns_state() {
-        let src = "- [x] done\n";
-        let d = Decorations::compute(src, 0).unwrap();
-        // Find the checkbox via the inline range.
-        let cb_byte = d
-            .inlines
-            .iter()
-            .find_map(|s| {
-                if matches!(s.kind, InlineKind::Checkbox { .. }) {
-                    Some(s.range.start)
-                } else {
-                    None
-                }
-            })
-            .expect("no checkbox found");
-        let hit = d.checkbox_at(cb_byte).expect("checkbox_at miss");
-        assert!(hit.0);
-    }
-
-    #[test]
-    fn url_at_returns_link_url() {
-        let src = "see [docs](https://x.com)\n";
-        let d = Decorations::compute(src, 0).unwrap();
-        // Click on the 'd' of "docs"
-        let probe = src.find('d').unwrap();
-        let url = d.url_at(probe).expect("expected url");
-        assert_eq!(&src[url.start..url.end], "https://x.com");
-    }
-
-    #[test]
-    fn footnotes_resolve_reference_and_definition() {
-        let src = "body [^1]\n\n[^1]: note body\n";
-        let d = Decorations::compute(src, 0).unwrap();
-        let reference = d
-            .footnote_reference_at(src.find("[^1]").unwrap())
-            .expect("reference");
-        assert_eq!(reference.0, "1");
-        let (definition_label, body) = d.footnote_definition_for("1").expect("definition");
-        assert_eq!(&src[definition_label.start..definition_label.end], "[^1]");
-        assert_eq!(&src[body.start..body.end], "note body");
-        assert_eq!(d.footnote_first_reference_for("1"), Some(reference.1));
-    }
+    out.sort_by_key(|span| span.start);
+    out
 }
+
+fn fenced_code_body(block_src: &str) -> Option<(&str, usize, usize)> {
+    let bytes = block_src.as_bytes();
+    let mut first_end = 0usize;
+    while first_end < bytes.len() && bytes[first_end] != b'\n' {
+        first_end += 1;
+    }
+    let opener = &block_src[..first_end];
+    let language_tag = fence_language_tag(opener)?;
+    let body_start = if first_end < bytes.len() {
+        first_end + 1
+    } else {
+        bytes.len()
+    };
+    let body_end = closing_fence_start(block_src, body_start).unwrap_or(bytes.len());
+    Some((language_tag, body_start, body_end))
+}
+
+fn fence_language_tag(opener: &str) -> Option<&str> {
+    let trimmed = opener.trim_start();
+    let bytes = trimmed.as_bytes();
+    let fence = *bytes.first()?;
+    if fence != b'`' && fence != b'~' {
+        return None;
+    }
+    let mut i = 0usize;
+    while i < bytes.len() && bytes[i] == fence {
+        i += 1;
+    }
+    if i < 3 {
+        return None;
+    }
+    Some(trimmed[i..].trim())
+}
+
+fn closing_fence_start(block_src: &str, body_start: usize) -> Option<usize> {
+    let bytes = block_src.as_bytes();
+    let mut tail = bytes.len();
+    while tail > body_start && matches!(bytes[tail - 1], b'\n' | b'\r') {
+        tail -= 1;
+    }
+    let mut last_start = tail;
+    while last_start > body_start && bytes[last_start - 1] != b'\n' {
+        last_start -= 1;
+    }
+    let last_line = &bytes[last_start..tail];
+    let mut i = 0usize;
+    while i < last_line.len() && matches!(last_line[i], b' ' | b'\t') {
+        i += 1;
+    }
+    let fence = last_line.get(i).copied()?;
+    if fence != b'`' && fence != b'~' {
+        return None;
+    }
+    let fence_start = i;
+    while i < last_line.len() && last_line[i] == fence {
+        i += 1;
+    }
+    if i - fence_start >= 3 && last_line[i..].iter().all(|b| matches!(*b, b' ' | b'\t')) {
+        return Some(last_start);
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests;

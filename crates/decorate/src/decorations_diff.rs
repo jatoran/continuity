@@ -39,8 +39,8 @@ impl Decorations {
     ///
     /// Output is sorted, deduplicated, and never includes a source
     /// line whose spans are byte-for-byte identical in both
-    /// snapshots. Walks the four span lists (`blocks`, `inlines`,
-    /// `inline_color_spans`, `evaluated_tables`) in parallel: each
+    /// snapshots. Walks the span lists (`blocks`, `inlines`,
+    /// `highlights`, `inline_color_spans`, `evaluated_tables`) in parallel: each
     /// list is already in document order, so a linear merge yields
     /// the symmetric difference in `O(n + m)`.
     ///
@@ -53,6 +53,7 @@ impl Decorations {
         let mut dirty: Vec<u32> = Vec::new();
         diff_blocks(&prev.blocks, &self.blocks, rope, &mut dirty);
         diff_inlines(&prev.inlines, &self.inlines, rope, &mut dirty);
+        diff_highlights(&prev.highlights, &self.highlights, rope, &mut dirty);
         diff_inline_colors(
             &prev.inline_color_spans,
             &self.inline_color_spans,
@@ -144,6 +145,49 @@ fn diff_inlines(prev: &[InlineSpan], new: &[InlineSpan], rope: &Rope, dirty: &mu
             }
             (None, Some(ni)) => {
                 push_lines_for_byte_range(rope, &ni.range, dirty);
+                n += 1;
+            }
+            (None, None) => break,
+        }
+    }
+}
+
+fn diff_highlights(
+    prev: &[crate::syntax::HighlightSpan],
+    new: &[crate::syntax::HighlightSpan],
+    rope: &Rope,
+    dirty: &mut Vec<u32>,
+) {
+    let mut p = 0;
+    let mut n = 0;
+    while p < prev.len() || n < new.len() {
+        match (prev.get(p), new.get(n)) {
+            (Some(ph), Some(nh)) if ph == nh => {
+                p += 1;
+                n += 1;
+            }
+            (Some(ph), Some(nh)) => match ph.start.cmp(&nh.start) {
+                Ordering::Less => {
+                    push_lines_for_range(rope, ph.start, ph.end, dirty);
+                    p += 1;
+                }
+                Ordering::Greater => {
+                    push_lines_for_range(rope, nh.start, nh.end, dirty);
+                    n += 1;
+                }
+                Ordering::Equal => {
+                    push_lines_for_range(rope, ph.start, ph.end, dirty);
+                    push_lines_for_range(rope, nh.start, nh.end, dirty);
+                    p += 1;
+                    n += 1;
+                }
+            },
+            (Some(ph), None) => {
+                push_lines_for_range(rope, ph.start, ph.end, dirty);
+                p += 1;
+            }
+            (None, Some(nh)) => {
+                push_lines_for_range(rope, nh.start, nh.end, dirty);
                 n += 1;
             }
             (None, None) => break,

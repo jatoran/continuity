@@ -55,12 +55,12 @@ impl Window {
             .rope()
             .byte_slice(start..end)
             .to_string();
-        let trimmed = url.trim();
-        if trimmed.is_empty() {
+        let target_url = normalize_url_for_open(&url);
+        if target_url.is_empty() {
             return Err(CommandError::UnsupportedContext("empty url"));
         }
         let verb = HSTRING::from("open");
-        let target = HSTRING::from(trimmed);
+        let target = HSTRING::from(target_url.as_str());
         unsafe {
             ShellExecuteW(None, &verb, &target, None, None, SW_SHOWNORMAL);
         }
@@ -305,5 +305,86 @@ impl Window {
         let mut html = String::with_capacity(source.len());
         pulldown_cmark::html::push_html(&mut html, parser);
         self.put_clipboard_text(&html)
+    }
+}
+
+/// Normalize a markdown link target for `ShellExecuteW`. A scheme-less
+/// web address (`www.google.com`, `example.com/x`) is treated by the
+/// shell as a *file* and fails to open, so default those to `https://`.
+/// Targets that already carry a scheme (`https://…`, `mailto:…`) or that
+/// look like a local / relative path are passed through unchanged.
+pub(crate) fn normalize_url_for_open(url: &str) -> String {
+    let trimmed = url.trim();
+    if trimmed.is_empty() || url_has_scheme(trimmed) || looks_like_local_path(trimmed) {
+        return trimmed.to_string();
+    }
+    format!("https://{trimmed}")
+}
+
+/// `true` when `s` already names a URI scheme — either a hierarchical
+/// `scheme://…` or a known non-hierarchical scheme (`mailto:`, `tel:`).
+/// The `://` requirement avoids mistaking a bare `host:port` for a scheme.
+fn url_has_scheme(s: &str) -> bool {
+    if let Some(idx) = s.find("://") {
+        let scheme = &s[..idx];
+        return !scheme.is_empty()
+            && scheme
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic())
+            && scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+    }
+    let lower = s.to_ascii_lowercase();
+    lower.starts_with("mailto:") || lower.starts_with("tel:")
+}
+
+/// `true` when `s` looks like a local or relative filesystem path that the
+/// shell can open as-is, so we don't turn it into a bogus web URL.
+fn looks_like_local_path(s: &str) -> bool {
+    s.starts_with('/')
+        || s.starts_with('\\')
+        || s.starts_with("./")
+        || s.starts_with("../")
+        || s.starts_with(".\\")
+        || s.starts_with("..\\")
+        // Windows drive root, e.g. `C:\` or `C:/`.
+        || (s.as_bytes().get(1) == Some(&b':')
+            && s.as_bytes().first().is_some_and(u8::is_ascii_alphabetic))
+}
+
+#[cfg(test)]
+mod url_normalize_tests {
+    use super::normalize_url_for_open;
+
+    #[test]
+    fn scheme_less_web_address_gets_https() {
+        assert_eq!(
+            normalize_url_for_open("www.google.com"),
+            "https://www.google.com"
+        );
+        assert_eq!(
+            normalize_url_for_open("example.com/path"),
+            "https://example.com/path"
+        );
+        assert_eq!(
+            normalize_url_for_open("  google.com  "),
+            "https://google.com"
+        );
+    }
+
+    #[test]
+    fn explicit_scheme_is_untouched() {
+        assert_eq!(normalize_url_for_open("https://x.com"), "https://x.com");
+        assert_eq!(normalize_url_for_open("http://x.com"), "http://x.com");
+        assert_eq!(normalize_url_for_open("mailto:a@b.com"), "mailto:a@b.com");
+    }
+
+    #[test]
+    fn local_paths_pass_through() {
+        assert_eq!(normalize_url_for_open("./notes.md"), "./notes.md");
+        assert_eq!(normalize_url_for_open("/abs/path"), "/abs/path");
+        assert_eq!(normalize_url_for_open(r"C:\file.txt"), r"C:\file.txt");
     }
 }

@@ -1,10 +1,8 @@
-//! Startup file adoption for `Open with` / command-line paths.
+//! Startup adoption for prebuilt buffers and folder roots.
 //!
-//! The app crate reads those files before window threads spawn and asks
-//! core to create file-associated buffers. This UI-thread helper only
-//! installs the resulting buffer ids into the first restored window's
-//! focused pane, so startup opens augment session restore instead of
-//! replacing it.
+//! File opens normally arrive as one top-level window per file. This
+//! UI-thread helper remains for callers that deliberately seed extra
+//! buffers into an already-constructed window.
 
 use continuity_buffer::BufferId;
 use std::path::PathBuf;

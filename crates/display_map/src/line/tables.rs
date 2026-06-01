@@ -235,8 +235,10 @@ pub(super) fn compute_content_stamp(display_text: &str, segments: &[DisplaySegme
                 style.underline.hash(&mut h);
                 style.font_scale.hash(&mut h);
                 std::mem::discriminant(&style.role).hash(&mut h);
-                if let crate::style::SpanRole::Heading(lvl) = style.role {
-                    lvl.hash(&mut h);
+                match style.role {
+                    crate::style::SpanRole::Heading(level) => level.hash(&mut h),
+                    crate::style::SpanRole::Syntax(kind) => kind.hash(&mut h),
+                    _ => {}
                 }
             }
             DisplaySegment::Hidden { .. } => {}

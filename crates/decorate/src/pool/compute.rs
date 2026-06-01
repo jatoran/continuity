@@ -25,6 +25,16 @@ pub(crate) fn compute_decorations_for_request(
 ) -> Option<(Decorations, DecorationParseTrace)> {
     let started = std::time::Instant::now();
     if req.language != Language::Markdown {
+        if let Some(language_tag) = req.language.syntax_tag() {
+            let source: String = req.rope.to_string();
+            return Some((
+                Decorations::compute_code(&source, req.revision, language_tag),
+                DecorationParseTrace::Skipped {
+                    language: req.language.as_str(),
+                    elapsed_us: elapsed_us_since(started),
+                },
+            ));
+        }
         return Some((
             Decorations::empty(req.revision),
             DecorationParseTrace::Skipped {

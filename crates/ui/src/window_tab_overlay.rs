@@ -156,6 +156,13 @@ impl Window {
         if is_key_down(VK_LCONTROL.0) || is_key_down(VK_RCONTROL.0) {
             return false;
         }
+        // A chord *leader* (e.g. `Ctrl+K`) held and released without a
+        // continuation fires its standalone binding here — that's how the
+        // single `Ctrl+K → markdown.insert_link` survives also being the
+        // prefix of the `Ctrl+K …` chords.
+        if self.flush_pending_chord_standalone() {
+            return true;
+        }
         let had_chord = self.view_options.pane_modes.tab_overlay_chord.is_some()
             || matches!(self.overlays, Overlays::TabSwitcher(_));
         if !had_chord {

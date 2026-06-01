@@ -77,6 +77,7 @@ mod search_minimap_paint;
 mod spell;
 mod status_bar;
 mod tab_drag_paint;
+mod text_role_effects;
 pub mod time_machine_hud_paint;
 
 pub use breadcrumb::{

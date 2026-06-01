@@ -20,6 +20,7 @@
 //! thread, before window threads spawn.
 
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::Arc;
 
 use continuity_buffer::BufferId;
@@ -83,11 +84,18 @@ pub(crate) enum SeedOutcome {
 pub(crate) fn build_initial_requests(
     persist: &PersistClient,
     editor: &Arc<EditorHandle>,
+    db: &Path,
 ) -> std::result::Result<Vec<SpawnRequest>, Error> {
+    // Consume the clean-exit marker up front. `true` means the previous
+    // run quit gracefully (the user intentionally closed everything), so
+    // an empty window set starts blank rather than resurrecting the
+    // most-recent buffer. `false` (crash / kill / first launch) keeps the
+    // recovery path.
+    let clean_exit = consume_clean_exit_flag(db);
     let rows = persist_ctx("loading persisted windows", persist.load_active_windows())?;
     let mut halts: Vec<RecoveryHalt> = Vec::new();
     if rows.is_empty() {
-        let buffer_id = recover_or_open(persist, editor, &mut halts)?;
+        let buffer_id = initial_buffer_for_empty_session(persist, editor, &mut halts, clean_exit)?;
         let open_tutorial_on_init = take_first_launch_flag();
         return Ok(vec![SpawnRequest {
             initial_buffer_id: buffer_id,
@@ -153,7 +161,7 @@ pub(crate) fn build_initial_requests(
         });
     }
     if out.is_empty() {
-        let buffer_id = recover_or_open(persist, editor, &mut halts)?;
+        let buffer_id = initial_buffer_for_empty_session(persist, editor, &mut halts, clean_exit)?;
         let open_tutorial_on_init = take_first_launch_flag();
         return Ok(vec![SpawnRequest {
             initial_buffer_id: buffer_id,
@@ -236,6 +244,26 @@ fn fallback_pane_tree_json(buffer_id: BufferId) -> String {
     continuity_ui::pane_tree_codec::encode(&continuity_ui::pane_tree::PaneTree::singleton(
         buffer_id, 0,
     ))
+}
+
+/// Pick the initial buffer when no window rows survive. A clean previous
+/// exit starts blank (intentional close ⇒ don't resurrect the buffer the
+/// user just closed); otherwise (crash / first launch) recover the
+/// most-recent buffer so unsaved work is never silently dropped.
+///
+/// # Errors
+///
+/// Propagates `recover_or_open`'s infrastructure failures.
+fn initial_buffer_for_empty_session(
+    persist: &PersistClient,
+    editor: &Arc<EditorHandle>,
+    halts: &mut Vec<RecoveryHalt>,
+    clean_exit: bool,
+) -> std::result::Result<BufferId, Error> {
+    if clean_exit {
+        return Ok(editor.open_buffer(""));
+    }
+    recover_or_open(persist, editor, halts)
 }
 
 /// Restore the most-recently-touched buffer if one exists; otherwise
@@ -358,6 +386,52 @@ fn take_first_launch_flag() -> bool {
     }
 }
 
+/// Resolve the clean-exit sentinel path beside the active database. Tying
+/// it to the db directory (rather than a global path) keeps it out of
+/// unrelated data dirs — including the tempdir DBs unit tests use.
+fn clean_exit_marker(db: &Path) -> Option<std::path::PathBuf> {
+    db.parent().map(|parent| parent.join(".clean_exit"))
+}
+
+/// Read and clear the clean-exit marker. `true` means the previous run
+/// exited gracefully, so this launch should start blank instead of
+/// recovering the most-recent buffer. The marker is removed immediately
+/// so a crash *this* run leaves it absent ⇒ the next launch recovers.
+fn consume_clean_exit_flag(db: &Path) -> bool {
+    let Some(path) = clean_exit_marker(db) else {
+        return false;
+    };
+    if !path.exists() {
+        return false;
+    }
+    if let Err(e) = std::fs::remove_file(&path) {
+        // The marker existed (the meaningful signal); a failed delete only
+        // risks the next launch also reading it as clean. A graceful exit
+        // rewrites it and a crash cannot, so this self-corrects.
+        eprintln!(
+            "continuity: failed to clear clean-exit marker at {}: {e}",
+            path.display()
+        );
+    }
+    true
+}
+
+/// Write the clean-exit marker. Called from `main` only after the
+/// registry loop returns — i.e. every window closed gracefully. A crash,
+/// panic, or kill skips this, leaving the marker absent so the next
+/// launch restores the session.
+pub(crate) fn mark_clean_exit(db: &Path) {
+    let Some(path) = clean_exit_marker(db) else {
+        return;
+    };
+    if let Err(e) = std::fs::write(&path, b"") {
+        eprintln!(
+            "continuity: failed to write clean-exit marker at {}: {e}",
+            path.display()
+        );
+    }
+}
+
 fn unix_ms_now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -454,7 +528,8 @@ mod tests {
         };
         client.append_edit(bad_row).unwrap();
         let _ = client.most_recent_buffer().unwrap();
-        let requests = build_initial_requests(&client, &editor).expect("build_initial_requests");
+        let requests =
+            build_initial_requests(&client, &editor, &db).expect("build_initial_requests");
         assert_eq!(requests.len(), 1);
         let notices = &requests[0].recovery_notices;
         assert!(!notices.is_empty());
@@ -495,7 +570,8 @@ mod tests {
             last_seen_ms: 42,
         };
         client.save_window(row).unwrap();
-        let requests = build_initial_requests(&client, &editor).expect("build_initial_requests");
+        let requests =
+            build_initial_requests(&client, &editor, &db).expect("build_initial_requests");
         assert_eq!(
             requests.len(),
             1,

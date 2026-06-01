@@ -40,6 +40,7 @@ markdown_id!(MARKDOWN_MOVE_SECTION_DOWN, "markdown.move_section_down");
 markdown_id!(MARKDOWN_TOGGLE_BULLET, "markdown.toggle_bullet");
 markdown_id!(MARKDOWN_TOGGLE_NUMBERED, "markdown.toggle_numbered");
 markdown_id!(MARKDOWN_TOGGLE_CHECKBOX, "markdown.toggle_checkbox");
+markdown_id!(MARKDOWN_TOGGLE_TASK, "markdown.toggle_task");
 markdown_id!(MARKDOWN_CYCLE_LIST_MARKER, "markdown.cycle_list_marker");
 markdown_id!(MARKDOWN_RENUMBER_LIST, "markdown.renumber_list");
 markdown_id!(MARKDOWN_WRAP_IN_BLOCKQUOTE, "markdown.wrap_in_blockquote");
@@ -193,6 +194,11 @@ pub fn register_markdown_commands(registry: &mut Registry) {
         registry,
         MARKDOWN_TOGGLE_CHECKBOX,
         handler(|| SelectionEdit::MarkdownToggleCheckbox),
+    );
+    bind(
+        registry,
+        MARKDOWN_TOGGLE_TASK,
+        handler(|| SelectionEdit::MarkdownToggleTask),
     );
     bind(
         registry,

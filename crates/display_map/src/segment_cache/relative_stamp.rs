@@ -19,7 +19,9 @@
 use std::hash::{Hash, Hasher};
 use std::mem::discriminant;
 
-use continuity_decorate::{BlockSpan, EvaluatedTable, InlineColorSpan, InlineKind, InlineSpan};
+use continuity_decorate::{
+    BlockSpan, EvaluatedTable, HighlightSpan, InlineColorSpan, InlineKind, InlineSpan,
+};
 
 /// Hash `byte` as an offset relative to `origin`, saturating at 0 for
 /// offsets that precede the line start.
@@ -92,6 +94,17 @@ pub(super) fn hash_color_relative(
     hash_relative(color.outer.end, origin, hasher);
     hash_relative(color.inner.start, origin, hasher);
     hash_relative(color.inner.end, origin, hasher);
+}
+
+/// Hash a syntax-highlight span relative to `origin`.
+pub(super) fn hash_highlight_relative(
+    highlight: &HighlightSpan,
+    origin: usize,
+    hasher: &mut impl Hasher,
+) {
+    highlight.kind.hash(hasher);
+    hash_relative(highlight.start, origin, hasher);
+    hash_relative(highlight.end, origin, hasher);
 }
 
 /// Hash an evaluated table relative to `origin`. The substitute display

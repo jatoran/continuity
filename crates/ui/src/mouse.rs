@@ -280,6 +280,39 @@ pub(crate) struct TabDrag {
     /// carries the data each affordance needs (target pane, foreign
     /// HWND, etc.).
     pub resolution: TabDropResolution,
+    /// Current drag phase. Starts `Armed` on press, advances to
+    /// `Reorder` once past the arm threshold, and `Detached` once the
+    /// cursor is pulled vertically out of the strip band. Hysteretic, so
+    /// it is owned here and mutated only on the `WM_MOUSEMOVE` path; the
+    /// commit path reads it back so the painted affordance and the
+    /// committed drop never diverge.
+    pub phase: TabDragPhase,
+}
+
+/// Phase of an in-flight tab drag (Chrome-style two-stage grab).
+///
+/// `Armed` shows nothing — a press that releases here is a plain click.
+/// `Reorder` is the grounded, in-strip phase: an insertion bar tracks
+/// the cursor's slot but the tab is not lifted. `Detached` is the
+/// floating phase reached by pulling the cursor vertically out of the
+/// strip band; the screen-space ghost follows in 2D and the full drop
+/// resolver (pane body / foreign window / tear-off) is live.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TabDragPhase {
+    /// Press registered; cursor still within the arm threshold.
+    Armed,
+    /// Past the arm threshold but still grounded in the strip band.
+    Reorder,
+    /// Lifted vertically out of the strip band — floating drag.
+    Detached,
+}
+
+impl TabDragPhase {
+    /// `true` only in the floating phase. Gates the screen-space ghost
+    /// and every off-strip drop resolution.
+    pub(crate) fn is_detached(self) -> bool {
+        matches!(self, Self::Detached)
+    }
 }
 
 /// Drop slot for an in-flight tab drag — pane + insertion index.

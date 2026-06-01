@@ -76,7 +76,8 @@ impl Window {
             .file_io
             .as_ref()
             .ok_or(continuity_command::Error::UnsupportedContext("file_open"))?;
-        if file_io.open_files(files, Some(self.tree.focused)) {
+        if file_io.open_files_with_reply(files, Some(self.tree.focused), self.file_open_tx.clone())
+        {
             Ok(())
         } else {
             Err(continuity_command::Error::UnsupportedContext("file_open"))

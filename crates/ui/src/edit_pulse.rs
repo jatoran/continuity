@@ -284,6 +284,7 @@ pub(crate) fn is_structural_edit(edit: &SelectionEdit) -> bool {
         | SelectionEdit::MarkdownToggleBullet
         | SelectionEdit::MarkdownToggleNumbered
         | SelectionEdit::MarkdownToggleCheckbox
+        | SelectionEdit::MarkdownToggleTask
         | SelectionEdit::MarkdownCycleListMarker
         | SelectionEdit::MarkdownRenumberList
         | SelectionEdit::MarkdownInsertLink

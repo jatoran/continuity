@@ -219,6 +219,33 @@ impl Window {
         false
     }
 
+    /// Fire a chord *leader*'s standalone binding when Ctrl is released
+    /// without a continuation. `Ctrl+K` is both `markdown.insert_link`
+    /// and the prefix of the `Ctrl+K …` chords, so [`Self::on_keydown`]
+    /// holds it as a pending prefix (waiting for a second key); releasing
+    /// Ctrl with the leader still pending dispatches its standalone
+    /// binding here. Returns `true` when a command consumed the chord.
+    pub(crate) fn flush_pending_chord_standalone(&mut self) -> bool {
+        if self.pending_chord_sequence.is_empty() {
+            return false;
+        }
+        if self.overlay_has_keyboard_focus() {
+            self.pending_chord_sequence.clear();
+            return false;
+        }
+        let pending = std::mem::take(&mut self.pending_chord_sequence);
+        let chain: Vec<String> = self
+            .keymap
+            .standalone_chain(&pending, self)
+            .into_iter()
+            .map(|b| b.command.clone())
+            .collect();
+        if chain.is_empty() {
+            return false;
+        }
+        self.dispatch_chord_chain(&chain)
+    }
+
     pub(crate) fn refresh_keymap_conflicts(&mut self) {
         self.keymap_conflicts = self.keymap.detect_conflicts();
     }

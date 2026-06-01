@@ -15,7 +15,12 @@ post-`EndPaint` document-end repaint live in
 `WM_SIZE` does **not** rebuild the renderer. `Window::refresh_client_size`
 uses `Renderer::resize_for_hwnd(hwnd, w, h)` (in
 `crates/render/src/renderer/resize.rs`) when the target rebind is immediate;
-that rebinds only the swap-chain back buffer + D2D target bitmap at the HWND's live DPI. The
+that rebinds only the swap-chain back buffer + D2D target bitmap at the HWND's live DPI
+and re-issues `ID2D1DeviceContext::SetDpi(dpi, dpi)` so the device context's
+DIP→pixel drawing transform tracks the live DPI (the target bitmap's `dpiX/dpiY`
+only sets the DIP size the bitmap reports, not the drawing transform — without
+the explicit `SetDpi` the DIP-native layout would paint at 96 DPI and leave a
+right/bottom band at >100 % scale). The
 D3D11/D2D/DirectWrite stack and the image cache are reused.
 `WM_DPICHANGED` uses the same target-rebind path after applying Windows'
 suggested rect. A full-client `InvalidateRect(hwnd, None, false)` is issued

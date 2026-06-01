@@ -56,10 +56,10 @@ pub struct RestoredState {
 /// state changes (pane manipulation, layout shortcut).
 ///
 /// As of Phase 16.5, the row-tombstone-on-close decision lives in the
-/// registry: a window-thread crash or graceful `WM_DESTROY` both produce
-/// the same `RegistryEvent::Closed { window_id }` event, and the registry
-/// chooses to tombstone (non-last close) or preserve (last close = app
-/// session ending).
+/// registry. A graceful `WM_DESTROY` produces `RegistryEvent::Closed`,
+/// and the registry archives + tombstones the row for every such close,
+/// including the last window. Only a crash (no `Closed` event) leaves the
+/// row behind for the next launch to auto-restore.
 #[derive(Clone)]
 pub struct WindowPersistence {
     /// Stable window id (matches the persisted `windows.id`).

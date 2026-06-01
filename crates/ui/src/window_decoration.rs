@@ -349,6 +349,7 @@ impl Window {
             };
             while let Ok(DecorateResult {
                 buffer_id,
+                language,
                 outcome,
                 parse_trace,
             }) = pool.results().try_recv()
@@ -357,14 +358,18 @@ impl Window {
                 match outcome {
                     Ok(d) => {
                         let revision = d.revision;
+                        let resolved_buffer_id = continuity_buffer::BufferId::from_uuid(
+                            uuid::Uuid::from_u128(buffer_id),
+                        );
+                        let Some(snap) = self.editor.snapshot(resolved_buffer_id) else {
+                            continue;
+                        };
+                        if detect_language_for_snapshot(&snap) != language {
+                            continue;
+                        }
                         self.last_submitted_decoration_revision_per_buffer
                             .borrow_mut()
-                            .insert(
-                                continuity_buffer::BufferId::from_uuid(uuid::Uuid::from_u128(
-                                    buffer_id,
-                                )),
-                                revision,
-                            );
+                            .insert(resolved_buffer_id, revision);
                         if self.decoration_cache.insert(buffer_id, d) {
                             self.display_map_prewarm
                                 .invalidate_decoration_revision(buffer_id, revision);

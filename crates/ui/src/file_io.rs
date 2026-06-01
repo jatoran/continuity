@@ -151,6 +151,7 @@ pub(crate) enum FileIoRequest {
     OpenFiles {
         paths: Vec<PathBuf>,
         target_pane: Option<PaneId>,
+        reply: Option<Sender<FileIoEvent>>,
     },
     ListDirectory {
         root: PathBuf,
@@ -220,7 +221,31 @@ impl FileIoClient {
     /// Returns `false` when the worker has exited.
     pub fn open_files(&self, paths: Vec<PathBuf>, target_pane: Option<PaneId>) -> bool {
         self.tx
-            .send(FileIoRequest::OpenFiles { paths, target_pane })
+            .send(FileIoRequest::OpenFiles {
+                paths,
+                target_pane,
+                reply: None,
+            })
+            .is_ok()
+    }
+
+    /// Request file imports with completions routed to one window.
+    ///
+    /// # Errors
+    ///
+    /// Returns `false` when the worker has exited.
+    pub(crate) fn open_files_with_reply(
+        &self,
+        paths: Vec<PathBuf>,
+        target_pane: Option<PaneId>,
+        reply: Sender<FileIoEvent>,
+    ) -> bool {
+        self.tx
+            .send(FileIoRequest::OpenFiles {
+                paths,
+                target_pane,
+                reply: Some(reply),
+            })
             .is_ok()
     }
 

@@ -42,7 +42,8 @@ use crate::fold::FoldRange;
 use crate::id::SourceByte;
 use crate::segment::DisplaySegment;
 use relative_stamp::{
-    hash_block_relative, hash_color_relative, hash_inline_relative, hash_table_relative,
+    hash_block_relative, hash_color_relative, hash_highlight_relative, hash_inline_relative,
+    hash_table_relative,
 };
 use shift::{estimate_segments_bytes, shift_segment};
 
@@ -169,6 +170,11 @@ pub fn compute_line_projection_stamp(
     for color in &decorations.inline_color_spans {
         if color.outer.end > line_start && color.outer.start < line_end {
             hash_color_relative(color, line_start, &mut hasher);
+        }
+    }
+    for highlight in &decorations.highlights {
+        if highlight.end > line_start && highlight.start < line_end {
+            hash_highlight_relative(highlight, line_start, &mut hasher);
         }
     }
     for table in &decorations.evaluated_tables {

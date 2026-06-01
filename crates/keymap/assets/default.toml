@@ -407,6 +407,13 @@ keys = ["ctrl+shift+x"]
 command = "markdown.toggle_checkbox"
 when = "language == 'markdown'"
 
+# Create / remove a `- [ ] ` task bullet on the caret's line(s). Left
+# ungated so it works in any buffer the writer keeps tasks in, not only
+# files tagged as markdown.
+[[binding]]
+keys = ["ctrl+e"]
+command = "markdown.toggle_task"
+
 [[binding]]
 keys = ["ctrl+shift+q"]
 command = "markdown.wrap_in_blockquote"
@@ -417,10 +424,13 @@ keys = ["ctrl+shift+c"]
 command = "markdown.insert_code_fence"
 when = "language == 'markdown'"
 
+# Ctrl+K inserts/wraps a markdown link. It is also the prefix of the
+# `Ctrl+K …` chords, so the standalone fires on Ctrl-release when no
+# continuation arrives (see `Window::flush_pending_chord_standalone`).
+# Left ungated so it works in any buffer, like Ctrl+E.
 [[binding]]
 keys = ["ctrl+k"]
 command = "markdown.insert_link"
-when = "language == 'markdown'"
 
 # Phase F3 inline color / highlight markup.
 [[binding]]

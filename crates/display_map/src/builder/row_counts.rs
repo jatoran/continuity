@@ -35,8 +35,8 @@ use crate::wrap::{WidthMeasure, WrapConfig};
 use crate::wrap_cache::{WrapCache, WrapCacheKey};
 use crate::{compute_line_projection_stamp, SegmentCache, SegmentCacheKey};
 
+use super::line_helpers::{line_is_hidden, read_line_text, source_line_range};
 use super::segments::build_line_segments;
-use super::{line_is_hidden, read_line_text, source_line_range};
 use super::{SlowestLineRecord, WalkerStats, WALKER_SLOWEST_LINES_CAPACITY};
 
 /// Shared row-count cache context for one walker invocation.

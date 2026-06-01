@@ -34,7 +34,7 @@ use crate::edit_markdown::{
     plan_markdown_cycle_list_marker, plan_markdown_insert_code_fence,
     plan_markdown_insert_image_ref, plan_markdown_insert_link, plan_markdown_toggle_bullet,
     plan_markdown_toggle_checkbox, plan_markdown_toggle_emphasis, plan_markdown_toggle_numbered,
-    plan_markdown_wrap_in_blockquote,
+    plan_markdown_toggle_task, plan_markdown_wrap_in_blockquote,
 };
 use crate::edit_markdown_blocks::{
     plan_markdown_cycle_heading, plan_markdown_demote_section, plan_markdown_move_section_down,
@@ -202,6 +202,10 @@ pub enum SelectionEdit {
     MarkdownToggleNumbered,
     /// Toggle a `[ ]`/`[x]` checkbox prefix on each covered line.
     MarkdownToggleCheckbox,
+    /// Toggle a `- [ ] ` task-bullet prefix on each covered line: plain
+    /// or bulleted lines gain the task marker; existing task lines drop
+    /// it. Bound to `Ctrl+E`.
+    MarkdownToggleTask,
     /// Cycle the list marker between `-`, `*`, `+`.
     MarkdownCycleListMarker,
     /// Phase B11: renumber the ordered list containing the caret.
@@ -390,6 +394,7 @@ pub fn plan(buffer: &Buffer, edit: &SelectionEdit) -> Result<Option<SelectionEdi
         SelectionEdit::MarkdownToggleBullet => plan_markdown_toggle_bullet(buffer),
         SelectionEdit::MarkdownToggleNumbered => plan_markdown_toggle_numbered(buffer),
         SelectionEdit::MarkdownToggleCheckbox => plan_markdown_toggle_checkbox(buffer),
+        SelectionEdit::MarkdownToggleTask => plan_markdown_toggle_task(buffer),
         SelectionEdit::MarkdownCycleListMarker => plan_markdown_cycle_list_marker(buffer),
         SelectionEdit::MarkdownRenumberList => {
             crate::edit_list::plan_markdown_renumber_list(buffer)

@@ -7,6 +7,7 @@
 use std::mem::size_of;
 
 use crate::inline::InlineKind;
+use crate::syntax::HighlightSpan;
 use crate::table_eval::{EvaluatedTable, TableCellOverride};
 use crate::{Decorations, InlineColorSpan, InlineSpan};
 
@@ -23,6 +24,7 @@ impl Decorations {
     pub fn byte_size_estimate(&self) -> usize {
         self.blocks.capacity() * size_of::<crate::BlockSpan>()
             + self.inlines.capacity() * size_of::<InlineSpan>()
+            + self.highlights.capacity() * size_of::<HighlightSpan>()
             + self.inline_color_spans.capacity() * size_of::<InlineColorSpan>()
             + self.evaluated_tables.capacity() * size_of::<EvaluatedTable>()
             + self

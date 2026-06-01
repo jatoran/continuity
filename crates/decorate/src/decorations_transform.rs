@@ -30,6 +30,7 @@ use continuity_text::{
 use crate::inline::{ByteRange, InlineSpan};
 use crate::inline_color::InlineColorSpan;
 use crate::spans::BlockSpan;
+use crate::syntax::HighlightSpan;
 use crate::table_eval::{EvaluatedTable, TableCellOverride};
 use crate::Decorations;
 
@@ -75,6 +76,18 @@ impl Decorations {
                 Some(InlineSpan {
                     kind: s.kind.clone(),
                     range: ByteRange { start, end },
+                })
+            })
+            .collect();
+        let highlights = self
+            .highlights
+            .iter()
+            .filter_map(|s| {
+                let (start, end) = transform_range_through_chain(s.start, s.end, deltas)?;
+                Some(HighlightSpan {
+                    start,
+                    end,
+                    kind: s.kind,
                 })
             })
             .collect();
@@ -147,6 +160,7 @@ impl Decorations {
             revision: new_revision,
             blocks,
             inlines,
+            highlights,
             inline_color_spans,
             evaluated_tables,
         }
@@ -184,6 +198,7 @@ mod tests {
             revision,
             blocks,
             inlines,
+            highlights: Vec::new(),
             inline_color_spans: Vec::new(),
             evaluated_tables: Vec::new(),
         }
@@ -239,6 +254,7 @@ mod tests {
             revision,
             blocks: Vec::new(),
             inlines: Vec::new(),
+            highlights: Vec::new(),
             inline_color_spans: Vec::new(),
             evaluated_tables: vec![table],
         }
@@ -319,6 +335,7 @@ mod tests {
             revision: 1,
             blocks: Vec::new(),
             inlines: Vec::new(),
+            highlights: Vec::new(),
             inline_color_spans: vec![span],
             evaluated_tables: Vec::new(),
         };

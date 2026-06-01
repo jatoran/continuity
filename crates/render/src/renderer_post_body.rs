@@ -41,7 +41,6 @@ pub(crate) struct PostBodyContext<'a> {
     pub image_hits: &'a RefCell<Vec<InlineImageHit>>,
     pub fg_brush: &'a ID2D1SolidColorBrush,
     pub bg_brush: &'a ID2D1SolidColorBrush,
-    pub footnote_brush: &'a ID2D1SolidColorBrush,
     /// Retained static-chrome command list replayed after pane chrome.
     pub chrome_command_list: &'a RefCell<ChromeCommandList>,
 }
@@ -86,7 +85,6 @@ pub(crate) fn paint_post_body(
         image_hits,
         fg_brush,
         bg_brush,
-        footnote_brush,
         chrome_command_list,
     } = ctx;
 
@@ -127,6 +125,12 @@ pub(crate) fn paint_post_body(
     let blockquote_bar_brush = mkb(params.markdown_colors.blockquote_bar)?;
     let hr_brush = mkb(params.markdown_colors.hr)?;
     let inline_code_bg_brush = mkb(params.markdown_colors.code_bg)?;
+    let text_role_brush_set = crate::text_role_effects::TextRoleBrushSet::new(
+        render_target,
+        &params.markdown_colors,
+        params.colors.fg,
+    )?;
+    let text_role_brushes = text_role_brush_set.refs();
     let formula_value_brush = mkb(params.markdown_colors.formula_value)?;
     let formula_error_brush = mkb(params.markdown_colors.formula_error)?;
     let table_border_brush = mkb(params.markdown_colors.table_border)?;
@@ -156,7 +160,7 @@ pub(crate) fn paint_post_body(
             line_height,
             crate::pane_body::PaneBodyBrushes {
                 fg: fg_brush,
-                footnote: footnote_brush,
+                text_roles: text_role_brushes,
                 bg: bg_brush,
                 placeholder: &placeholder_brush,
                 line_number: &line_number_brush,

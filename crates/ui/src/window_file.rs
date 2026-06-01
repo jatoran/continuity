@@ -152,6 +152,10 @@ impl Window {
                 changed = true;
             }
         }
+        while let Ok(event) = self.file_open_rx.try_recv() {
+            self.handle_file_io_event(event);
+            changed = true;
+        }
         if let Some(banner) = self.file_banner.as_ref() {
             if banner.is_expired(self.now_ms()) {
                 self.file_banner = None;
@@ -368,7 +372,7 @@ impl Window {
                 target_pane,
                 content,
                 file,
-            } => self.adopt_opened_file(target_pane, content, file),
+            } => self.handle_opened_file(target_pane, content, file),
             FileIoEvent::DirectoryListed {
                 root,
                 relative,
@@ -380,6 +384,19 @@ impl Window {
                     .editor
                     .set_file_association(buffer_id, Some(file.clone()));
                 self.mark_tab_file_associated(buffer_id, &file);
+                self.decoration_cache.evict(buffer_id.as_uuid().as_u128());
+                self.last_submitted_decoration_revision_per_buffer
+                    .borrow_mut()
+                    .remove(&buffer_id);
+                if buffer_id == self.buffer_id {
+                    self.language_revision = None;
+                    self.last_submitted_decoration_revision = None;
+                    self.refresh_language();
+                    self.maybe_submit_decoration();
+                }
+                if let Some(register_file_buffer) = self.register_file_buffer.as_ref() {
+                    register_file_buffer(buffer_id, file.clone());
+                }
                 let now = self.now_ms();
                 self.file_banner = Some(FileBanner::transient(
                     format!("Saved {}", file.path.display()),
@@ -457,42 +474,6 @@ impl Window {
                 )));
             }
         }
-    }
-
-    fn adopt_opened_file(
-        &mut self,
-        target_pane: Option<crate::pane_tree::PaneId>,
-        content: String,
-        file: FileAssociation,
-    ) {
-        let buffer_id = self.editor.open_file_buffer(content, file.clone());
-        self.save_current_right_edge_chrome_state();
-        if let Some(pane) = target_pane {
-            self.switch_focus(pane);
-        }
-        let tab_id = self.tree.insert_fresh_buffer_tab(buffer_id, self.now_ms());
-        if let Some(group) = self.tree.groups.get_mut(&self.tree.focused) {
-            group.push_tab(tab_id, true);
-        }
-        self.apply_new_pane_state(buffer_id);
-        self.mark_tab_file_associated(buffer_id, &file);
-        self.refresh_focused_viewport();
-        self.refresh_language();
-        self.maybe_submit_decoration();
-        // The new tab is itself the indicator that the file opened —
-        // no banner needed. (Errors and external-change prompts still
-        // surface a banner via the FileIoEvent::Failed / ExternalChanged
-        // paths.)
-        if let Some(file_io) = self.file_io.as_ref() {
-            let _ = file_io.watch_file(buffer_id, file);
-        }
-        // P0.8.2 — file open lands a fresh buffer in the focused pane.
-        // Any preceding `switch_focus(pane)` dispatched for the
-        // *previous* buffer; this dispatch is for the just-opened one
-        // so the next paint can hit a worker result instead of cold-
-        // building a multi-thousand-line markdown file inline.
-        let _ = self.try_dispatch_projection_worker_early("file_open", "focus_change");
-        self.retarget_find_bar_to_focused_pane();
     }
 
     pub(crate) fn mark_tab_file_associated(&mut self, buffer_id: BufferId, file: &FileAssociation) {

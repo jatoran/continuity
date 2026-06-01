@@ -125,7 +125,7 @@ The alignment row keeps its source-line slot. Its bytes are hidden and `table_pa
 
 ### Theme
 
-TOML-loaded color sets keyed by stable name. Seventeen bundled themes ship with the binary (`deep_minimal`, `paper`, `solarized_dark`, `solarized_darker`, `solarized_light`, `monokai`, `rose_pine`, `catppuccin_mocha`, `catppuccin_macchiato`, `catppuccin_frappe`, `catppuccin_latte`, `tokyo_night`, `nord`, `one_dark`, `gruvbox_dark`, `gruvbox_light`, `dracula`); user customs live under `%APPDATA%\continuity\themes\` and are managed entirely through the δ.5 workflow commands. Bundled themes are read-only — edits surface a clone-first banner.
+TOML-loaded color sets keyed by stable name. Seventeen bundled themes ship with the binary (`deep_minimal`, `paper`, `solarized_dark`, `solarized_darker`, `solarized_light`, `monokai`, `rose_pine`, `catppuccin_mocha`, `catppuccin_macchiato`, `catppuccin_frappe`, `catppuccin_latte`, `tokyo_night`, `nord`, `one_dark`, `gruvbox_dark`, `gruvbox_light`, `dracula`); user customs live under the runtime themes directory (`%APPDATA%\continuity\themes\` normally, `<exe>\data\themes\` in portable mode) and are managed entirely through the δ.5 workflow commands. Bundled themes are read-only — edits surface a clone-first banner.
 
 ### Tutorial
 
@@ -140,6 +140,12 @@ _Auto-extracted from `crates/keymap/assets/default.toml`, grouped by command pre
 | Keys | Command |
 |---|---|
 | `ctrl+alt+t` | `buffer.timeline` |
+
+### `diagnostics.*`
+
+| Keys | Command |
+|---|---|
+| `ctrl+alt+shift+d` | `diagnostics.capture_layout` |
 
 ### `editor.*`
 
@@ -307,6 +313,7 @@ _Auto-extracted from `crates/keymap/assets/default.toml`, grouped by command pre
 | `ctrl+i` | `markdown.toggle_italic` |
 | `ctrl+shift+7` | `markdown.toggle_numbered` |
 | `ctrl+shift+s` | `markdown.toggle_strikethrough` |
+| `ctrl+e` | `markdown.toggle_task` |
 | `ctrl+shift+q` | `markdown.wrap_in_blockquote` |
 
 ### `palette.*`
@@ -441,6 +448,12 @@ _Every command registered by `continuity_command::default_registry`, grouped by 
 |---|---|---|---|
 | `buffer.mark_snapshot` |  |  | Label the next persisted snapshot — takes a string arg `{ "label": "<name>" }` (e.g. "draft 1", "pre-refactor"); empty clears any pending label |
 | `buffer.timeline` | `ctrl+alt+t` | yes | Open the time-machine slider for this buffer (drag to preview, Enter restores, Esc cancels) |
+
+### `diagnostics.*`
+
+| Command | Keys | Palette | Description |
+|---|---|---|---|
+| `diagnostics.capture_layout` | `ctrl+alt+shift+d` |  |  |
 
 ### `editor.*`
 
@@ -653,6 +666,7 @@ _Every command registered by `continuity_command::default_registry`, grouped by 
 | `markdown.toggle_italic` | `ctrl+i` |  |  |
 | `markdown.toggle_numbered` | `ctrl+shift+7` |  |  |
 | `markdown.toggle_strikethrough` | `ctrl+shift+s` |  |  |
+| `markdown.toggle_task` | `ctrl+e` |  |  |
 | `markdown.wrap_in_blockquote` | `ctrl+shift+q` |  |  |
 
 ### `metrics.*`

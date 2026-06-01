@@ -5,6 +5,8 @@
 //! [`SpanRole`]. Per spec §9 the display-map builder records all style up
 //! front so the renderer needs no second pass.
 
+use continuity_decorate::HighlightKind;
+
 /// Style attributes applied to one `Visible` or `Replace` segment.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct SpanStyle {
@@ -69,6 +71,15 @@ impl SpanStyle {
     pub const fn code() -> Self {
         Self {
             role: SpanRole::Code,
+            ..Self::body()
+        }
+    }
+
+    /// Syntax-highlighted token run.
+    #[must_use]
+    pub const fn syntax(kind: HighlightKind) -> Self {
+        Self {
+            role: SpanRole::Syntax(kind),
             ..Self::body()
         }
     }
@@ -164,7 +175,7 @@ impl SpanStyle {
         // Role: a more-specific role wins over `Body`; otherwise keep the
         // existing role. Roles are mutually distinct from each other in
         // practice (e.g. you don't get heading-and-code in the same span).
-        if matches!(self.role, SpanRole::Body) {
+        if matches!(self.role, SpanRole::Body) || matches!(other.role, SpanRole::Syntax(_)) {
             self.role = other.role;
         }
         // Font scale: take the maximum (a heading inside something else
@@ -232,6 +243,8 @@ pub enum SpanRole {
     Bullet,
     /// Code span / fenced code block contents.
     Code,
+    /// Syntax-highlight token.
+    Syntax(HighlightKind),
     /// Hyperlink text.
     Link,
     /// Footnote reference / definition label.

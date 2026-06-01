@@ -22,14 +22,29 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use std::sync::OnceLock;
 
-use crate::mouse::{ForeignTabDragHover, TabDrag, TabDropResolution};
+use crate::mouse::{DropIndicator, ForeignTabDragHover, TabDrag, TabDragPhase, TabDropResolution};
 use crate::pane_layout::metrics;
 use crate::window_mouse_hover::wall_clock_ms;
 use crate::Window;
 
 /// Hysteresis radius around the press point — releases inside this
-/// circle are treated as a pure click rather than a drag.
+/// circle are treated as a pure click rather than a drag. Doubles as the
+/// arm threshold: the drag stays `Armed` (no visual) until the cursor
+/// leaves this radius.
 pub(crate) const TAB_DRAG_HYSTERESIS_PX: i32 = 6;
+
+/// Vertical distance (DIPs) the cursor must travel out of the source
+/// strip's y-band before a grounded drag lifts into the floating
+/// (`Detached`) phase. Roughly one strip height — Chrome detaches at
+/// about a tab of vertical travel, so a near-horizontal reorder never
+/// lifts the tab.
+pub(crate) const DETACH_PX: f32 = 28.0;
+
+/// Re-attach margin (DIPs). A `Detached` drag drops back into the
+/// in-strip `Reorder` phase once the cursor returns within this distance
+/// of the strip band. Smaller than [`DETACH_PX`] so the transition has
+/// hysteresis and cannot flicker at the boundary.
+pub(crate) const ATTACH_PX: f32 = 6.0;
 
 /// Lazily registered Win32 message id used by the source window to
 /// broadcast "my drag is hovering over your window" to sibling
@@ -62,6 +77,23 @@ impl Window {
         if dx < TAB_DRAG_HYSTERESIS_PX && dy < TAB_DRAG_HYSTERESIS_PX {
             return TabDropResolution::Cancel;
         }
+        // Grounded phases (`Armed` / `Reorder`) can only ever resolve to
+        // an in-strip reorder/move — never a pane-body, foreign-window,
+        // or tear-off. A near-horizontal drag therefore stays in the
+        // strip; only a vertical lift into `Detached` unlocks the
+        // off-strip resolutions below (Chrome semantics).
+        if !drag.phase.is_detached() {
+            if let Some(indicator) = self.compute_tab_drop_indicator(x, y) {
+                return TabDropResolution::SourceStrip(indicator);
+            }
+            // Still grounded but the cursor slid horizontally past every
+            // strip (e.g. into a chrome gap): park the bar at the source
+            // strip's trailing slot rather than tearing off.
+            if let Some(indicator) = self.source_strip_end_indicator(drag) {
+                return TabDropResolution::SourceStrip(indicator);
+            }
+            return TabDropResolution::Cancel;
+        }
         if let Some(indicator) = self.compute_tab_drop_indicator(x, y) {
             return TabDropResolution::SourceStrip(indicator);
         }
@@ -87,6 +119,60 @@ impl Window {
             return TabDropResolution::ForeignWindow { hwnd_raw };
         }
         TabDropResolution::TearOff
+    }
+
+    /// Insertion indicator pinned to the trailing slot of the source
+    /// pane's tab strip. Used while a grounded drag has slid past every
+    /// strip horizontally so the bar still has a home instead of
+    /// resolving to a tear-off the user has not asked for.
+    fn source_strip_end_indicator(&self, drag: &TabDrag) -> Option<DropIndicator> {
+        let group = self.tree.groups.get(&drag.pane)?;
+        Some(DropIndicator {
+            pane: drag.pane,
+            slot: group.tabs.len(),
+        })
+    }
+
+    /// Vertical `(top, bottom)` DIP band of the source pane's tab strip —
+    /// the detach / re-attach reference for [`Self::update_tab_drag_lift_state`].
+    /// `None` when the source pane is no longer a visible leaf, which the
+    /// phase machine treats as "force detached" so the drag can still
+    /// resolve to a tear-off.
+    fn source_strip_band(&self, pane: crate::pane_tree::PaneId) -> Option<(f32, f32)> {
+        let (_, outer) = self
+            .pane_outer_rects()
+            .into_iter()
+            .find(|(id, _)| *id == pane)?;
+        Some((outer.y, outer.y + metrics::TAB_STRIP_HEIGHT_DIP))
+    }
+
+    /// Advance the in-flight drag's phase from a fresh cursor position.
+    /// `Armed` → `Reorder` once past the arm threshold; `Reorder` →
+    /// `Detached` once the cursor leaves the source strip band by
+    /// [`DETACH_PX`]; `Detached` → `Reorder` once it returns within
+    /// [`ATTACH_PX`] of the band. Destroys the floating ghost on any
+    /// transition out of `Detached` so a re-attached drag drops back to
+    /// the in-strip insertion bar with no lingering popup.
+    fn update_tab_drag_lift_state(&mut self, x: i32, y: i32) {
+        let Some(drag) = self.mouse_state.tab_drag.as_ref() else {
+            return;
+        };
+        let current = drag.phase;
+        let dx = (x - drag.start_x).abs();
+        let dy = (y - drag.start_y).abs();
+        let armed_clear = dx >= TAB_DRAG_HYSTERESIS_PX || dy >= TAB_DRAG_HYSTERESIS_PX;
+        let pane = drag.pane;
+        let band = self.source_strip_band(pane);
+        let next = compute_next_tab_drag_lift_state(current, armed_clear, y as f32, band);
+        if next == current {
+            return;
+        }
+        if let Some(drag_mut) = self.mouse_state.tab_drag.as_mut() {
+            drag_mut.phase = next;
+        }
+        if !next.is_detached() {
+            self.clear_tab_drag_ghost();
+        }
     }
 
     /// Find a sibling Continuity window whose screen rect contains the
@@ -163,6 +249,9 @@ impl Window {
         x: i32,
         y: i32,
     ) -> Option<ResolutionDelta> {
+        // Advance the phase first so the resolution below is computed
+        // against the phase the next paint and the next commit will see.
+        self.update_tab_drag_lift_state(x, y);
         let drag_clone = self.mouse_state.tab_drag.as_ref().cloned()?;
         let resolution = self.compute_tab_drop_resolution(&drag_clone, x, y);
         let indicator = match resolution {
@@ -345,6 +434,59 @@ pub(crate) fn should_broadcast_foreign_hover(current: TabDropResolution) -> bool
     matches!(current, TabDropResolution::ForeignWindow { .. })
 }
 
+/// Pure phase transition for an in-flight tab drag. Split from the
+/// `Window` so the detach / re-attach gate is unit-testable without a
+/// live window. `band` is the source strip's `(top, bottom)` y-DIPs;
+/// `None` (source pane gone) forces `Detached` so the drag can still
+/// tear off.
+#[must_use]
+pub(crate) fn compute_next_tab_drag_lift_state(
+    current: TabDragPhase,
+    armed_clear: bool,
+    cursor_y: f32,
+    band: Option<(f32, f32)>,
+) -> TabDragPhase {
+    match current {
+        TabDragPhase::Armed => {
+            if armed_clear {
+                // A fast vertical yank can clear the arm threshold while
+                // already outside the band, so evaluate the detach gate
+                // in the same step instead of forcing a `Reorder`
+                // waypoint.
+                grounded_drag_lift_state(cursor_y, band)
+            } else {
+                TabDragPhase::Armed
+            }
+        }
+        TabDragPhase::Reorder => grounded_drag_lift_state(cursor_y, band),
+        TabDragPhase::Detached => {
+            let Some((top, bottom)) = band else {
+                return TabDragPhase::Detached;
+            };
+            if cursor_y <= bottom + ATTACH_PX && cursor_y >= top - ATTACH_PX {
+                TabDragPhase::Reorder
+            } else {
+                TabDragPhase::Detached
+            }
+        }
+    }
+}
+
+/// Decide between the grounded `Reorder` phase and the lifted `Detached`
+/// phase from the cursor's y against the strip band. Stays grounded while
+/// within [`DETACH_PX`] of the band; a missing band lifts immediately.
+#[must_use]
+fn grounded_drag_lift_state(cursor_y: f32, band: Option<(f32, f32)>) -> TabDragPhase {
+    let Some((top, bottom)) = band else {
+        return TabDragPhase::Detached;
+    };
+    if cursor_y > bottom + DETACH_PX || cursor_y < top - DETACH_PX {
+        TabDragPhase::Detached
+    } else {
+        TabDragPhase::Reorder
+    }
+}
+
 /// Delta returned by [`Window::refresh_tab_drag_resolution`] so the
 /// caller can decide what side-effects to fire.
 #[derive(Debug, Clone, Copy)]
@@ -400,105 +542,4 @@ pub(crate) fn physical_to_dip_client(value_physical: i32, scale: f32) -> i32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::mouse::DropIndicator;
-    use crate::pane_tree::PaneId;
-
-    #[test]
-    fn screen_point_round_trips_through_lparam_pack() {
-        for &(x, y) in &[(0, 0), (100, 200), (-1, -1), (-32_000, 31_000)] {
-            let packed = pack_screen_point(x, y);
-            let (rx, ry) = unpack_screen_point(packed);
-            assert_eq!((x, y), (rx, ry));
-        }
-    }
-
-    #[test]
-    fn dip_to_physical_to_dip_round_trips_at_100_percent_scale() {
-        for v in [-100, -1, 0, 1, 50, 500] {
-            let physical = dip_client_to_physical(v, 1.0);
-            let back = physical_to_dip_client(physical, 1.0);
-            assert_eq!(v, back, "DPI 96 round trip failed for {v}");
-        }
-    }
-
-    #[test]
-    fn dip_to_physical_to_dip_round_trips_at_200_percent_scale() {
-        // At 2.0× scale, a DIP value v becomes 2v physical, which
-        // converts back to v. Without the fix to `send_tab_drag_hover`,
-        // the receiver would see v/2 — half the actual position.
-        for v in [0, 25, 50, 200, 1000] {
-            let physical = dip_client_to_physical(v, 2.0);
-            assert_eq!(physical, v * 2);
-            let back = physical_to_dip_client(physical, 2.0);
-            assert_eq!(v, back, "DPI 192 round trip failed for {v}");
-        }
-    }
-
-    #[test]
-    fn dip_to_physical_to_dip_round_trips_at_125_percent_scale() {
-        // 1.25× is the most common Windows HiDPI scale. Check it
-        // separately because rounding can drift by a half-DIP if the
-        // helper used floor instead of round.
-        for v in [40, 80, 120, 240] {
-            let physical = dip_client_to_physical(v, 1.25);
-            let back = physical_to_dip_client(physical, 1.25);
-            assert_eq!(v, back, "DPI 120 round trip failed for {v}");
-        }
-    }
-
-    #[test]
-    fn broadcast_predicate_fires_for_foreign_only() {
-        assert!(should_broadcast_foreign_hover(
-            TabDropResolution::ForeignWindow { hwnd_raw: 1 }
-        ));
-        // Crucially, the predicate must not depend on indicator-
-        // change or variant-change — every move over a foreign
-        // window broadcasts. This guards against a regression of
-        // the cross-window stick-at-entry-position bug.
-        assert!(should_broadcast_foreign_hover(
-            TabDropResolution::ForeignWindow { hwnd_raw: 9999 }
-        ));
-        assert!(!should_broadcast_foreign_hover(TabDropResolution::Cancel));
-        assert!(!should_broadcast_foreign_hover(TabDropResolution::TearOff));
-        assert!(!should_broadcast_foreign_hover(
-            TabDropResolution::SourceStrip(DropIndicator {
-                pane: PaneId(1),
-                slot: 0,
-            })
-        ));
-        assert!(!should_broadcast_foreign_hover(
-            TabDropResolution::PaneBody {
-                pane: PaneId(2),
-                rect: (0.0, 0.0, 0.0, 0.0),
-            }
-        ));
-    }
-
-    #[test]
-    fn trace_str_per_variant_is_stable() {
-        assert_eq!(TabDropResolution::Cancel.as_trace_str(), "cancel");
-        assert_eq!(TabDropResolution::TearOff.as_trace_str(), "tear_off");
-        assert_eq!(
-            TabDropResolution::SourceStrip(DropIndicator {
-                pane: PaneId(1),
-                slot: 0,
-            })
-            .as_trace_str(),
-            "source_strip",
-        );
-        assert_eq!(
-            TabDropResolution::PaneBody {
-                pane: PaneId(1),
-                rect: (0.0, 0.0, 0.0, 0.0),
-            }
-            .as_trace_str(),
-            "pane_body",
-        );
-        assert_eq!(
-            TabDropResolution::ForeignWindow { hwnd_raw: 1234 }.as_trace_str(),
-            "foreign_window",
-        );
-    }
-}
+mod tests;

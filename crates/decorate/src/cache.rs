@@ -146,6 +146,7 @@ impl DecorationCache {
             Some(existing)
                 if existing.blocks == value.blocks
                     && existing.inlines == value.inlines
+                    && existing.highlights == value.highlights
                     && existing.inline_color_spans == value.inline_color_spans
                     && existing.evaluated_tables == value.evaluated_tables =>
             {

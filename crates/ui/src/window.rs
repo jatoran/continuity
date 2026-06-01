@@ -229,8 +229,14 @@ pub struct Window {
     /// Phase-14 persistence wiring (window_id, save / delete sinks,
     /// optional restored state). `None` for tests and the headless canary.
     pub(crate) persistence: Option<crate::window_placement_persistence::WindowPersistence>,
-    /// Phase-15 file-I/O worker client.
+    /// Phase-15 file-I/O worker client and per-window open replies.
     pub(crate) file_io: Option<crate::file_io::FileIoClient>,
+    pub(crate) file_open_tx: crossbeam_channel::Sender<crate::file_io::FileIoEvent>,
+    pub(crate) file_open_rx: crossbeam_channel::Receiver<crate::file_io::FileIoEvent>,
+    /// Registry-owned file-open router; callbacks cross through channels.
+    pub(crate) open_file_window: Option<crate::window_config::OpenFileWindow>,
+    /// Registry-owned file-buffer index updater.
+    pub(crate) register_file_buffer: Option<crate::window_config::RegisterFileBuffer>,
     /// `true` while the file-I/O poll timer is running.
     pub(crate) file_io_poll_active: bool,
     /// Left file-tree pane state. Owned by this window's UI thread;

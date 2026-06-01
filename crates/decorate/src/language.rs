@@ -3,8 +3,8 @@
 //! Phase 10 needs the `language` context atom to actually fire for markdown
 //! buffers so existing `when = "language == 'markdown'"` keymap bindings
 //! activate. Detection is conservative: extension first, then a tiny
-//! content sniff against the first few non-empty lines. Default falls back
-//! to `"plain"`.
+//! content sniff against the first few non-empty lines. Known code
+//! extensions return syntax tags; default falls back to `"plain"`.
 
 /// Identifier used in `Context::lookup("language")`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -13,6 +13,8 @@ pub enum Language {
     Plain,
     /// Markdown.
     Markdown,
+    /// Non-markdown code-like file syntax-highlighted as this language tag.
+    Code(&'static str),
 }
 
 impl Language {
@@ -22,6 +24,17 @@ impl Language {
         match self {
             Language::Plain => "plain",
             Language::Markdown => "markdown",
+            Language::Code(tag) => tag,
+        }
+    }
+
+    /// Language tag accepted by [`crate::syntax::highlight`] for
+    /// whole-file code highlighting.
+    #[must_use]
+    pub const fn syntax_tag(self) -> Option<&'static str> {
+        match self {
+            Language::Code(tag) => Some(tag),
+            Language::Plain | Language::Markdown => None,
         }
     }
 }
@@ -34,7 +47,8 @@ impl Language {
 /// buffer is something else:
 ///
 /// - extension is a known markdown one → [`Language::Markdown`]
-/// - extension is present but not markdown → [`Language::Plain`]
+/// - extension is a known code one → [`Language::Code`]
+/// - extension is present but unknown → [`Language::Plain`]
 ///   (the file's name is the authoritative hint)
 /// - no extension and the content sniff flags markdown → [`Language::Markdown`]
 /// - no extension and the content looks like plain text → [`Language::Markdown`]
@@ -44,6 +58,9 @@ pub fn detect(path_extension: Option<&str>, content: &str) -> Language {
     if let Some(ext) = path_extension {
         return match ext.to_ascii_lowercase().as_str() {
             "md" | "markdown" | "mdown" | "mkd" | "mkdn" => Language::Markdown,
+            "rs" => Language::Code("rust"),
+            "json" => Language::Code("json"),
+            "toml" => Language::Code("toml"),
             _ => Language::Plain,
         };
     }
@@ -100,12 +117,19 @@ mod tests {
     }
 
     #[test]
-    fn unknown_extension_is_plain() {
+    fn code_extensions_detect_code_languages() {
         // Spec §3 markdown-first default only applies to *untitled* buffers.
         // A file with a non-markdown extension keeps its name's authority.
         assert_eq!(detect(Some("txt"), "hello"), Language::Plain);
-        assert_eq!(detect(Some("toml"), "# still literal"), Language::Plain);
-        assert_eq!(detect(Some("rs"), "fn main()"), Language::Plain);
+        assert_eq!(
+            detect(Some("toml"), "# still literal"),
+            Language::Code("toml")
+        );
+        assert_eq!(detect(Some("rs"), "fn main()"), Language::Code("rust"));
+        assert_eq!(
+            detect(Some("json"), r#"{"ok": true}"#),
+            Language::Code("json")
+        );
     }
 
     #[test]

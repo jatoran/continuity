@@ -66,9 +66,8 @@ pub struct DecorateRequest {
     /// as the survivor.
     pub rope: Arc<Rope>,
     /// Language detected by the UI producer for this snapshot. Markdown
-    /// buffers run the full tree-sitter decoration path; non-Markdown
-    /// buffers intentionally produce empty decorations so plain files are
-    /// displayed from the canonical rope without markdown projection.
+    /// buffers run the full tree-sitter decoration path; code buffers
+    /// produce syntax-only decorations; plain files stay undecorated.
     pub language: Language,
     /// ε.4 — revision the previous successful decoration was computed
     /// against, if any. `None` means the worker should full-reparse
@@ -109,6 +108,8 @@ pub fn empty_deltas() -> Arc<[crate::RopeEditDeltaWithPoints]> {
 pub struct DecorateResult {
     /// Owning buffer.
     pub buffer_id: u128,
+    /// Language used to compute the decoration snapshot.
+    pub language: Language,
     /// Outcome — either a fresh decoration snapshot or an error.
     pub outcome: Result<Decorations, Error>,
     /// Parse path taken by the worker.
@@ -550,6 +551,7 @@ fn worker_loop(worker_id: usize, generation: u64, runtime: WorkerRuntime) {
             .result_tx
             .send(DecorateResult {
                 buffer_id: req.buffer_id,
+                language: req.language,
                 outcome,
                 parse_trace,
             })

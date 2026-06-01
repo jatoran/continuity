@@ -27,15 +27,16 @@ use crate::chrome::ContentMargins;
 use crate::chrome_caret::caret_rect_for_shape;
 use crate::params::DrawParams;
 use crate::text_helpers::{
-    apply_footnote_drawing_effects, build_key_for_spec, caret_utf16_for_line,
-    draw_selection_line_with_layout, ensure_line_layout_for_spec, hit_test_x,
+    build_key_for_spec, caret_utf16_for_line, draw_selection_line_with_layout,
+    ensure_line_layout_for_spec, hit_test_x,
 };
+use crate::text_role_effects::{apply_role_drawing_effects, TextRoleBrushes};
 use crate::Error;
 
 /// Brushes consumed by the per-line text pass.
 pub(crate) struct LineTextBrushes<'a> {
     pub fg: &'a ID2D1SolidColorBrush,
-    pub footnote: &'a ID2D1SolidColorBrush,
+    pub text_roles: TextRoleBrushes<'a>,
     pub bg: &'a ID2D1SolidColorBrush,
     pub caret: &'a ID2D1SolidColorBrush,
     pub secondary_caret: &'a ID2D1SolidColorBrush,
@@ -186,7 +187,7 @@ pub(crate) fn paint_line_text_pass(
                 line_idx,
             );
         }
-        apply_footnote_drawing_effects(entry.layout, spec.style_runs(), brushes.footnote);
+        apply_role_drawing_effects(entry.layout, spec.style_runs(), &brushes.text_roles);
         unsafe {
             device_context.DrawTextLayout(
                 D2D_POINT_2F { x: 0.0, y: 0.0 },

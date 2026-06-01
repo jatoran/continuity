@@ -175,13 +175,33 @@ impl<'a> DisplayMapBuilder<'a> {
                     reservation_cursor += 1;
                 }
             } else {
-                self.materialize_source_line(
+                let pushed = self.materialize_source_line(
                     rope,
                     source_line_idx as u32,
                     &mut lines,
                     &mut reservation_cursor,
                     measure,
                 )?;
+                // Reconcile the row index to the *materialized* row count.
+                // Phase 1 set each dirty line's count from the cheap walker
+                // (`row_count_for_source_line`), but the realized `lines`
+                // vector is the ground truth. On a caret-reveal line the
+                // raw markdown source wraps to a different row count than
+                // the rendered form, and the cheap walker can disagree with
+                // what `materialize_source_line` actually pushes. Left
+                // unreconciled, the index would be out of sync with the
+                // specs; the *next* rebuild reuses this frame and slices the
+                // wrong spec count via `DisplayMap::realized_lines_for_source`,
+                // duplicating and dropping display rows (the click-to-reveal
+                // scramble). Keeping the index authoritative-from-specs here
+                // — exactly what `DisplayMapBuilder::build` does — guarantees
+                // the rebuilt frame is internally consistent and stops the
+                // desync from compounding across clicks. (Set
+                // unconditionally rather than asserting agreement: the
+                // divergence is real on revealed lines, so a hard assert
+                // would panic debug builds on exactly the buffers we are
+                // fixing.)
+                index.set_row_count(SourceLine::from_usize(source_line_idx), pushed);
             }
         }
 

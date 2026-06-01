@@ -103,13 +103,25 @@ fn delete_word(buffer: &Buffer, backward: bool) -> Result<Option<SelectionEditPl
 /// Find the byte offset of the start of the previous word/separator chunk
 /// from `caret`. The behavior matches typical editors: skip whitespace
 /// backward, then skip the contiguous run of word-or-non-word bytes.
+///
+/// A newline is a hard boundary *once whitespace on the current line has
+/// been skipped*: deleting the trailing spaces of a blank (or
+/// whitespace-only) line stops at the line start rather than swallowing
+/// the line break and merging into the line above. When the caret already
+/// sits at the line start (no whitespace skipped), the newline is deleted
+/// as usual so a bare `Ctrl+Backspace` still joins lines.
 fn word_boundary_before(bytes: &[u8], caret: usize) -> usize {
     let mut i = caret;
+    let mut skipped_blank = false;
     while i > 0 && is_blank(bytes[i - 1]) {
         i -= 1;
+        skipped_blank = true;
     }
     if i == 0 {
         return 0;
+    }
+    if skipped_blank && is_newline(bytes[i - 1]) {
+        return i;
     }
     let word = is_word_byte(bytes[i - 1]);
     while i > 0 && is_word_byte(bytes[i - 1]) == word && !is_blank(bytes[i - 1]) {
@@ -118,14 +130,24 @@ fn word_boundary_before(bytes: &[u8], caret: usize) -> usize {
     i
 }
 
+/// Mirror of [`word_boundary_before`] for forward (`Ctrl+Delete`)
+/// deletion: a newline is a hard boundary once leading whitespace on the
+/// current line has been skipped, so deleting forward over a
+/// whitespace-only line stops at the line end instead of pulling the next
+/// line up.
 fn word_boundary_after(bytes: &[u8], caret: usize) -> usize {
     let len = bytes.len();
     let mut i = caret;
+    let mut skipped_blank = false;
     while i < len && is_blank(bytes[i]) {
         i += 1;
+        skipped_blank = true;
     }
     if i >= len {
         return len;
+    }
+    if skipped_blank && is_newline(bytes[i]) {
+        return i;
     }
     let word = is_word_byte(bytes[i]);
     while i < len && is_word_byte(bytes[i]) == word && !is_blank(bytes[i]) {
@@ -182,6 +204,14 @@ fn is_blank(b: u8) -> bool {
     b == b' ' || b == b'\t'
 }
 
+/// A line break that a word-wise delete must not cross once it has begun
+/// consuming whitespace on the current line. Covers LF and a lone CR so a
+/// whitespace-only line shrinks to its own start instead of merging into
+/// its neighbour.
+fn is_newline(b: u8) -> bool {
+    b == b'\n' || b == b'\r'
+}
+
 #[cfg(test)]
 mod tests {
     use continuity_buffer::Buffer;
@@ -209,6 +239,49 @@ mod tests {
             .expect("plan some");
         apply_plan(&mut buffer, &plan).expect("apply ok");
         assert_eq!(buffer.rope().to_string(), "alpha");
+    }
+
+    #[test]
+    fn delete_word_backward_on_blank_line_stops_at_line_start() {
+        // Caret at the end of a whitespace-only line: the spaces are
+        // removed but the line break above survives — the caret lands at
+        // column 0 of the same (now empty) line, never merging upward.
+        let mut buffer = Buffer::from_text("abc\n   ");
+        buffer.set_selections(vec![Selection::caret_at(Position::new(1, 3))]);
+        let plan = plan(&buffer, &SelectionEdit::DeleteWordBackward)
+            .expect("plan ok")
+            .expect("plan some");
+        apply_plan(&mut buffer, &plan).expect("apply ok");
+        assert_eq!(buffer.rope().to_string(), "abc\n");
+        assert_eq!(buffer.selections()[0].head, Position::new(1, 0));
+    }
+
+    #[test]
+    fn delete_word_backward_at_line_start_still_merges_up() {
+        // Regression guard: with the caret already at column 0 (no
+        // whitespace to skip) a backward word delete must still consume
+        // the line break and join the previous line.
+        let mut buffer = Buffer::from_text("abc\ndef");
+        buffer.set_selections(vec![Selection::caret_at(Position::new(1, 0))]);
+        let plan = plan(&buffer, &SelectionEdit::DeleteWordBackward)
+            .expect("plan ok")
+            .expect("plan some");
+        apply_plan(&mut buffer, &plan).expect("apply ok");
+        assert_eq!(buffer.rope().to_string(), "abcdef");
+    }
+
+    #[test]
+    fn delete_word_forward_on_blank_line_stops_at_line_end() {
+        // Symmetric forward case: Ctrl+Delete over a whitespace-only line
+        // removes the spaces but leaves the line break, so the next line
+        // is not pulled up.
+        let mut buffer = Buffer::from_text("   \nabc");
+        buffer.set_selections(vec![Selection::caret_at(Position::new(0, 0))]);
+        let plan = plan(&buffer, &SelectionEdit::DeleteWordForward)
+            .expect("plan ok")
+            .expect("plan some");
+        apply_plan(&mut buffer, &plan).expect("apply ok");
+        assert_eq!(buffer.rope().to_string(), "\nabc");
     }
 
     #[test]

@@ -63,6 +63,29 @@ impl Window {
         )
     }
 
+    /// Does the editor body at `(x, y)` sit over a rendered checkbox
+    /// glyph? Used by `on_set_cursor` to swap the text I-beam for the
+    /// default arrow so a task checkbox reads as a clickable target
+    /// rather than editable text. Only a *replaced* (unrevealed) checkbox
+    /// produces [`SegmentHit::Checkbox`]; once the caret reveals the raw
+    /// `[ ]` brackets they are editable text and keep the I-beam.
+    pub(crate) fn cursor_over_checkbox(&self, x: i32, y: i32) -> bool {
+        matches!(
+            self.segment_hit_at_client(x, y),
+            Some(SegmentHit::Checkbox { .. })
+        )
+    }
+
+    /// Does the editor body at `(x, y)` sit over a collapsed link that a
+    /// plain click would open? Used by `on_set_cursor` to show the hand
+    /// cursor (no Ctrl needed) so rendered links read as clickable.
+    pub(crate) fn cursor_over_open_link(&self, x: i32, y: i32) -> bool {
+        matches!(
+            self.segment_hit_at_client(x, y),
+            Some(SegmentHit::Link { .. })
+        )
+    }
+
     fn segment_hit_at_client(&self, x: i32, y: i32) -> Option<SegmentHit> {
         let pos = self.client_to_buffer_position(x, y)?;
         let snap = self.editor.snapshot(self.buffer_id)?;
@@ -186,7 +209,10 @@ impl Window {
     fn dispatch_segment_hit(&mut self, hit: &SegmentHit, key_state: u32) -> bool {
         let ctrl = (key_state & MK_CONTROL) != 0;
         match hit {
-            SegmentHit::Link { url } if ctrl => {
+            // A collapsed link opens on a plain click (the display map
+            // only attaches this hit when the link is rendered, not while
+            // the caret reveals the raw `[text](url)` for editing).
+            SegmentHit::Link { url } => {
                 self.snapshot_open_url_at_range(url.start.raw(), url.end.raw())
             }
             SegmentHit::Checkbox { toggle, .. } if !ctrl => {
@@ -216,7 +242,9 @@ impl Window {
         if end <= start {
             return false;
         }
-        let url: String = rope.byte_slice(start..end).to_string();
+        let raw_url: String = rope.byte_slice(start..end).to_string();
+        // Scheme-less targets (`www.google.com`) open as files otherwise.
+        let url = crate::window_link_clipboard::normalize_url_for_open(&raw_url);
         if url.is_empty() {
             return false;
         }

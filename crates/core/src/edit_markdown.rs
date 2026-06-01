@@ -124,6 +124,31 @@ pub(crate) fn plan_markdown_toggle_numbered(
     ))
 }
 
+/// Split an optional leading list marker (`- `, `* `, `+ `, `N. `, `N) `)
+/// off the front of a line body. Returns `(marker, rest)`; `marker` is
+/// empty when the body has no marker. Lets checkbox/task toggles operate
+/// *after* the bullet instead of mistaking `- [ ] x` for plain text.
+fn split_leading_list_marker(body: &str) -> (&str, &str) {
+    for marker in ["- ", "* ", "+ "] {
+        if let Some(rest) = body.strip_prefix(marker) {
+            return (&body[..marker.len()], rest);
+        }
+    }
+    let bytes = body.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i > 0
+        && i + 1 < bytes.len()
+        && (bytes[i] == b'.' || bytes[i] == b')')
+        && bytes[i + 1] == b' '
+    {
+        return (&body[..i + 2], &body[i + 2..]);
+    }
+    ("", body)
+}
+
 pub(crate) fn plan_markdown_toggle_checkbox(
     buffer: &Buffer,
 ) -> Result<Option<SelectionEditPlan>, Error> {
@@ -136,17 +161,64 @@ pub(crate) fn plan_markdown_toggle_checkbox(
         let end = line_content_end(rope, line);
         let text = rope.byte_slice(start..end).to_string();
         let leading = leading_whitespace_len(&text);
+        let indent = &text[..leading];
         let body = &text[leading..];
-        let (replacement, replaced) = if let Some(rest) = body.strip_prefix("[ ] ") {
-            (format!("{}[x] {rest}", &text[..leading]), true)
-        } else if let Some(rest) = body.strip_prefix("[x] ") {
-            (format!("{}[ ] {rest}", &text[..leading]), true)
+        // A checkbox can sit *after* a list marker (`- [ ] `). Split the
+        // marker off first; otherwise the toggle never finds the existing
+        // checkbox on a `- [ ] ` line and prepends a duplicate
+        // (`[ ] - [ ] …`).
+        let (marker, after) = split_leading_list_marker(body);
+        let replacement = if let Some(rest) = after.strip_prefix("[ ] ") {
+            format!("{indent}{marker}[x] {rest}")
+        } else if let Some(rest) = after
+            .strip_prefix("[x] ")
+            .or_else(|| after.strip_prefix("[X] "))
+        {
+            format!("{indent}{marker}[ ] {rest}")
         } else {
-            (format!("{}[ ] {body}", &text[..leading]), true)
+            format!("{indent}{marker}[ ] {after}")
         };
-        if replaced {
-            specs.push(EditSpec::replace(rope, start, end, replacement)?);
-        }
+        specs.push(EditSpec::replace(rope, start, end, replacement)?);
+    }
+    Ok(finalize_specs(
+        specs,
+        selections_before.clone(),
+        selections_before,
+    ))
+}
+
+/// Toggle a full `- [ ] ` task bullet on each covered line. A line that
+/// is already a task (`- [ ] `, `[x] `, …) loses the whole prefix; a
+/// plain bullet (`- foo`) keeps its marker and gains a checkbox; any
+/// other line is prefixed with `- [ ] `. Bound to `Ctrl+E`.
+pub(crate) fn plan_markdown_toggle_task(
+    buffer: &Buffer,
+) -> Result<Option<SelectionEditPlan>, Error> {
+    let rope = buffer.rope();
+    let selections_before = buffer.selections().to_vec();
+    let lines = lines_in(buffer);
+    let mut specs = Vec::new();
+    for &line in &lines {
+        let start = rope.line_to_byte(line);
+        let end = line_content_end(rope, line);
+        let text = rope.byte_slice(start..end).to_string();
+        let leading = leading_whitespace_len(&text);
+        let indent = &text[..leading];
+        let body = &text[leading..];
+        let (marker, after) = split_leading_list_marker(body);
+        let is_task =
+            after.starts_with("[ ] ") || after.starts_with("[x] ") || after.starts_with("[X] ");
+        let replacement = if is_task {
+            // Drop the marker + checkbox, leaving plain content.
+            format!("{indent}{}", &after[4..])
+        } else if !marker.is_empty() {
+            // Plain bullet → task bullet, keeping the existing marker.
+            format!("{indent}{marker}[ ] {after}")
+        } else {
+            // Plain line → task bullet.
+            format!("{indent}- [ ] {after}")
+        };
+        specs.push(EditSpec::replace(rope, start, end, replacement)?);
     }
     Ok(finalize_specs(
         specs,
@@ -222,7 +294,64 @@ pub(crate) fn plan_markdown_insert_code_fence(
 pub(crate) fn plan_markdown_insert_link(
     buffer: &Buffer,
 ) -> Result<Option<SelectionEditPlan>, Error> {
-    insert_around(buffer, "[", "](url)", "[text](url)")
+    let rope = buffer.rope();
+    let selections_before = buffer.selections().to_vec();
+    let mut specs = Vec::new();
+    let mut selections_after = Vec::new();
+    for selection in &selections_before {
+        let range = selection.ordered_range();
+        let start = range.start.to_byte_offset(rope)?;
+        let end = range.end.to_byte_offset(rope)?;
+        let sel_text = rope.byte_slice(start..end).to_string();
+        // Drop the caret in the spot the writer still needs to fill:
+        //   selection is a URL  -> `[|](url)`  (type the visible label)
+        //   selection is text   -> `[text](|)` (type / paste the URL)
+        //   nothing selected    -> `[|]()`     (type the visible label)
+        let (replacement, caret_prefix_len) = if start == end {
+            ("[]()".to_string(), 1)
+        } else if selection_looks_like_url(&sel_text) {
+            (format!("[]({})", sel_text.trim()), 1)
+        } else {
+            // Caret after `[<text>](`.
+            (format!("[{sel_text}]()"), 1 + sel_text.len() + 2)
+        };
+        if start == end {
+            specs.push(EditSpec::insert(rope, start, replacement.clone())?);
+        } else {
+            specs.push(EditSpec::replace(rope, start, end, replacement.clone())?);
+        }
+        let head = advance_position(range.start, &replacement[..caret_prefix_len]);
+        selections_after.push(Selection::caret_at(head));
+    }
+    Ok(finalize_specs(specs, selections_before, selections_after))
+}
+
+/// Heuristic: does the selected text look like a URL the writer wants as
+/// the link *target* (rather than the visible label)? Drives which
+/// bracket the caret lands in for [`plan_markdown_insert_link`].
+fn selection_looks_like_url(s: &str) -> bool {
+    let s = s.trim();
+    if s.is_empty() || s.split_whitespace().count() != 1 {
+        return false;
+    }
+    if s.contains("://")
+        || s.starts_with("www.")
+        || s.starts_with("mailto:")
+        || s.starts_with("tel:")
+    {
+        return true;
+    }
+    // Bare domain like `example.com` or `a.b/path`: a dotted host with a
+    // non-empty label and an alphabetic TLD of length >= 2.
+    let host = s.split(['/', '?', '#']).next().unwrap_or(s);
+    if let Some(dot) = host.rfind('.') {
+        let before = &host[..dot];
+        let tld = &host[dot + 1..];
+        return !before.is_empty()
+            && tld.len() >= 2
+            && tld.chars().all(|c| c.is_ascii_alphabetic());
+    }
+    false
 }
 
 pub(crate) fn plan_markdown_insert_image_ref(
@@ -454,141 +583,4 @@ pub(crate) fn section_end_line(rope: &Rope, start: usize, level: u8) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
-    use continuity_buffer::Buffer;
-    use continuity_text::{Position, Selection, SelectionKind};
-
-    use super::*;
-    use crate::selection_edit::{apply_plan, plan, SelectionEdit};
-
-    fn caret(line: u32, col: u32) -> Selection {
-        Selection::caret_at(Position::new(line, col))
-    }
-
-    fn span(start: (u32, u32), end: (u32, u32)) -> Selection {
-        Selection::new(
-            Position::new(start.0, start.1),
-            Position::new(end.0, end.1),
-            SelectionKind::Caret,
-        )
-    }
-
-    fn run(buffer: &mut Buffer, edit: SelectionEdit) {
-        let plan = plan(buffer, &edit).expect("plan ok").expect("plan some");
-        apply_plan(buffer, &plan).expect("apply ok");
-    }
-
-    #[test]
-    fn toggle_bold_wraps_selection() {
-        let mut b = Buffer::from_text("text");
-        b.set_selections(vec![span((0, 0), (0, 4))]);
-        run(
-            &mut b,
-            SelectionEdit::MarkdownToggleEmphasis(EmphasisKind::Bold),
-        );
-        assert_eq!(b.rope().to_string(), "**text**");
-    }
-
-    #[test]
-    fn toggle_bold_multiline_wraps_each_line() {
-        let mut b = Buffer::from_text("foo\nbar");
-        b.set_selections(vec![span((0, 0), (1, 3))]);
-        run(
-            &mut b,
-            SelectionEdit::MarkdownToggleEmphasis(EmphasisKind::Bold),
-        );
-        assert_eq!(b.rope().to_string(), "**foo**\n**bar**");
-    }
-
-    #[test]
-    fn toggle_bold_multiline_preserves_indent_and_blank_lines() {
-        let mut b = Buffer::from_text("  foo\n\n  bar");
-        b.set_selections(vec![span((0, 0), (2, 5))]);
-        run(
-            &mut b,
-            SelectionEdit::MarkdownToggleEmphasis(EmphasisKind::Bold),
-        );
-        // Leading whitespace stays outside the markers; blank line stays
-        // blank — keeps the parser happy and the source readable.
-        assert_eq!(b.rope().to_string(), "  **foo**\n\n  **bar**");
-    }
-
-    #[test]
-    fn toggle_bold_strips_existing_wrap() {
-        let mut b = Buffer::from_text("**text**");
-        b.set_selections(vec![span((0, 0), (0, 8))]);
-        run(
-            &mut b,
-            SelectionEdit::MarkdownToggleEmphasis(EmphasisKind::Bold),
-        );
-        assert_eq!(b.rope().to_string(), "text");
-    }
-
-    #[test]
-    fn toggle_bullet_adds_then_removes() {
-        let mut b = Buffer::from_text("a");
-        b.set_selections(vec![caret(0, 0)]);
-        run(&mut b, SelectionEdit::MarkdownToggleBullet);
-        assert_eq!(b.rope().to_string(), "- a");
-        run(&mut b, SelectionEdit::MarkdownToggleBullet);
-        assert_eq!(b.rope().to_string(), "a");
-    }
-
-    #[test]
-    fn toggle_numbered_inserts_one_dot_space() {
-        let mut b = Buffer::from_text("a\nb");
-        b.set_selections(vec![span((0, 0), (1, 1))]);
-        run(&mut b, SelectionEdit::MarkdownToggleNumbered);
-        assert_eq!(b.rope().to_string(), "1. a\n2. b");
-    }
-
-    #[test]
-    fn toggle_checkbox_cycles() {
-        let mut b = Buffer::from_text("a");
-        b.set_selections(vec![caret(0, 0)]);
-        run(&mut b, SelectionEdit::MarkdownToggleCheckbox);
-        assert_eq!(b.rope().to_string(), "[ ] a");
-        run(&mut b, SelectionEdit::MarkdownToggleCheckbox);
-        assert_eq!(b.rope().to_string(), "[x] a");
-    }
-
-    #[test]
-    fn cycle_list_marker_advances() {
-        let mut b = Buffer::from_text("- a");
-        b.set_selections(vec![caret(0, 0)]);
-        run(&mut b, SelectionEdit::MarkdownCycleListMarker);
-        assert_eq!(b.rope().to_string(), "* a");
-    }
-
-    #[test]
-    fn wrap_in_blockquote_prefixes() {
-        let mut b = Buffer::from_text("a");
-        b.set_selections(vec![caret(0, 0)]);
-        run(&mut b, SelectionEdit::MarkdownWrapInBlockquote);
-        assert_eq!(b.rope().to_string(), "> a");
-    }
-
-    #[test]
-    fn insert_code_fence_wraps_selection() {
-        let mut b = Buffer::from_text("x");
-        b.set_selections(vec![span((0, 0), (0, 1))]);
-        run(&mut b, SelectionEdit::MarkdownInsertCodeFence);
-        assert_eq!(b.rope().to_string(), "```\nx\n```");
-    }
-
-    #[test]
-    fn insert_link_wraps_selection() {
-        let mut b = Buffer::from_text("hi");
-        b.set_selections(vec![span((0, 0), (0, 2))]);
-        run(&mut b, SelectionEdit::MarkdownInsertLink);
-        assert_eq!(b.rope().to_string(), "[hi](url)");
-    }
-
-    #[test]
-    fn insert_image_ref_at_caret() {
-        let mut b = Buffer::from_text("");
-        b.set_selections(vec![caret(0, 0)]);
-        run(&mut b, SelectionEdit::MarkdownInsertImageRef);
-        assert_eq!(b.rope().to_string(), "![alt](path)");
-    }
-}
+mod tests;

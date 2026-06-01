@@ -19,9 +19,8 @@ use crate::params::{PaneBodyDraw, ViewOptionsDraw};
 use crate::scroll_placeholder::{compute_unrealized_strips, paint_scroll_placeholder_strips};
 use crate::table_formula_paint::{paint_table_overrides_spec, TableFormulaBrushes};
 use crate::table_paint::TableVisualBrushes;
-use crate::text_helpers::{
-    apply_footnote_drawing_effects, build_key_for_spec, ensure_line_layout_for_spec,
-};
+use crate::text_helpers::{build_key_for_spec, ensure_line_layout_for_spec};
+use crate::text_role_effects::apply_role_drawing_effects;
 use crate::Error;
 
 /// Paint a single non-focused pane body inside its rect.
@@ -286,7 +285,7 @@ pub(super) unsafe fn paint_pane_body(
                 None,
             );
         }
-        apply_footnote_drawing_effects(entry.layout, spec.style_runs(), brushes.footnote);
+        apply_role_drawing_effects(entry.layout, spec.style_runs(), &brushes.text_roles);
         ctx.DrawTextLayout(
             D2D_POINT_2F { x: 0.0, y: 0.0 },
             entry.layout,

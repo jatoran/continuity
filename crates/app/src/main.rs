@@ -29,10 +29,10 @@ mod error;
 mod main_initial_requests;
 mod registry;
 mod registry_closed_history;
+mod registry_file_buffers;
 mod runtime_paths;
 
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
@@ -44,8 +44,11 @@ use continuity_persist::{backups_dir, db_path, BackupConfig, BackupScheduler, Pe
 use continuity_ui::LiveReload;
 use continuity_win::{set_per_monitor_dpi_v2, ComGuard};
 
-use main_initial_requests::build_initial_requests;
+use main_initial_requests::{build_initial_requests, mark_clean_exit};
 use registry::{make_channel, run, RegistryCtx, RegistryRuntime, SpawnRequest};
+use registry_file_buffers::{
+    build_file_buffer_index, file_buffer_for_path, register_file_buffer, FileBufferIndex,
+};
 use runtime_paths::StartupOptions;
 
 fn main() -> Result<()> {
@@ -126,6 +129,18 @@ fn main() -> Result<()> {
 
     let user_keymap_path = Some(startup_options.runtime_paths.keymap_path.clone());
     let (tx, rx) = make_channel();
+    let mut initial_requests = build_initial_requests(&persist.client(), &editor, &db)?;
+    let file_buffer_index = build_file_buffer_index(&initial_requests, &editor);
+    attach_startup_open_files(
+        &mut initial_requests,
+        &editor,
+        &startup_options.startup_paths.files,
+        &file_buffer_index,
+    );
+    attach_startup_open_folders(
+        &mut initial_requests,
+        &startup_options.startup_paths.folders,
+    );
     let ctx = RegistryCtx {
         persist: persist.client(),
         editor: editor.clone(),
@@ -134,23 +149,22 @@ fn main() -> Result<()> {
         tx,
         live_reload: Some(live_reload),
         file_io: file_io.client(),
+        file_buffer_index,
     };
     let runtime = RegistryRuntime {
         config_rx,
         persist_event_rx: Some(persist.events()),
         backup: Some(Arc::clone(&backup)),
     };
-    let mut initial_requests = build_initial_requests(&persist.client(), &editor)?;
-    attach_startup_open_files(
-        &mut initial_requests,
-        &editor,
-        &startup_options.startup_paths.files,
-    );
-    attach_startup_open_folders(
-        &mut initial_requests,
-        &startup_options.startup_paths.folders,
-    );
     run(ctx, rx, runtime, initial_requests).context("registry loop")?;
+
+    // The registry loop returns only when every window closed gracefully.
+    // Mark the exit clean so the next launch starts blank instead of
+    // restoring this (intentionally closed) session. A crash, panic, or
+    // kill skips this line, leaving the marker absent ⇒ next launch
+    // restores. The marker lives beside the database so it tracks the
+    // active data dir (and stays out of unrelated test data dirs).
+    mark_clean_exit(&db);
 
     // Explicit drop order so shutdown reads clearly: window threads were
     // joined inside the registry loop; here we tear down the rest.
@@ -218,43 +232,120 @@ fn load_initial_settings(path: &PathBuf) -> Settings {
 }
 
 fn attach_startup_open_files(
-    requests: &mut [SpawnRequest],
+    requests: &mut Vec<SpawnRequest>,
     editor: &Arc<EditorHandle>,
     paths: &[PathBuf],
+    file_buffer_index: &FileBufferIndex,
 ) {
     if paths.is_empty() {
         return;
     }
-    let mut known_file_paths = restored_file_paths(requests, editor);
-    let Some(first) = requests.first_mut() else {
-        return;
-    };
-    first.open_tutorial_on_init = false;
+    let mut file_requests = Vec::new();
+    let mut failed_notices = Vec::new();
     for path in paths {
-        if contains_same_file_path(&known_file_paths, path) {
-            continue;
-        }
-        match continuity_ui::file_io::read_startup_file(path) {
-            Ok(opened) => {
-                let encoding_notice = opened.encoding_notice;
-                let opened_path = opened.file.path.clone();
-                let buffer_id = editor.open_file_buffer(opened.content, opened.file);
-                first.startup_open_buffer_ids.push(buffer_id);
-                known_file_paths.push(opened_path.clone());
-                if let Some(encoding) = encoding_notice {
-                    first.recovery_notices.push(format!(
-                        "Opened {} as {encoding}; saving will write UTF-8.",
-                        opened_path.display()
-                    ));
+        let mut notices = Vec::new();
+        let buffer_id = match file_buffer_for_path(editor, file_buffer_index, path) {
+            Some(buffer_id) => Some(buffer_id),
+            None => match continuity_ui::file_io::read_startup_file(path) {
+                Ok(opened) => {
+                    let encoding_notice = opened.encoding_notice;
+                    let opened_path = opened.file.path.clone();
+                    let buffer_id = editor.open_file_buffer(opened.content, opened.file);
+                    register_file_buffer(file_buffer_index, opened_path.clone(), buffer_id);
+                    if let Some(encoding) = encoding_notice {
+                        notices.push(format!(
+                            "Opened {} as {encoding}; saving will write UTF-8.",
+                            opened_path.display()
+                        ));
+                    }
+                    Some(buffer_id)
                 }
-            }
-            Err(e) => {
-                let message = format!("Open failed for {}: {e}", path.display());
-                eprintln!("continuity: {message}");
-                first.recovery_notices.push(message);
-            }
+                Err(e) => {
+                    let message = format!("Open failed for {}: {e}", path.display());
+                    eprintln!("continuity: {message}");
+                    failed_notices.push(message);
+                    None
+                }
+            },
+        };
+        if let Some(buffer_id) = buffer_id {
+            file_requests.push(startup_file_spawn_request(
+                buffer_id,
+                notices,
+                file_requests.len(),
+            ));
         }
     }
+    if file_requests.is_empty() {
+        if let Some(first) = requests.first_mut() {
+            first.recovery_notices.append(&mut failed_notices);
+        }
+        return;
+    }
+    if let Some(first) = requests.first_mut() {
+        first.open_tutorial_on_init = false;
+    }
+    if should_replace_initial_blank_request(requests, editor) {
+        let mut first_file = file_requests.remove(0);
+        if let Some(existing_first) = requests.first_mut() {
+            let mut existing_notices = std::mem::take(&mut existing_first.recovery_notices);
+            existing_notices.append(&mut failed_notices);
+            existing_notices.append(&mut first_file.recovery_notices);
+            first_file.recovery_notices = existing_notices;
+            *existing_first = first_file;
+        }
+    } else if let Some(first) = requests.first_mut() {
+        first.recovery_notices.append(&mut failed_notices);
+    }
+    requests.extend(file_requests);
+}
+
+fn startup_file_spawn_request(
+    buffer_id: BufferId,
+    recovery_notices: Vec<String>,
+    ordinal: usize,
+) -> SpawnRequest {
+    SpawnRequest {
+        initial_buffer_id: buffer_id,
+        restored: None,
+        explicit_origin: startup_file_window_origin(ordinal),
+        cascade_from: None,
+        recovery_notices,
+        open_tutorial_on_init: false,
+        startup_open_buffer_ids: Vec::new(),
+        startup_folder_roots: Vec::new(),
+    }
+}
+
+fn startup_file_window_origin(ordinal: usize) -> Option<(i32, i32)> {
+    const STARTUP_WINDOW_SIZE: (i32, i32) = (1200, 800);
+    const STARTUP_CASCADE_STEP_PX: i32 = 30;
+    let (x, y) = continuity_win::centered_origin_on_focused_monitor(STARTUP_WINDOW_SIZE)?;
+    let ordinal = i32::try_from(ordinal).unwrap_or(i32::MAX / STARTUP_CASCADE_STEP_PX);
+    let offset = ordinal.saturating_mul(STARTUP_CASCADE_STEP_PX);
+    Some((x.saturating_add(offset), y.saturating_add(offset)))
+}
+
+fn should_replace_initial_blank_request(
+    requests: &[SpawnRequest],
+    editor: &Arc<EditorHandle>,
+) -> bool {
+    let [request] = requests else {
+        return false;
+    };
+    if request.restored.is_some()
+        || request.explicit_origin.is_some()
+        || request.cascade_from.is_some()
+        || !request.startup_open_buffer_ids.is_empty()
+        || !request.startup_folder_roots.is_empty()
+        || !request.recovery_notices.is_empty()
+    {
+        return false;
+    }
+    let Some(snapshot) = editor.snapshot(request.initial_buffer_id) else {
+        return false;
+    };
+    snapshot.file.is_none() && snapshot.rope_snapshot().rope().len_bytes() == 0
 }
 
 fn attach_startup_open_folders(requests: &mut [SpawnRequest], folders: &[PathBuf]) {
@@ -266,42 +357,4 @@ fn attach_startup_open_folders(requests: &mut [SpawnRequest], folders: &[PathBuf
     };
     first.open_tutorial_on_init = false;
     first.startup_folder_roots.extend(folders.iter().cloned());
-}
-
-fn restored_file_paths(requests: &[SpawnRequest], editor: &Arc<EditorHandle>) -> Vec<PathBuf> {
-    let mut buffer_ids = HashSet::new();
-    for request in requests {
-        buffer_ids.insert(request.initial_buffer_id);
-        if let Some((_, restored)) = request.restored.as_ref() {
-            if let Ok(restored_ids) =
-                continuity_ui::pane_tree_codec::buffer_ids_in_json(&restored.pane_tree_json)
-            {
-                buffer_ids.extend(restored_ids);
-            }
-        }
-    }
-    buffer_ids
-        .into_iter()
-        .filter_map(|buffer_id: BufferId| editor.snapshot(buffer_id))
-        .filter_map(|snapshot| snapshot.file.map(|file| file.path))
-        .collect()
-}
-
-fn contains_same_file_path(paths: &[PathBuf], candidate: &Path) -> bool {
-    paths
-        .iter()
-        .any(|existing| is_same_existing_file_path(existing, candidate))
-}
-
-fn is_same_existing_file_path(left: &Path, right: &Path) -> bool {
-    let left = normalize_existing_path(left);
-    let right = normalize_existing_path(right);
-    left == right
-        || left
-            .to_string_lossy()
-            .eq_ignore_ascii_case(&right.to_string_lossy())
-}
-
-fn normalize_existing_path(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }

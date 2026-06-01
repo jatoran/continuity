@@ -27,9 +27,8 @@ use crate::display_projection::FrameDisplay;
 use crate::inline_color_paint::caret_bytes_from_selections;
 use crate::params::DrawParams;
 use crate::table_formula_paint::TableFormulaBrushes;
-use crate::text_helpers::{
-    apply_footnote_drawing_effects, build_key_for_spec, ensure_line_layout_for_spec, hit_test_x,
-};
+use crate::text_helpers::{build_key_for_spec, ensure_line_layout_for_spec, hit_test_x};
+use crate::text_role_effects::{apply_role_drawing_effects, TextRoleBrushes};
 use crate::Error;
 
 /// Bundle of theme-derived brushes used by [`paint_display_lines`].
@@ -38,8 +37,8 @@ pub(crate) struct WrapPaintBrushes<'a> {
     pub bg: &'a ID2D1SolidColorBrush,
     /// Foreground glyph brush.
     pub fg: &'a ID2D1SolidColorBrush,
-    /// Footnote glyph foreground brush.
-    pub footnote: &'a ID2D1SolidColorBrush,
+    /// Styled text-role foreground brushes.
+    pub text_roles: TextRoleBrushes<'a>,
     /// Primary caret brush.
     pub caret: &'a ID2D1SolidColorBrush,
     /// Secondary-caret brush (multi-cursor overlay).
@@ -201,7 +200,7 @@ pub(crate) unsafe fn paint_display_lines(
             );
         }
 
-        apply_footnote_drawing_effects(entry.layout, spec.style_runs(), brushes.footnote);
+        apply_role_drawing_effects(entry.layout, spec.style_runs(), &brushes.text_roles);
         ctx.DrawTextLayout(
             D2D_POINT_2F { x: 0.0, y: 0.0 },
             entry.layout,

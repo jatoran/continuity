@@ -15,7 +15,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetWindowRect, IsWindowVisible, PostMessageW, WM_USER,
 };
 
-use crate::mouse::{DropIndicator, TabDrag};
+use crate::mouse::{DropIndicator, TabDrag, TabDragPhase};
 use crate::pane_layout::metrics;
 use crate::pane_tree::PaneId;
 use crate::window_mouse_hover::wall_clock_ms;
@@ -203,8 +203,12 @@ impl Window {
             start_ms,
             drop_indicator: None,
             resolution: crate::mouse::TabDropResolution::Cancel,
+            phase: TabDragPhase::Armed,
         });
-        self.update_tab_drag_ghost_at_client_point(x, y);
+        // No ghost and no affordance at press time: the drag is `Armed`
+        // and shows nothing until the cursor crosses the arm threshold.
+        // Lifting the floating ghost only happens once the phase machine
+        // reaches `Detached` (see `on_tab_drag_mouse_move`).
         crate::paint_trace::log_event(
             "tab_drag",
             "state=start target=cancel slot=-1 foreign_hwnd=0 elapsed_ms_since_start=0",
@@ -236,7 +240,19 @@ impl Window {
         let Some(delta) = self.refresh_tab_drag_resolution(x, y) else {
             return false;
         };
-        self.update_tab_drag_ghost_at_client_point(x, y);
+        // The floating ghost is a `Detached`-only affordance — while the
+        // drag is still grounded in the strip (`Armed` / `Reorder`) the
+        // tab is not lifted. `update_tab_drag_lift_state` already destroys the
+        // ghost on the transition out of `Detached`, so this only has to
+        // (re)show it while detached.
+        if self
+            .mouse_state
+            .tab_drag
+            .as_ref()
+            .is_some_and(|drag| drag.phase.is_detached())
+        {
+            self.update_tab_drag_ghost_at_client_point(x, y);
+        }
         if delta.variant_changed {
             if let crate::mouse::TabDropResolution::ForeignWindow { hwnd_raw } = delta.previous {
                 self.send_tab_drag_leave(hwnd_raw);
@@ -246,6 +262,11 @@ impl Window {
                     "invariant: refresh_tab_drag_resolution succeeded only when drag was set",
                 );
             let elapsed = wall_clock_ms().saturating_sub(drag.start_ms);
+            let phase = if drag.phase.is_detached() {
+                "detached"
+            } else {
+                "reorder"
+            };
             let foreign = match delta.current {
                 crate::mouse::TabDropResolution::ForeignWindow { hwnd_raw } => hwnd_raw as u64,
                 _ => 0,
@@ -257,8 +278,8 @@ impl Window {
             crate::paint_trace::log_event(
                 "tab_drag",
                 &format!(
-                    "state=over target={target} slot={slot} foreign_hwnd={foreign} \
-                     elapsed_ms_since_start={elapsed}",
+                    "state=over target={target} phase={phase} slot={slot} \
+                     foreign_hwnd={foreign} elapsed_ms_since_start={elapsed}",
                     target = delta.current.as_trace_str(),
                 ),
             );

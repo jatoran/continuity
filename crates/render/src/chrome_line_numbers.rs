@@ -19,6 +19,13 @@ use crate::chrome::gutter_width_for_line_count;
 use crate::display_projection::FrameDisplay;
 use crate::Error;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct GutterLabel {
+    display_row: u32,
+    source_line: usize,
+    is_active: bool,
+}
+
 /// Right-side inset applied to every gutter label layout so trailing
 /// alignment lands a few DIPs inside the gutter rather than flush against
 /// the gutter↔body divider rule. `gutter_width_for_line_count` already
@@ -61,13 +68,99 @@ fn make_divider_brush(
     unsafe { render_target.CreateSolidColorBrush(&color, None).ok() }
 }
 
+fn compute_visible_row_bounds(
+    scroll_y: f32,
+    viewport_h: f32,
+    line_height: f32,
+    total_rows: u32,
+) -> Option<(u32, u32)> {
+    if total_rows == 0 || viewport_h <= 0.0 || line_height <= 0.0 {
+        return None;
+    }
+    let first = ((scroll_y / line_height).floor() as i64).max(0);
+    let last = (((scroll_y + viewport_h) / line_height).ceil() as i64 - 1).max(first);
+    let max_row = i64::from(total_rows.saturating_sub(1));
+    let first = first.min(max_row) as u32;
+    let last = last.min(max_row) as u32;
+    Some((first, last))
+}
+
+fn push_unique_label(labels: &mut Vec<GutterLabel>, next: GutterLabel) {
+    if let Some(existing) = labels.iter_mut().find(|label| {
+        label.display_row == next.display_row && label.source_line == next.source_line
+    }) {
+        existing.is_active |= next.is_active;
+        return;
+    }
+    labels.push(next);
+}
+
+fn add_viewport_anchor_labels(
+    labels: &mut Vec<GutterLabel>,
+    first_row: u32,
+    last_row: u32,
+    source_line_for_row: impl Fn(u32) -> Option<usize>,
+    is_in_fold_body: &dyn Fn(u32) -> bool,
+) {
+    for display_row in [first_row, last_row] {
+        let Some(source_line) = source_line_for_row(display_row) else {
+            continue;
+        };
+        let line_u32 = u32::try_from(source_line).unwrap_or(0);
+        if is_in_fold_body(line_u32) {
+            continue;
+        }
+        push_unique_label(
+            labels,
+            GutterLabel {
+                display_row,
+                source_line,
+                is_active: false,
+            },
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_gutter_label(
+    ctx: &ID2D1DeviceContext,
+    factory: &IDWriteFactory,
+    format: &IDWriteTextFormat,
+    source_line: usize,
+    display_row: u32,
+    active_line: Option<usize>,
+    fold_body_count: Option<u32>,
+    relative: bool,
+    gutter_width: f32,
+    line_height: f32,
+    scroll_y: f32,
+    brush: &ID2D1SolidColorBrush,
+) -> Result<(), Error> {
+    let label = build_label(source_line, active_line, fold_body_count, relative);
+    let wide: Vec<u16> = label.encode_utf16().collect();
+    let layout = unsafe {
+        factory.CreateTextLayout(&wide, format, label_layout_width(gutter_width), line_height)?
+    };
+    align_trailing(&layout);
+    let y = display_row as f32 * line_height - scroll_y;
+    unsafe {
+        ctx.DrawTextLayout(
+            D2D_POINT_2F { x: 0.0, y },
+            &layout,
+            brush,
+            D2D1_DRAW_TEXT_OPTIONS_NONE,
+        );
+    }
+    Ok(())
+}
+
 /// Paint the line-number gutter column.
 ///
-/// When `caret_only` is `true` (Phase A §A4 default) only the caret line's
-/// number is rendered; the gutter strip otherwise stays empty so the
-/// always-on gutter doesn't compete with body text for attention. When
-/// `false`, every visible line's number is rendered right-aligned with
-/// the caret line painted via `active_brush`.
+/// When `caret_only` is `true` (Phase A §A4 default) the gutter renders
+/// the caret line plus muted first/last viewport anchors; the gutter strip
+/// otherwise stays empty so the always-on gutter doesn't compete with body
+/// text for attention. When `false`, every visible line's number is rendered
+/// right-aligned with the caret line painted via `active_brush`.
 /// When `relative` is `true`, non-caret rows show their distance from
 /// the primary caret line; the caret row itself remains absolute.
 ///
@@ -167,44 +260,53 @@ pub(crate) fn paint_line_number_gutter(
     }
 
     if caret_only {
-        // Render only the active line's number. Skip the per-line loop
-        // entirely when the caret isn't in the visible range — paint cost
-        // for an idle gutter falls to zero.
-        let Some(line_idx) = active_line else {
+        let Some((first_row, last_row)) =
+            compute_visible_row_bounds(scroll_y, viewport_h, line_height, total_lines as u32)
+        else {
             return Ok(());
         };
-        if line_idx < first_visible || line_idx >= last_visible.min(total_lines) {
-            return Ok(());
-        }
-        let line_u32 = u32::try_from(line_idx).unwrap_or(0);
-        // A folded body line is hidden; nothing to paint here.
-        if is_in_fold_body(line_u32) {
-            return Ok(());
-        }
-        let y = line_idx as f32 * line_height - scroll_y;
-        let label = build_label(
-            line_idx,
-            active_line,
-            body_count_for_header(line_u32),
-            relative,
+        let mut labels = Vec::with_capacity(3);
+        add_viewport_anchor_labels(
+            &mut labels,
+            first_row,
+            last_row,
+            |row| Some(row as usize),
+            &is_in_fold_body,
         );
-        let wide: Vec<u16> = label.encode_utf16().collect();
-        let layout = unsafe {
-            factory.CreateTextLayout(
-                &wide,
+        if let Some(line_idx) = active_line {
+            let line_u32 = u32::try_from(line_idx).unwrap_or(0);
+            if !is_in_fold_body(line_u32) && line_idx >= first_visible && line_idx < last_visible {
+                push_unique_label(
+                    &mut labels,
+                    GutterLabel {
+                        display_row: line_u32,
+                        source_line: line_idx,
+                        is_active: true,
+                    },
+                );
+            }
+        }
+        for label in labels {
+            let line_u32 = u32::try_from(label.source_line).unwrap_or(0);
+            let brush = if label.is_active {
+                active_brush
+            } else {
+                inactive_brush
+            };
+            draw_gutter_label(
+                ctx,
+                factory,
                 format,
-                label_layout_width(gutter_width),
+                label.source_line,
+                label.display_row,
+                active_line,
+                body_count_for_header(line_u32),
+                relative,
+                gutter_width,
                 line_height,
-            )?
-        };
-        align_trailing(&layout);
-        unsafe {
-            ctx.DrawTextLayout(
-                D2D_POINT_2F { x: 0.0, y },
-                &layout,
-                active_brush,
-                D2D1_DRAW_TEXT_OPTIONS_NONE,
-            );
+                scroll_y,
+                brush,
+            )?;
         }
         return Ok(());
     }
@@ -217,36 +319,25 @@ pub(crate) fn paint_line_number_gutter(
             // row reads "32", not "31").
             continue;
         }
-        let y = line_idx as f32 * line_height - scroll_y;
-        let label = build_label(
-            line_idx,
-            active_line,
-            body_count_for_header(line_u32),
-            relative,
-        );
-        let wide: Vec<u16> = label.encode_utf16().collect();
-        let layout = unsafe {
-            factory.CreateTextLayout(
-                &wide,
-                format,
-                label_layout_width(gutter_width),
-                line_height,
-            )?
-        };
-        align_trailing(&layout);
         let brush = if active_line == Some(line_idx) {
             active_brush
         } else {
             inactive_brush
         };
-        unsafe {
-            ctx.DrawTextLayout(
-                D2D_POINT_2F { x: 0.0, y },
-                &layout,
-                brush,
-                D2D1_DRAW_TEXT_OPTIONS_NONE,
-            );
-        }
+        draw_gutter_label(
+            ctx,
+            factory,
+            format,
+            line_idx,
+            line_u32,
+            active_line,
+            body_count_for_header(line_u32),
+            relative,
+            gutter_width,
+            line_height,
+            scroll_y,
+            brush,
+        )?;
     }
     Ok(())
 }
@@ -290,56 +381,69 @@ fn paint_gutter_display_rows(
     is_in_fold_body: &dyn Fn(u32) -> bool,
     gutter_width: f32,
 ) -> Result<(), Error> {
-    let total_dl = fd.display_line_count() as i64;
+    let total_dl = fd.display_line_count();
     if total_dl == 0 {
         return Ok(());
     }
+    let Some((first_anchor_dl, last_anchor_dl)) =
+        compute_visible_row_bounds(scroll_y, viewport_h, line_height, total_dl)
+    else {
+        return Ok(());
+    };
     let first_dl = ((scroll_y / line_height).floor() as i64).max(0);
-    let last_dl = (((scroll_y + viewport_h) / line_height).ceil() as i64 + 1).clamp(0, total_dl);
-    let draw_label =
-        |dl_idx: u32, source_line: usize, brush: &ID2D1SolidColorBrush| -> Result<(), Error> {
+    let last_dl =
+        (((scroll_y + viewport_h) / line_height).ceil() as i64 + 1).clamp(0, i64::from(total_dl));
+
+    if caret_only {
+        let mut labels = Vec::with_capacity(3);
+        add_viewport_anchor_labels(
+            &mut labels,
+            first_anchor_dl,
+            last_anchor_dl,
+            |row| {
+                fd.display_line_by_index(row)
+                    .map(|spec| spec.source_line.raw() as usize)
+            },
+            is_in_fold_body,
+        );
+        if let Some(source_line) = active_line {
             let line_u32 = u32::try_from(source_line).unwrap_or(0);
-            let label = build_label(
-                source_line,
+            if !is_in_fold_body(line_u32) {
+                let dl_idx = fd.first_display_line_index_for_source(source_line);
+                if dl_idx >= first_anchor_dl && dl_idx < last_dl as u32 {
+                    push_unique_label(
+                        &mut labels,
+                        GutterLabel {
+                            display_row: dl_idx,
+                            source_line,
+                            is_active: true,
+                        },
+                    );
+                }
+            }
+        }
+        for label in labels {
+            let line_u32 = u32::try_from(label.source_line).unwrap_or(0);
+            let brush = if label.is_active {
+                active_brush
+            } else {
+                inactive_brush
+            };
+            draw_gutter_label(
+                ctx,
+                factory,
+                format,
+                label.source_line,
+                label.display_row,
                 active_line,
                 body_count_for_header(line_u32),
                 relative,
-            );
-            let wide: Vec<u16> = label.encode_utf16().collect();
-            let layout = unsafe {
-                factory.CreateTextLayout(
-                    &wide,
-                    format,
-                    label_layout_width(gutter_width),
-                    line_height,
-                )?
-            };
-            align_trailing(&layout);
-            let y = dl_idx as f32 * line_height - scroll_y;
-            unsafe {
-                ctx.DrawTextLayout(
-                    D2D_POINT_2F { x: 0.0, y },
-                    &layout,
-                    brush,
-                    D2D1_DRAW_TEXT_OPTIONS_NONE,
-                );
-            }
-            Ok(())
-        };
-
-    if caret_only {
-        let Some(source_line) = active_line else {
-            return Ok(());
-        };
-        let line_u32 = u32::try_from(source_line).unwrap_or(0);
-        if is_in_fold_body(line_u32) {
-            return Ok(());
+                gutter_width,
+                line_height,
+                scroll_y,
+                brush,
+            )?;
         }
-        let dl_idx = fd.first_display_line_index_for_source(source_line) as i64;
-        if dl_idx < first_dl || dl_idx >= last_dl {
-            return Ok(());
-        }
-        draw_label(dl_idx as u32, source_line, active_brush)?;
         return Ok(());
     }
 
@@ -360,7 +464,20 @@ fn paint_gutter_display_rows(
         } else {
             inactive_brush
         };
-        draw_label(dl_idx as u32, source_line, brush)?;
+        draw_gutter_label(
+            ctx,
+            factory,
+            format,
+            source_line,
+            dl_idx as u32,
+            active_line,
+            body_count_for_header(line_u32),
+            relative,
+            gutter_width,
+            line_height,
+            scroll_y,
+            brush,
+        )?;
     }
     Ok(())
 }

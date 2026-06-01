@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.2.0
+
+- Markdown links now render in the theme link colour and open in the default
+  browser on a plain click; a scheme-less target such as `www.example.com`
+  defaults to `https://`.
+- `Ctrl+K` inserts or wraps a markdown link with smart caret placement — a
+  selected URL becomes the target (caret in the label), selected text becomes
+  the label (caret in the URL).
+- Task checkboxes: `Ctrl+E` toggles a `- [ ]` task bullet; a `- [ ]` line now
+  renders a single checkbox instead of a bullet *and* a box; clicking the box
+  toggles it without corrupting the line; the box stays rendered while you edit
+  the line's text, and the cursor shows a pointer over it.
+- Tab dragging follows Chrome: tabs slide to reorder within the strip and only
+  tear off into a new window on a deliberate vertical pull.
+- Closing the app intentionally no longer reopens the previous buffers on the
+  next launch (a crash still restores the session); bring closed windows back
+  with `Ctrl+Shift+T`.
+- `Ctrl+Backspace` on a whitespace-only line deletes back to the line start
+  instead of merging into the line above.
+- New application icon.
+
 ## 0.1.1 - Unreleased
 
 - Portable zip launches now auto-detect a beside-the-exe `data\` directory, so

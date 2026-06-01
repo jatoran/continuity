@@ -84,6 +84,38 @@ fn line_revealed(
     false
 }
 
+/// Bytes of slack on either side of a checkbox span within which a caret
+/// reveals the raw `[ ]` brackets.
+const CHECKBOX_REVEAL_SLACK_BYTES: usize = 2;
+
+/// Unlike the rest of a markdown line, a task checkbox reveals its raw
+/// brackets only when a caret sits *on or beside the checkbox itself*,
+/// not merely somewhere on the line. This lets the writer keep editing
+/// the line's text with the checkbox glyph still showing, yet still edit
+/// (or delete) the brackets when the caret is near them.
+///
+/// `span_start..span_end` is the checkbox span clamped to the line; the
+/// reveal window extends [`CHECKBOX_REVEAL_SLACK_BYTES`] past each edge,
+/// clamped to the line so an off-line caret never reveals it.
+fn caret_near_checkbox(
+    caret_bytes: &[SourceByte],
+    span_start: usize,
+    span_end: usize,
+    line_start: usize,
+    line_end: usize,
+) -> bool {
+    let lo = span_start
+        .saturating_sub(CHECKBOX_REVEAL_SLACK_BYTES)
+        .max(line_start);
+    let hi = span_end
+        .saturating_add(CHECKBOX_REVEAL_SLACK_BYTES)
+        .min(line_end);
+    caret_bytes.iter().any(|c| {
+        let pos = c.as_usize();
+        pos >= lo && pos <= hi
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Segment construction
 // ---------------------------------------------------------------------------
@@ -192,6 +224,15 @@ pub(super) fn build_line_segments(
                 let txt_e = text_range.end.min(line_end);
                 if txt_s < txt_e {
                     style_overlays.push((txt_s..txt_e, SpanStyle::link()));
+                    // Only a *collapsed* link is clickable-to-open. While
+                    // the caret reveals the raw `[text](url)` the text is
+                    // editable, so drop the hit and let a click place the
+                    // caret rather than open the browser.
+                    let hit = if revealed {
+                        SegmentHit::None
+                    } else {
+                        SegmentHit::Link { url: url.clone() }
+                    };
                     // Link hit metadata wraps the *visible* range; we'll
                     // promote the visible link bytes to carry a SegmentHit
                     // via a post-pass over the segment list below.
@@ -201,7 +242,7 @@ pub(super) fn build_line_segments(
                         action: Action::Replace {
                             display: line_text[txt_s - line_start..txt_e - line_start].to_string(),
                             style: SpanStyle::link(),
-                            hit: SegmentHit::Link { url: url.clone() },
+                            hit,
                         },
                     });
                 }
@@ -298,7 +339,13 @@ pub(super) fn build_line_segments(
                 checked,
                 toggle_byte,
             } => {
-                if !revealed {
+                // The checkbox uses its own, tighter reveal rule (caret
+                // near the box) rather than the line-wide `revealed`, so
+                // the glyph survives while the rest of the line's text is
+                // being edited.
+                let checkbox_revealed =
+                    caret_near_checkbox(caret_bytes, s, e, line_start, line_end);
+                if !checkbox_revealed {
                     let display = if *checked {
                         "☑ ".to_string()
                     } else {
@@ -362,6 +409,17 @@ pub(super) fn build_line_segments(
                 end: rhs_e,
                 action: Action::Hide,
             });
+        }
+    }
+
+    for highlight in &decorations.highlights {
+        if highlight.end <= line_start || highlight.start >= line_end {
+            continue;
+        }
+        let s = highlight.start.max(line_start);
+        let e = highlight.end.min(line_end);
+        if s < e {
+            style_overlays.push((s..e, SpanStyle::syntax(highlight.kind)));
         }
     }
 

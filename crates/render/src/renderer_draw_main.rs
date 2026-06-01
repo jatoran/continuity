@@ -127,12 +127,12 @@ pub(crate) fn render_frame(
         };
         let bg_brush = render_target.CreateSolidColorBrush(&bg_d2d, None)?;
         let fg_brush = mkb(params.colors.fg)?;
-        let footnote_color = if params.markdown_colors.footnote.a > 0.0 {
-            params.markdown_colors.footnote
-        } else {
-            params.colors.fg
-        };
-        let footnote_brush = mkb(footnote_color)?;
+        let text_role_brush_set = crate::text_role_effects::TextRoleBrushSet::new(
+            &render_target,
+            &params.markdown_colors,
+            params.colors.fg,
+        )?;
+        let text_role_brushes = text_role_brush_set.refs();
         let caret_brush = mkb(params.colors.caret)?;
         let table_active_cell_brush = mkb(params.markdown_colors.table_active_cell_outline)?;
         let secondary_caret_brush = mkb(params.colors.secondary_caret)?;
@@ -310,7 +310,7 @@ pub(crate) fn render_frame(
                 crate::wrap_paint::WrapPaintBrushes {
                     bg: &bg_brush,
                     fg: &fg_brush,
-                    footnote: &footnote_brush,
+                    text_roles: text_role_brushes,
                     caret: &caret_brush,
                     secondary_caret: &secondary_caret_brush,
                     selection: &selection_brush,
@@ -348,7 +348,7 @@ pub(crate) fn render_frame(
                 },
                 crate::renderer_line_text_pass::LineTextBrushes {
                     fg: &fg_brush,
-                    footnote: &footnote_brush,
+                    text_roles: text_role_brushes,
                     bg: &bg_brush,
                     caret: &caret_brush,
                     secondary_caret: &secondary_caret_brush,
@@ -552,7 +552,6 @@ pub(crate) fn render_frame(
                 image_hits: &renderer.last_image_hits,
                 fg_brush: &fg_brush,
                 bg_brush: &bg_brush,
-                footnote_brush: &footnote_brush,
                 chrome_command_list: &renderer.chrome_command_list,
             },
             params,

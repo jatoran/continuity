@@ -8,7 +8,6 @@ use continuity_display_map::{DisplayLineSpec, SourceByte, SpanRole, SpanStyle};
 use continuity_layout::{FontStateId, LayoutCache, LineLayoutKey};
 use continuity_text::{Selection, SelectionKind};
 use ropey::Rope;
-use windows::core::Interface;
 use windows::Win32::Foundation::{BOOL, HMODULE};
 use windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F;
 use windows::Win32::Graphics::Direct2D::{ID2D1DeviceContext, ID2D1SolidColorBrush};
@@ -151,43 +150,6 @@ fn style_font_scale(style: SpanStyle, heading_scale: [f32; 6]) -> Option<f32> {
         return Some(heading_scale[lvl]);
     }
     Some(style.font_scale.as_f32())
-}
-
-/// Apply theme-driven foreground drawing effects for footnote runs.
-///
-/// Direct2D's `DrawTextLayout` uses the caller brush unless a run carries a
-/// DirectWrite drawing effect. The cached layout already stores size/style;
-/// this per-frame pass keeps color responsive to theme changes.
-pub(crate) fn apply_footnote_drawing_effects(
-    layout: &IDWriteTextLayout,
-    runs: impl Iterator<
-        Item = (
-            std::ops::Range<continuity_display_map::DisplayUtf16>,
-            SpanStyle,
-        ),
-    >,
-    footnote_brush: &ID2D1SolidColorBrush,
-) {
-    let Ok(effect) = footnote_brush.cast::<windows::core::IUnknown>() else {
-        return;
-    };
-    for (range, style) in runs {
-        if !matches!(style.role, SpanRole::Footnote) {
-            continue;
-        }
-        let start = range.start.raw();
-        let length = range.end.raw().saturating_sub(start);
-        if length == 0 {
-            continue;
-        }
-        let dwrite_range = DWRITE_TEXT_RANGE {
-            startPosition: start,
-            length,
-        };
-        unsafe {
-            let _ = layout.SetDrawingEffect(&effect, dwrite_range);
-        }
-    }
 }
 
 /// Resolve the UTF-16 caret position for `source_byte_in_line` on

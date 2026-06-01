@@ -1,10 +1,9 @@
-//! Lightweight syntax highlighting for fenced code-block bodies.
+//! Lightweight syntax highlighting for fenced code-block bodies and code files.
 //!
-//! Phase 10's syntax-highlighting allowlist is intentionally small —
-//! `rust`, `json`, `markdown`. A heavier tree-sitter-grammars + highlight-
-//! query approach is recorded as a follow-up; for now a hand-rolled scanner
-//! per language produces span colors keyed to a small palette. Phase 11
-//! wires real theme keys.
+//! The syntax-highlighting allowlist is intentionally small: `rust`, `json`,
+//! `toml`, and `markdown`. A heavier tree-sitter-grammars + highlight-query
+//! approach is recorded as a follow-up; for now a hand-rolled scanner per
+//! language produces span colors keyed to a small palette.
 //!
 //! Pure function: `(language_tag, source) -> Vec<HighlightSpan>` with byte
 //! offsets relative to the input. The caller (decoration pipeline) is
@@ -12,7 +11,7 @@
 
 /// What kind of token a [`HighlightSpan`] describes. Maps to a small
 /// palette the renderer will translate into Rgba.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum HighlightKind {
     /// Language keyword (`fn`, `if`, `else`, `let`, `return`, `match`,
     /// `pub`, `mod`, `use`, …).
@@ -33,7 +32,7 @@ pub enum HighlightKind {
 }
 
 /// One highlight span: byte range + token kind.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct HighlightSpan {
     /// Inclusive byte start within the input.
     pub start: usize,
@@ -43,15 +42,16 @@ pub struct HighlightSpan {
     pub kind: HighlightKind,
 }
 
-/// Syntax-highlight `source` per `language_tag` (the fence info string).
-/// Languages outside the Phase-10 allowlist return an empty vector — no
-/// highlighting, no error.
+/// Syntax-highlight `source` per `language_tag` from a fence info string or
+/// detected file extension. Languages outside the allowlist return an empty
+/// vector — no highlighting, no error.
 #[must_use]
 pub fn highlight(language_tag: &str, source: &str) -> Vec<HighlightSpan> {
     let lang = normalize_language(language_tag);
     match lang {
         "rust" | "rs" => highlight_rust(source),
         "json" => highlight_json(source),
+        "toml" => highlight_toml(source),
         "markdown" | "md" => highlight_markdown_inline(source),
         _ => Vec::new(),
     }
@@ -268,6 +268,123 @@ fn highlight_json(src: &str) -> Vec<HighlightSpan> {
     out
 }
 
+fn highlight_toml(src: &str) -> Vec<HighlightSpan> {
+    let mut out = Vec::new();
+    let bytes = src.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'#' {
+            let start = i;
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            out.push(HighlightSpan {
+                start,
+                end: i,
+                kind: HighlightKind::Comment,
+            });
+            continue;
+        }
+        if b == b'[' {
+            let start = i;
+            while i < bytes.len() && bytes[i] != b'\n' && bytes[i] != b']' {
+                i += 1;
+            }
+            if i < bytes.len() && bytes[i] == b']' {
+                i += 1;
+            }
+            out.push(HighlightSpan {
+                start,
+                end: i,
+                kind: HighlightKind::Keyword,
+            });
+            continue;
+        }
+        if b == b'"' || b == b'\'' {
+            let quote = b;
+            let start = i;
+            i += 1;
+            while i < bytes.len() {
+                if quote == b'"' && bytes[i] == b'\\' && i + 1 < bytes.len() {
+                    i += 2;
+                    continue;
+                }
+                if bytes[i] == quote {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            out.push(HighlightSpan {
+                start,
+                end: i,
+                kind: HighlightKind::String,
+            });
+            continue;
+        }
+        if b.is_ascii_digit() || b == b'-' || b == b'+' {
+            let start = i;
+            if b == b'-' || b == b'+' {
+                i += 1;
+            }
+            while i < bytes.len()
+                && (bytes[i].is_ascii_alphanumeric()
+                    || matches!(bytes[i], b'.' | b'_' | b':' | b'-' | b'+'))
+            {
+                i += 1;
+            }
+            let signed = matches!(b, b'-' | b'+');
+            let signed_len = if signed { 1 } else { 0 };
+            if i > start + signed_len {
+                out.push(HighlightSpan {
+                    start,
+                    end: i,
+                    kind: HighlightKind::Number,
+                });
+            }
+            continue;
+        }
+        if is_toml_key_start(b) {
+            let start = i;
+            while i < bytes.len() && is_toml_key_continue(bytes[i]) {
+                i += 1;
+            }
+            let word = &src[start..i];
+            if matches!(word, "true" | "false") {
+                out.push(HighlightSpan {
+                    start,
+                    end: i,
+                    kind: HighlightKind::Keyword,
+                });
+                continue;
+            }
+            let mut j = i;
+            while j < bytes.len() && matches!(bytes[j], b' ' | b'\t') {
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b'=' {
+                out.push(HighlightSpan {
+                    start,
+                    end: i,
+                    kind: HighlightKind::Type,
+                });
+            }
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
+fn is_toml_key_start(b: u8) -> bool {
+    b.is_ascii_alphabetic() || b == b'_' || b == b'-'
+}
+
+fn is_toml_key_continue(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.')
+}
+
 fn highlight_markdown_inline(src: &str) -> Vec<HighlightSpan> {
     // For markdown shown *inside* a fenced block we just light up backticked
     // inline code as Code-style runs; the renderer doesn't double-style
@@ -339,6 +456,17 @@ mod tests {
                 .count()
                 >= 3
         );
+    }
+
+    #[test]
+    fn toml_keys_values_and_comments() {
+        let src = "[package]\nname = \"continuity\"\nworkers = 4\n# local\n";
+        let spans = highlight("toml", src);
+        assert!(spans.iter().any(|s| s.kind == HighlightKind::Keyword));
+        assert!(spans.iter().any(|s| s.kind == HighlightKind::Type));
+        assert!(spans.iter().any(|s| s.kind == HighlightKind::String));
+        assert!(spans.iter().any(|s| s.kind == HighlightKind::Number));
+        assert!(spans.iter().any(|s| s.kind == HighlightKind::Comment));
     }
 
     #[test]

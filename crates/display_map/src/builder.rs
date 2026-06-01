@@ -355,15 +355,46 @@ impl<'a> DisplayMapBuilder<'a> {
         {
             reservation_cursor += 1;
         }
+        // Reconcile the row index to the *materialized* row counts for
+        // the realized window. `row_index` came from the cheap row-count
+        // walker (`compute_row_counts`); the realized `lines` vector is
+        // the ground truth. On a caret-reveal line the raw markdown wraps
+        // to a different row count than the cheap walker proves, and the
+        // two can disagree. Left unreconciled the frame is born with its
+        // index out of sync with its specs; a later `rebuild_dirty` reuse
+        // then slices the wrong spec count via
+        // `DisplayMap::realized_lines_for_source`, duplicating and
+        // dropping display rows (the click-to-reveal scramble, seen on
+        // the read-only tutorial whose frames lean on this cold path).
+        // Clone-and-patch only when a divergence is actually observed, so
+        // the common no-divergence build pays nothing beyond the per-line
+        // comparison; offscreen lines keep their cheap-walker counts (no
+        // specs exist to reconcile against, and they are never painted).
+        let mut reconciled_counts: Vec<(usize, u16)> = Vec::new();
         for source_line_idx in source_range.start..source_range.end {
-            self.materialize_source_line(
+            let pushed = self.materialize_source_line(
                 rope,
                 source_line_idx as u32,
                 &mut lines,
                 &mut reservation_cursor,
                 measure,
             )?;
+            if u32::from(pushed)
+                != row_index.display_row_count_for_source(SourceLine::from_usize(source_line_idx))
+            {
+                reconciled_counts.push((source_line_idx, pushed));
+            }
         }
+
+        let row_index = if reconciled_counts.is_empty() {
+            row_index
+        } else {
+            let mut patched = (*row_index).clone();
+            for (source_line_idx, count) in reconciled_counts {
+                patched.set_row_count(SourceLine::from_usize(source_line_idx), count);
+            }
+            Arc::new(patched)
+        };
 
         Ok(Arc::new(DisplayMap::from_parts_viewport(
             self.decorations.revision,
@@ -489,95 +520,8 @@ impl<'a> DisplayMapBuilder<'a> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Line-range helpers
-// ---------------------------------------------------------------------------
-
-/// `(start_byte, end_byte_excluding_newline)`. For the last (synthetic) empty
-/// line the rope returns `(len, len)`.
-pub(super) fn source_line_range(rope: &Rope, line: usize) -> (usize, usize) {
-    let total_lines = rope.len_lines();
-    let start = rope.line_to_byte(line);
-    let next = if line + 1 < total_lines {
-        rope.line_to_byte(line + 1)
-    } else {
-        rope.len_bytes()
-    };
-    let slice = rope.byte_slice(start..next).to_string();
-    let mut end = next;
-    if slice.ends_with('\n') {
-        end -= 1;
-        if slice.ends_with("\r\n") {
-            end -= 1;
-        }
-    }
-    (start, end)
-}
-
-pub(super) fn read_line_text(rope: &Rope, start: usize, end: usize) -> String {
-    if start >= end {
-        return String::new();
-    }
-    rope.byte_slice(start..end).to_string()
-}
-
-pub(super) fn fold_covers(folds: &[FoldRange], start: usize, end: usize) -> bool {
-    if start >= end {
-        return false;
-    }
-    folds
-        .iter()
-        .any(|f| f.start.as_usize() <= start && f.end.as_usize() >= end)
-}
-
-/// Phase F — `true` when a source line should be hidden from the display
-/// map entirely (zero display rows): either it is fully fold-covered, or
-/// it is a `<!--continuity:…-->` pipe-table presentation directive. The
-/// directive stays in the rope as the source of truth for column widths
-/// and the wrap mode, but is never painted (like a marker). Computed
-/// during the existing row walk so every build path agrees with no extra
-/// scan and no fold-signature plumbing.
-pub(super) fn line_is_hidden(
-    folds: &[FoldRange],
-    line_text: &str,
-    line_start: usize,
-    line_end: usize,
-) -> bool {
-    if line_text.is_empty() {
-        return false;
-    }
-    fold_covers(folds, line_start, line_end) || is_continuity_directive_line(line_text)
-}
-
-/// `true` when `line` (trimmed) is a continuity table directive comment,
-/// e.g. `<!--continuity:width=120,-;wrap=on-->`.
-fn is_continuity_directive_line(line: &str) -> bool {
-    let trimmed = line.trim();
-    trimmed.starts_with("<!--continuity:") && trimmed.ends_with("-->")
-}
-
-/// Construct an empty phantom display line — zero source bytes, no
-/// segments, anchored at the source line's end. Phantom rows reserve
-/// vertical space below an expanded inline image without contributing
-/// any source bytes or hit-test geometry; they share `source_line`
-/// with the image's natural row so caret navigation and hit-testing
-/// resolve back to the image's source line.
-fn phantom_display_line(source_line: SourceLine, anchor_byte: usize) -> DisplayLineSpec {
-    DisplayLineSpec::new(
-        source_line,
-        SourceByte::from_usize(anchor_byte),
-        SourceByte::from_usize(anchor_byte),
-        // `is_wrap_continuation = true` — the renderer's wrap-aware
-        // paint loop treats this row as a continuation, so no caret
-        // leading indent or wrap-prefix decoration paints into the
-        // reserved space.
-        true,
-        Vec::new(),
-        "",
-    )
-}
-
 mod build_partial;
+mod line_helpers;
 pub(crate) mod progressive_walker;
 mod rebuild_dirty;
 mod rebuild_spliced;
@@ -588,6 +532,7 @@ mod soft_wrap;
 pub mod splice_row_index;
 pub(crate) mod stats;
 mod targeted_row_index;
+use line_helpers::{line_is_hidden, phantom_display_line, read_line_text, source_line_range};
 use row_counts::compute_row_counts;
 use segments::build_line_segments;
 use soft_wrap::soft_wrap_spec;

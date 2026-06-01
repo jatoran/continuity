@@ -26,7 +26,8 @@ use windows::core::HSTRING;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Shell::DragAcceptFiles;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, CW_USEDEFAULT, WINDOW_EX_STYLE, WS_EX_NOREDIRECTIONBITMAP, WS_OVERLAPPEDWINDOW,
+    CreateWindowExW, SetWindowPos, CW_USEDEFAULT, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
+    WINDOW_EX_STYLE, WS_EX_NOREDIRECTIONBITMAP, WS_OVERLAPPEDWINDOW,
 };
 
 use crate::display_prewarm_cache::DisplayMapPrewarm;
@@ -62,6 +63,8 @@ impl Window {
         let dwrite = DWriteFactory::new()?;
         let startup_open_buffer_ids = commands.startup_open_buffer_ids;
         let startup_folder_roots = commands.startup_folder_roots;
+        let (file_open_tx, file_open_rx) =
+            crossbeam_channel::bounded(crate::file_io_worker::CHANNEL_CAPACITY);
 
         let font_state = FontStateId::from_parts(FONT_FAMILY, FONT_SIZE_DIP, FONT_LOCALE, 1.0);
         let active_theme = ActiveTheme::bundled().unwrap_or_else(|_| ActiveTheme::neutral());
@@ -155,6 +158,10 @@ impl Window {
             config_poll_active: false,
             persistence: commands.persistence,
             file_io: commands.file_io,
+            file_open_tx,
+            file_open_rx,
+            open_file_window: commands.open_file_window,
+            register_file_buffer: commands.register_file_buffer,
             file_io_poll_active: false,
             file_tree: crate::file_tree::FileTreeState::default(),
             state_save_pending: false,
@@ -251,6 +258,13 @@ impl Window {
         window.refresh_language();
         window.maybe_submit_decoration();
         window.maybe_apply_initial_settings();
+        if let Some(file) = window
+            .editor
+            .snapshot(window.buffer_id)
+            .and_then(|snap| snap.file)
+        {
+            window.mark_tab_file_associated(window.buffer_id, &file);
+        }
         // δ.3 — raise the registry-supplied initial banner (today only
         // recovery-halt notices, but the field is generic enough for any
         // launch-time message). Multiple notices collapse into a single
@@ -293,6 +307,21 @@ impl Window {
             )
         }
         .map_err(|e| continuity_win::Error::win32("CreateWindowExW", e))?;
+
+        if let Some((origin_x, origin_y)) = config.initial_origin {
+            unsafe {
+                SetWindowPos(
+                    hwnd,
+                    None,
+                    origin_x,
+                    origin_y,
+                    0,
+                    0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                )
+            }
+            .map_err(|e| continuity_win::Error::win32("SetWindowPos", e))?;
+        }
 
         window.hwnd = hwnd;
         window.window_dpi = continuity_win::dpi_for_window(hwnd);

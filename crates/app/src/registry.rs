@@ -7,10 +7,11 @@
 //!
 //! ## Phase 16.5 evolution
 //!
-//! - [`RegistryEvent::Closed`] now carries the closing window's id. The
-//!   registry decides — based on the live count *at the time of close* —
-//!   whether to tombstone the row (non-last close) or preserve it for
-//!   restore (last close = app session ending).
+//! - [`RegistryEvent::Closed`] now carries the closing window's id. Every
+//!   graceful close — including the final window — archives the window to
+//!   the closed-history stack and tombstones its row. Intentional quits
+//!   therefore leave the next launch clean; only a crash (which never
+//!   reaches this handler) leaves rows behind to auto-restore.
 //! - The [`continuity_config::SettingsWatcher`] is owned here, not in the
 //!   first window. The registry's main loop multiplexes its receiver
 //!   alongside [`RegistryEvent`]s and fans
@@ -34,6 +35,9 @@ use std::time::SystemTime;
 
 use crate::error::Error;
 use crate::registry_closed_history::{archive_closed_window, smart_reopen_handler};
+use crate::registry_file_buffers::{
+    make_open_file_window_handler, make_register_file_buffer_handler, FileBufferIndex,
+};
 use continuity_buffer::{BufferId, WindowId};
 use continuity_command::{
     register_buffer_history_commands, register_clipboard_commands, register_diagnostics_commands,
@@ -62,10 +66,10 @@ pub enum RegistryEvent {
     /// registry handles the spawn on the main thread (the only one that
     /// owns the persist client + spawn machinery).
     Spawn(SpawnRequest),
-    /// A UI thread has finished its message pump. The registry uses
-    /// `window_id` together with the live count to decide whether to
-    /// tombstone the row (non-last close) or preserve it for restore
-    /// (last close = app session ending).
+    /// A UI thread has finished its message pump. The registry archives
+    /// the window to the closed-history stack and tombstones its row —
+    /// for every graceful close, including the last window. A crash never
+    /// sends this event, so its rows survive and that session restores.
     Closed {
         /// Which window finished. `None` when the close came from a thread
         /// that never reached Window construction (in which case there's
@@ -103,9 +107,9 @@ pub(crate) struct SpawnRequest {
     /// part of the same operation so subsequent launches see
     /// `false` (idempotent).
     pub open_tutorial_on_init: bool,
-    /// File-associated buffers created from process startup paths.
-    /// Only the first launch request receives these so `Open with`
-    /// augments the restored session instead of replacing every window.
+    /// Extra buffers to adopt as tabs during window construction.
+    /// Runtime and startup file opens normally use separate
+    /// [`SpawnRequest`]s so each file lands in its own top-level window.
     pub startup_open_buffer_ids: Vec<BufferId>,
     /// Folder roots supplied on the process command line.
     pub startup_folder_roots: Vec<PathBuf>,
@@ -135,6 +139,9 @@ pub(crate) struct RegistryCtx {
     pub live_reload: Option<LiveReload>,
     /// Shared file-I/O worker client.
     pub file_io: FileIoClient,
+    /// Cross-window file-path-to-buffer index used to reuse an existing
+    /// file buffer when opening the same file into a fresh window.
+    pub file_buffer_index: FileBufferIndex,
 }
 
 /// Inputs to the registry's main loop that aren't routed through
@@ -208,20 +215,17 @@ pub fn run(
                     spawn_window_thread(&ctx, &mut state, req)?;
                 }
                 Ok(RegistryEvent::Closed { window_id }) => {
-                    // Decide *before* decrementing: we want the live count
-                    // at the moment of close to drive the tombstone-vs-
-                    // preserve choice. `live > 1` means there is at least
-                    // one other window still up after this one closes —
-                    // the user dismissed one window of many → archive it.
-                    // `live == 1` means this is the last window → app
-                    // session ending → preserve the row so the restore on
-                    // next launch reopens exactly this window.
-                    let was_last = state.live <= 1;
+                    // Every *graceful* close — one window among many or the
+                    // final window — archives the window to the closed-
+                    // history stack and tombstones its row. The last window
+                    // is no longer preserved for auto-restore: an
+                    // intentional quit leaves the next launch clean, and
+                    // Ctrl+Shift+T (closed history) brings the window back.
+                    // A crash never reaches this handler, so its rows
+                    // survive and that session *is* restored next launch.
                     if let Some(id) = window_id {
                         state.control_senders.remove(&id);
-                        if !was_last {
-                            archive_closed_window(&ctx.persist, id);
-                        }
+                        archive_closed_window(&ctx.persist, id);
                     }
                     state.live = state.live.saturating_sub(1);
                     if state.live == 0 {
@@ -325,6 +329,8 @@ fn run_window(
     let keymap = load_keymap(ctx.default_keymap_toml, ctx.user_keymap_path.as_ref())?;
     let initial_state = req.restored.as_ref().map(|(_, s)| s.clone());
     let persistence = make_persistence(&ctx, window_id, initial_state);
+    const DEFAULT_WINDOW_WIDTH: i32 = 1200;
+    const DEFAULT_WINDOW_HEIGHT: i32 = 800;
     // Cascade from the source window when present, but only when this
     // spawn isn't going to be repositioned by a restored placement blob
     // (which would otherwise snap the window back to its persisted spot
@@ -335,14 +341,25 @@ fn run_window(
     } else if let Some(origin) = req.explicit_origin {
         Some(origin)
     } else {
-        req.cascade_from
-            .map(|(x, y, _w, _h)| (x + CASCADE_STEP_PX, y + CASCADE_STEP_PX))
+        req.cascade_from.and_then(|rect| {
+            continuity_win::cascade_origin_on_source_monitor(
+                rect,
+                (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT),
+                CASCADE_STEP_PX,
+            )
+            .or_else(|| {
+                Some((
+                    rect.0.saturating_add(CASCADE_STEP_PX),
+                    rect.1.saturating_add(CASCADE_STEP_PX),
+                ))
+            })
+        })
     };
     let window = Window::new(
         WindowConfig {
             title: "continuity".into(),
-            width: 1200,
-            height: 800,
+            width: DEFAULT_WINDOW_WIDTH,
+            height: DEFAULT_WINDOW_HEIGHT,
             initial_origin,
         },
         Arc::clone(&ctx.editor),
@@ -356,6 +373,8 @@ fn run_window(
             control_rx: Some(control_rx),
             persistence: Some(persistence),
             file_io: Some(ctx.file_io.clone()),
+            open_file_window: Some(make_open_file_window_handler(&ctx)),
+            register_file_buffer: Some(make_register_file_buffer_handler(&ctx)),
             persist_client: Some(ctx.persist.clone()),
             initial_banners: req.recovery_notices,
             open_tutorial_on_init: req.open_tutorial_on_init,

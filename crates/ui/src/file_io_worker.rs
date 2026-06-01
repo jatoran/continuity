@@ -69,7 +69,12 @@ fn handle_request(
     watched_dirs: &mut HashSet<PathBuf>,
 ) -> bool {
     match msg {
-        FileIoRequest::OpenFiles { paths, target_pane } => {
+        FileIoRequest::OpenFiles {
+            paths,
+            target_pane,
+            reply,
+        } => {
+            let output = reply.as_ref().unwrap_or(event_tx);
             for path in paths {
                 match read_file(&path) {
                     Ok(result) => {
@@ -79,18 +84,18 @@ fn handle_request(
                             encoding_notice,
                         } = result;
                         if let Some(encoding) = encoding_notice {
-                            let _ = event_tx.send(FileIoEvent::EncodingNotice {
+                            let _ = output.send(FileIoEvent::EncodingNotice {
                                 path: path.clone(),
                                 encoding,
                             });
                         }
-                        let _ = event_tx.send(FileIoEvent::Opened {
+                        let _ = output.send(FileIoEvent::Opened {
                             target_pane,
                             content,
                             file,
                         });
                     }
-                    Err(e) => send_failed(event_tx, "open", Some(path), e),
+                    Err(e) => send_failed(output, "open", Some(path), e),
                 }
             }
             false
@@ -256,5 +261,52 @@ fn handle_notify_inner(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{HashMap, HashSet};
+
+    use crossbeam_channel::bounded;
+
+    use super::*;
+
+    #[test]
+    fn open_files_with_reply_uses_reply_channel() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let path = dir.path().join("note.md");
+        std::fs::write(&path, "hello").expect("write temp file");
+        let (event_tx, event_rx) = bounded(CHANNEL_CAPACITY);
+        let (reply_tx, reply_rx) = bounded(CHANNEL_CAPACITY);
+        let mut watched = HashMap::new();
+        let mut watched_dirs = HashSet::new();
+
+        let should_shutdown = handle_request(
+            FileIoRequest::OpenFiles {
+                paths: vec![path.clone()],
+                target_pane: None,
+                reply: Some(reply_tx),
+            },
+            &event_tx,
+            None,
+            &mut watched,
+            &mut watched_dirs,
+        );
+
+        assert!(!should_shutdown);
+        assert!(event_rx.try_recv().is_err());
+        let event = reply_rx.try_recv().expect("receive open reply");
+        let FileIoEvent::Opened {
+            target_pane,
+            content,
+            file,
+        } = event
+        else {
+            panic!("expected opened event");
+        };
+        assert_eq!(target_pane, None);
+        assert_eq!(content, "hello");
+        assert_eq!(file.path, path);
     }
 }

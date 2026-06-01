@@ -28,6 +28,7 @@ use windows::Win32::Graphics::DirectWrite::IDWriteFactory;
 use crate::minimap::MinimapColors;
 use crate::params::DrawParams;
 use crate::text_metrics::{measure_space_advance_dip, measure_tab_advance_dip};
+use crate::text_role_effects::TextRoleBrushes;
 use crate::Error;
 
 mod body;
@@ -39,8 +40,8 @@ mod table_chrome;
 pub(crate) struct PaneBodyBrushes<'a> {
     /// Main text foreground.
     pub fg: &'a ID2D1SolidColorBrush,
-    /// Footnote glyph foreground.
-    pub footnote: &'a ID2D1SolidColorBrush,
+    /// Styled text-role foreground brushes.
+    pub text_roles: TextRoleBrushes<'a>,
     /// Body background fill.
     pub bg: &'a ID2D1SolidColorBrush,
     /// Placeholder fill for visible display rows not realized yet.

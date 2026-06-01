@@ -325,26 +325,36 @@ fn scan_list_marker_and_checkbox(base: usize, src: &str, out: &mut Vec<InlineSpa
     } else {
         return;
     }
-    out.push(InlineSpan {
-        kind: InlineKind::Marker(MarkerKind::ListMarker),
-        range: ByteRange::new(base + mark_start, base + end),
-    });
-    // Inline checkbox `[ ]` / `[x]` immediately after marker (with optional
-    // single trailing space).
+    // Inline checkbox `[ ]` / `[x]` immediately after the marker. When
+    // present, the whole `- [ ] ` is one task prefix: emit a *single*
+    // Checkbox span covering the marker **and** the brackets (plus the
+    // one trailing space) so the display map replaces the entire prefix
+    // with a checkbox glyph. The list bullet is intentionally not emitted
+    // here — otherwise the line renders a bullet *and* a checkbox.
     if end + 3 <= bytes.len() && bytes[end] == b'[' && bytes[end + 2] == b']' {
         let inner = bytes[end + 1];
         let checked = matches!(inner, b'x' | b'X');
         let unchecked = inner == b' ';
         if checked || unchecked {
+            let mut box_end = end + 3;
+            if box_end < bytes.len() && bytes[box_end] == b' ' {
+                box_end += 1;
+            }
             out.push(InlineSpan {
                 kind: InlineKind::Checkbox {
                     checked,
                     toggle_byte: base + end + 1,
                 },
-                range: ByteRange::new(base + end, base + end + 3),
+                range: ByteRange::new(base + mark_start, base + box_end),
             });
+            return;
         }
     }
+    // Plain (non-task) list item: emit the bullet marker.
+    out.push(InlineSpan {
+        kind: InlineKind::Marker(MarkerKind::ListMarker),
+        range: ByteRange::new(base + mark_start, base + end),
+    });
 }
 
 fn scan_blockquote_markers(base: usize, src: &str, out: &mut Vec<InlineSpan>) {
@@ -435,165 +445,4 @@ fn scan_pipe_table(base: usize, src: &str, out: &mut Vec<InlineSpan>) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn first_kind_of(spans: &[InlineSpan], pred: impl Fn(&InlineKind) -> bool) -> &InlineSpan {
-        spans
-            .iter()
-            .find(|s| pred(&s.kind))
-            .expect("expected match")
-    }
-
-    #[test]
-    fn heading_marker_extracted() {
-        let src = "## hello";
-        let spans = block_inline_spans(BlockKind::Heading { level: 2 }, 0, src);
-        let m = first_kind_of(&spans, |k| {
-            matches!(k, InlineKind::Marker(MarkerKind::HeadingHash))
-        });
-        assert_eq!(m.range, ByteRange::new(0, 3)); // "## "
-    }
-
-    #[test]
-    fn list_marker_and_checkbox_extracted() {
-        let src = "- [ ] todo";
-        let spans = block_inline_spans(BlockKind::ListItem, 100, src);
-        assert!(spans
-            .iter()
-            .any(|s| matches!(s.kind, InlineKind::Marker(MarkerKind::ListMarker))));
-        let cb = spans
-            .iter()
-            .find_map(|s| match s.kind {
-                InlineKind::Checkbox {
-                    checked,
-                    toggle_byte,
-                } => Some((checked, toggle_byte)),
-                _ => None,
-            })
-            .expect("checkbox not found");
-        assert!(!cb.0);
-        assert_eq!(cb.1, 100 + 3); // base + index of ' ' between brackets
-    }
-
-    #[test]
-    fn checked_checkbox_extracted() {
-        let src = "* [x] done";
-        let spans = block_inline_spans(BlockKind::ListItem, 0, src);
-        let cb = spans
-            .iter()
-            .find_map(|s| match s.kind {
-                InlineKind::Checkbox { checked, .. } => Some(checked),
-                _ => None,
-            })
-            .unwrap();
-        assert!(cb);
-    }
-
-    #[test]
-    fn emphasis_and_strong_extracted() {
-        let src = "this is **bold** and *italic*.";
-        let spans = block_inline_spans(BlockKind::Paragraph, 0, src);
-        let strong = spans.iter().find(|s| matches!(s.kind, InlineKind::Strong));
-        assert!(strong.is_some());
-        let emph = spans
-            .iter()
-            .find(|s| matches!(s.kind, InlineKind::Emphasis));
-        assert!(emph.is_some());
-    }
-
-    #[test]
-    fn inline_code_extracted_with_delims() {
-        let src = "code: `let x = 1;`";
-        let spans = block_inline_spans(BlockKind::Paragraph, 0, src);
-        let code = spans.iter().find(|s| matches!(s.kind, InlineKind::Code));
-        assert!(code.is_some());
-        let delims: Vec<_> = spans
-            .iter()
-            .filter(|s| matches!(s.kind, InlineKind::Marker(MarkerKind::CodeDelim)))
-            .collect();
-        assert_eq!(delims.len(), 2);
-    }
-
-    #[test]
-    fn link_extracted() {
-        let src = "see [docs](https://example.com) yo";
-        let spans = block_inline_spans(BlockKind::Paragraph, 0, src);
-        let link = spans
-            .iter()
-            .find(|s| matches!(s.kind, InlineKind::Link { .. }))
-            .unwrap();
-        if let InlineKind::Link {
-            text_range,
-            url_range,
-        } = link.kind.clone()
-        {
-            assert_eq!(&src[text_range.start..text_range.end], "docs");
-            assert_eq!(&src[url_range.start..url_range.end], "https://example.com");
-        }
-    }
-
-    #[test]
-    fn footnote_reference_extracted() {
-        let src = "note [^12] here";
-        let spans = block_inline_spans(BlockKind::Paragraph, 0, src);
-        let footnote = spans
-            .iter()
-            .find(|s| matches!(s.kind, InlineKind::FootnoteReference { .. }))
-            .unwrap();
-        assert_eq!(footnote.range, ByteRange::new(5, 10));
-        match &footnote.kind {
-            InlineKind::FootnoteReference { label } => assert_eq!(label, "12"),
-            other => panic!("unexpected kind: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn footnote_definition_label_is_not_reference() {
-        let src = "[^1]: body";
-        let spans = block_inline_spans(BlockKind::Paragraph, 0, src);
-        assert!(!spans
-            .iter()
-            .any(|s| matches!(s.kind, InlineKind::FootnoteReference { .. })));
-    }
-
-    #[test]
-    fn image_ref_extracted() {
-        let src = "![alt](pic.png)";
-        let spans = block_inline_spans(BlockKind::Paragraph, 0, src);
-        assert!(spans
-            .iter()
-            .any(|s| matches!(s.kind, InlineKind::ImageRef { .. })));
-    }
-
-    #[test]
-    fn pipe_table_pipes_marked() {
-        let src = "| a | b |\n|---|---|\n| 1 | 2 |\n";
-        let spans = block_inline_spans(BlockKind::PipeTable, 0, src);
-        let pipes: Vec<_> = spans
-            .iter()
-            .filter(|s| matches!(s.kind, InlineKind::Marker(MarkerKind::TablePipe)))
-            .collect();
-        assert_eq!(pipes.len(), 9);
-    }
-
-    #[test]
-    fn fence_ticks_marked() {
-        let src = "```rust\nfn main() {}\n```";
-        let spans = block_inline_spans(BlockKind::FencedCodeBlock, 0, src);
-        let fences: Vec<_> = spans
-            .iter()
-            .filter(|s| matches!(s.kind, InlineKind::Marker(MarkerKind::FenceTick)))
-            .collect();
-        assert_eq!(fences.len(), 2);
-    }
-
-    #[test]
-    fn unmatched_emphasis_falls_through() {
-        let src = "lone *star here";
-        let spans = block_inline_spans(BlockKind::Paragraph, 0, src);
-        assert!(!spans
-            .iter()
-            .any(|s| matches!(s.kind, InlineKind::Emphasis | InlineKind::Strong)));
-    }
-}
+mod tests;

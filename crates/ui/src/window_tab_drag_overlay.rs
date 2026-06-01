@@ -42,7 +42,14 @@ pub(crate) fn build_tab_drag_overlay(window: &Window) -> Option<TabDragOverlayDr
 fn build_local_drag_overlay(window: &Window) -> Option<TabDragOverlayDraw> {
     let drag = window.mouse_state.tab_drag.as_ref()?;
     let fade_alpha = compute_fade_alpha(window, drag.start_ms);
-    let source_tab = compute_source_tab_fade(window, drag);
+    // The source-tab "lift" fade is a `Detached`-only cue. While the drag
+    // is grounded (`Armed` / `Reorder`) the tab stays fully opaque and the
+    // only feedback is the in-strip insertion bar.
+    let source_tab = if drag.phase.is_detached() {
+        compute_source_tab_fade(window, drag)
+    } else {
+        None
+    };
     let (indicator, pane_body, ghost) = match drag.resolution {
         TabDropResolution::Cancel => (None, None, None),
         TabDropResolution::SourceStrip(indicator) => {

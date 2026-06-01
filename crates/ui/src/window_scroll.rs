@@ -11,7 +11,7 @@ use windows::Win32::System::SystemInformation::GetTickCount64;
 use crate::pane_layout::{metrics, pane_at_point, Rect};
 use crate::pane_state::PerPaneState;
 use crate::pane_tree::{PaneId, PaneTree};
-use crate::window::{Window, LINE_HEIGHT_DIP, WHEEL_LINES_PER_NOTCH};
+use crate::window::{Window, WHEEL_LINES_PER_NOTCH};
 
 /// Exponential decay time constant for wheel inertia. At 60 ms, velocity
 /// reaches 10% in about 138 ms, so wheel flicks still feel continuous but
@@ -165,10 +165,12 @@ pub(crate) fn compute_wheel_scroll_speed(speed: f32) -> f32 {
     }
 }
 
-/// Convert wheel notches into the configured line-step delta.
+/// Convert wheel notches into the configured line-step delta. `line_height`
+/// is the current (zoom-scaled) row stride so one notch always moves the
+/// same number of *lines* regardless of zoom.
 #[must_use]
-pub(crate) fn wheel_delta_dip(notches: f32, speed: f32) -> f32 {
-    -notches * WHEEL_LINES_PER_NOTCH * compute_wheel_scroll_speed(speed) * LINE_HEIGHT_DIP
+pub(crate) fn wheel_delta_dip(notches: f32, speed: f32, line_height: f32) -> f32 {
+    -notches * WHEEL_LINES_PER_NOTCH * compute_wheel_scroll_speed(speed) * line_height
 }
 
 /// Resolve a wheel point to the pane body that should scroll.
@@ -243,9 +245,10 @@ pub(crate) fn should_submit_sliding_prewarm(
 }
 
 /// Reduced-motion wheel handling keeps whole-line jumps and no decay.
+/// `line_height` is the current (zoom-scaled) row stride.
 #[must_use]
-pub(crate) fn reduced_motion_wheel_delta_dip(notches: f32, speed: f32) -> f32 {
-    (-notches * WHEEL_LINES_PER_NOTCH * compute_wheel_scroll_speed(speed)).round() * LINE_HEIGHT_DIP
+pub(crate) fn reduced_motion_wheel_delta_dip(notches: f32, speed: f32, line_height: f32) -> f32 {
+    (-notches * WHEEL_LINES_PER_NOTCH * compute_wheel_scroll_speed(speed)).round() * line_height
 }
 
 impl Window {
@@ -299,6 +302,7 @@ impl Window {
         };
         let content_height_dip = self.estimated_content_height_for_pane(target_pane);
         let wheel_speed = self.view_options.mouse_wheel_scroll_speed;
+        let line_height = self.effective_line_height();
         if self.motion_policy().is_reduced_motion() || !self.view_options.smooth_scroll {
             self.cancel_scroll_inertia();
             let moved = self
@@ -307,7 +311,7 @@ impl Window {
                     view.viewport_height_dip = body_rect.h;
                     let before = view.scroll_y_dip;
                     view.scroll_instant(
-                        reduced_motion_wheel_delta_dip(notches, wheel_speed),
+                        reduced_motion_wheel_delta_dip(notches, wheel_speed, line_height),
                         content_height_dip,
                     );
                     (view.scroll_y_dip - before).abs() > f32::EPSILON
@@ -329,7 +333,7 @@ impl Window {
         self.scroll_inertia.add_wheel_delta(
             target_pane,
             self.tree.focused,
-            wheel_delta_dip(notches, wheel_speed),
+            wheel_delta_dip(notches, wheel_speed, line_height),
             now_ms,
         );
         self.start_scroll_anim(hwnd);
@@ -362,8 +366,9 @@ impl Window {
         let velocity = self.scroll_inertia.velocity_dip_per_s();
         let viewport_h = self.view.viewport_height_dip;
         let scroll_y = self.view.scroll_y_dip;
-        let realized_start_dip = realized_start_row as f32 * LINE_HEIGHT_DIP;
-        let realized_end_dip = realized_end_row as f32 * LINE_HEIGHT_DIP;
+        let line_height = self.effective_line_height();
+        let realized_start_dip = realized_start_row as f32 * line_height;
+        let realized_end_dip = realized_end_row as f32 * line_height;
         if !should_submit_sliding_prewarm(
             realized_start_dip,
             realized_end_dip,
@@ -379,7 +384,7 @@ impl Window {
         let viewport_rows = crate::window_paint::visible_display_row_range(
             target_scroll_y,
             viewport_h,
-            LINE_HEIGHT_DIP,
+            line_height,
         );
         let _ = self.try_dispatch_projection_worker_early_with_viewport(
             "scroll_prewarm",
@@ -428,18 +433,19 @@ impl Window {
         let Some(buffer_id) = self.buffer_id_for_pane(pane) else {
             return 0.0;
         };
+        let line_height = self.effective_line_height();
         if let Some(rows) = self
             .spectator_frame_cache
             .borrow()
             .display_line_count(pane, buffer_id)
         {
-            return rows.max(1) as f32 * LINE_HEIGHT_DIP;
+            return rows.max(1) as f32 * line_height;
         }
         let Some(snap) = self.editor.snapshot(buffer_id) else {
             return 0.0;
         };
         let lines = snap.rope_snapshot().rope().len_lines().max(1) as f32;
-        lines * LINE_HEIGHT_DIP
+        lines * line_height
     }
 
     fn buffer_id_for_pane(&self, pane: PaneId) -> Option<continuity_buffer::BufferId> {

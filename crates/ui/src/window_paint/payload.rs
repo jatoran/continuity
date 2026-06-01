@@ -170,7 +170,7 @@ impl Window {
         self.view_options.minimap_layout = Some(continuity_render::compute_minimap_layout(
             pane_rect,
             self.view.scroll_y_dip,
-            crate::window::LINE_HEIGHT_DIP,
+            self.effective_line_height(),
             snap_rope.len_lines().max(1) as u64,
             outline_inset,
         ));

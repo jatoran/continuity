@@ -20,7 +20,7 @@
 
 use continuity_text::{EditOp, Position, Range, Selection};
 
-use crate::window::{Window, LINE_HEIGHT_DIP};
+use crate::window::Window;
 use crate::window_helpers::invalidate_hwnd;
 use crate::window_outline_entries_cache::{build_outline_entries_snapshot, OutlineEntriesCacheKey};
 use crate::window_timers::WHEEL_LINES_PER_NOTCH;
@@ -111,7 +111,7 @@ impl Window {
             .editor
             .set_selections(self.buffer_id, vec![Selection::caret_at(position)]);
         // Scroll the heading line to the viewport top.
-        let target_y = line as f32 * LINE_HEIGHT_DIP;
+        let target_y = line as f32 * self.effective_line_height();
         let content_h = self.estimated_content_height();
         self.view.jump_to(target_y, content_h);
         invalidate_hwnd(self.hwnd);

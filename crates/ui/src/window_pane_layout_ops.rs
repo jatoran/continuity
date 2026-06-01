@@ -27,11 +27,8 @@ impl Window {
         crate::window_buffer_tab_repair::repair_missing_buffer_tabs(&mut self.tree, &self.editor);
         self.adopt_focused_tab();
         let old_body_rect = self.focused_body_rect();
-        let old_geometry = (
-            old_body_rect.w,
-            old_body_rect.h,
-            crate::window::LINE_HEIGHT_DIP,
-        );
+        let line_height = self.effective_line_height();
+        let old_geometry = (old_body_rect.w, old_body_rect.h, line_height);
         let right_edge_chrome = self.current_right_edge_chrome_state();
         self.save_current_right_edge_chrome_state();
         // Save current focused state into the panes map first so it is not
@@ -69,11 +66,7 @@ impl Window {
         self.remember_current_right_edge_chrome_state();
         let new_body_rect = self.focused_body_rect();
         let mut view = continuity_layout::ViewState::new();
-        let geometry_unchanged = (
-            new_body_rect.w,
-            new_body_rect.h,
-            crate::window::LINE_HEIGHT_DIP,
-        ) == old_geometry;
+        let geometry_unchanged = (new_body_rect.w, new_body_rect.h, line_height) == old_geometry;
         if geometry_unchanged {
             view.viewport_width_dip = new_body_rect.w;
             view.viewport_height_dip = new_body_rect.h;
@@ -97,7 +90,7 @@ impl Window {
         if !geometry_unchanged {
             if let Some(snap) = self.editor.snapshot(buffer_id) {
                 if let Some(sel) = snap.selections().first() {
-                    let caret_top = sel.head.line as f32 * crate::window::LINE_HEIGHT_DIP;
+                    let caret_top = sel.head.line as f32 * line_height;
                     // Land the caret roughly a third of the way down the
                     // new pane so a few rows of preceding context stay
                     // visible.

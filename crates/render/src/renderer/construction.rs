@@ -125,6 +125,7 @@ impl Renderer {
             last_chrome_overlay_breakdown: std::cell::Cell::new(
                 crate::RendererChromeOverlayBreakdown::default(),
             ),
+            last_soft_wrap_overflow: std::cell::Cell::new(crate::SoftWrapOverflowSample::default()),
         })
     }
 }

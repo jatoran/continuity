@@ -15,6 +15,13 @@ use continuity_text::Selection;
 
 use crate::window::Window;
 
+/// Right-edge wrap safety gutter as a fraction of the (zoomed) font size.
+/// Keeps glyph ink overhang and residual per-grapheme measurement rounding
+/// from poking past the visible text column. Below one character wide, so
+/// it does not visibly narrow the column. The paint geometry's right edge
+/// is unchanged — this only makes soft-wrap fire a hair earlier.
+const WRAP_SAFETY_MARGIN_EM: f32 = 0.25;
+
 /// Projection geometry inputs shared by paint and prewarm.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct DisplayProjectionMetrics {
@@ -42,7 +49,7 @@ impl Window {
             } else {
                 0.0
             };
-            continuity_render::resolve_body_text_width_for_line_count_dip(
+            let text_width = continuity_render::resolve_body_text_width_for_line_count_dip(
                 self.view.viewport_width_dip,
                 scaled_font_size,
                 source_line_count,
@@ -53,9 +60,10 @@ impl Window {
                 self.view_options.outline_sidebar_width_dip,
                 distraction_free,
                 distraction_free_max_width_dip,
-            )
-            .round()
-            .max(0.0) as u32
+            );
+            (text_width - scaled_font_size * WRAP_SAFETY_MARGIN_EM)
+                .round()
+                .max(0.0) as u32
         } else {
             0
         };

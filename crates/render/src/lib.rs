@@ -172,7 +172,9 @@ pub use params::{
 };
 pub use render_stats::chrome_overlay_breakdown::RendererChromeOverlayBreakdown;
 pub use render_stats::draw_stages::RendererDrawStages;
-pub use render_stats::{ChromePathMode, ChromePathStats, RenderStats, RendererPostBodyStages};
+pub use render_stats::{
+    ChromePathMode, ChromePathStats, RenderStats, RendererPostBodyStages, SoftWrapOverflowSample,
+};
 pub use renderer::Renderer;
 pub use renderer_capture::CapturedBitmap;
 pub use search_highlight_paint::SearchHighlightRangeDraw;

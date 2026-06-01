@@ -176,4 +176,21 @@ impl Window {
             .unwrap_or(super::window::FONT_SIZE_DIP);
         base * self.view.font_size_scale
     }
+
+    /// Per-frame row stride in DIPs: the zoom-scaled font size times the
+    /// configured `[editor].line_height` multiplier, rounded to whole
+    /// DIPs so rows land on pixel boundaries.
+    ///
+    /// This is the canonical line height for *all* vertical geometry —
+    /// paint stride, scroll math, hit-testing, caret anchoring, content
+    /// height, image-row reservations. It replaces the former fixed
+    /// [`crate::window::LINE_HEIGHT_DIP`] constant everywhere geometry is
+    /// computed, so Ctrl+wheel zoom scales row height in lock-step with
+    /// glyph size and rows never overlap. `LINE_HEIGHT_DIP` remains the
+    /// zoom-1 / multiplier-1 reference value.
+    pub(crate) fn effective_line_height(&self) -> f32 {
+        (self.scaled_font_size() * self.settings_projections.line_height_multiplier)
+            .round()
+            .max(1.0)
+    }
 }

@@ -97,6 +97,11 @@ pub struct Renderer {
     /// fields on `event:renderer_draw_stages`.
     pub(crate) last_chrome_overlay_breakdown:
         std::cell::Cell<crate::RendererChromeOverlayBreakdown>,
+    /// Soft-wrap overflow detector sample from the most recent focused-
+    /// pane wrap paint. UI thread reads via
+    /// [`Self::last_soft_wrap_overflow`] and emits
+    /// `event:soft_wrap_overflow` when tracing is on. Diagnostic only.
+    pub(crate) last_soft_wrap_overflow: std::cell::Cell<crate::SoftWrapOverflowSample>,
 }
 mod construction;
 mod resize;

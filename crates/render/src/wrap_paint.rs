@@ -19,7 +19,9 @@ use windows::Win32::Graphics::Direct2D::Common::{D2D_POINT_2F, D2D_RECT_F};
 use windows::Win32::Graphics::Direct2D::{
     ID2D1DeviceContext, ID2D1SolidColorBrush, D2D1_DRAW_TEXT_OPTIONS_NONE,
 };
-use windows::Win32::Graphics::DirectWrite::{IDWriteFactory, IDWriteTextLayout};
+use windows::Win32::Graphics::DirectWrite::{
+    IDWriteFactory, IDWriteTextLayout, DWRITE_TEXT_METRICS,
+};
 
 use crate::chrome::ContentMargins;
 use crate::chrome_caret::caret_rect_for_shape;
@@ -84,8 +86,16 @@ pub(crate) unsafe fn paint_display_lines(
     viewport_h: f32,
     brushes: WrapPaintBrushes<'_>,
     inline_code_hits: &std::cell::RefCell<Vec<crate::InlineCodeHit>>,
+    overflow_out: &std::cell::Cell<crate::SoftWrapOverflowSample>,
 ) -> Result<bool, Error> {
     inline_code_hits.borrow_mut().clear();
+    // Diagnostic soft-wrap overflow detector (cheap: one `GetMetrics` per
+    // visible row off an already-laid-out layout). A row overflows when
+    // its painted visible advance runs past the text column's right edge
+    // even though soft-wrap decided it fit. `content_right` and `paint_x`
+    // are both body-origin-relative DIPs, so they compare directly.
+    let content_right = (params.view.viewport_width_dip - margins.right).max(0.0);
+    let mut overflow_sample = crate::SoftWrapOverflowSample::default();
     let fd = params.frame_display;
     let total_display = fd.display_line_count() as i64;
     let first_visible = ((scroll_y / line_height).floor() as i64).max(0) as u32;
@@ -201,6 +211,33 @@ pub(crate) unsafe fn paint_display_lines(
         }
 
         apply_role_drawing_effects(entry.layout, spec.style_runs(), &brushes.text_roles);
+
+        // Measure the fully-styled layout (heading scale + bold already
+        // applied) against the text column. `metrics.width` is the visible
+        // advance excluding trailing whitespace — what the user actually
+        // sees, and what should never exceed the column the soft-wrap pass
+        // wrapped against.
+        if content_right > 0.0 {
+            let mut metrics = DWRITE_TEXT_METRICS::default();
+            if entry.layout.GetMetrics(&mut metrics).is_ok() {
+                let row_right = paint_x + metrics.width;
+                let overflow = row_right - content_right;
+                if overflow > SOFT_WRAP_OVERFLOW_EPSILON_DIP {
+                    overflow_sample.rows = overflow_sample.rows.saturating_add(1);
+                    if overflow > overflow_sample.worst_overflow_dip {
+                        overflow_sample.worst_overflow_dip = overflow;
+                        overflow_sample.worst_source_line = source_line as u32;
+                        overflow_sample.worst_display_row = dl_idx;
+                        overflow_sample.worst_advance_dip = metrics.width;
+                        overflow_sample.worst_wrap_width_dip =
+                            (content_right - margins.left).max(0.0);
+                        overflow_sample.worst_is_continuation = spec.is_wrap_continuation;
+                        overflow_sample.worst_leading_dip = leading_dip;
+                    }
+                }
+            }
+        }
+
         ctx.DrawTextLayout(
             D2D_POINT_2F { x: 0.0, y: 0.0 },
             entry.layout,
@@ -292,6 +329,8 @@ pub(crate) unsafe fn paint_display_lines(
         }
     }
 
+    overflow_out.set(overflow_sample);
+
     // Restore the body-level transform so callers can continue painting
     // in body-relative coords.
     let body_translate = Matrix3x2 {
@@ -306,6 +345,10 @@ pub(crate) unsafe fn paint_display_lines(
 
     Ok(caret_drew_any)
 }
+
+/// Below this many DIPs an apparent overflow is float / sub-pixel noise
+/// (half a device pixel at 96 DPI) and is ignored by the detector.
+const SOFT_WRAP_OVERFLOW_EPSILON_DIP: f32 = 0.5;
 
 fn line_end_abs(rope: &Rope, source_line: usize) -> usize {
     let next = if source_line + 1 < rope.len_lines() {

@@ -27,7 +27,6 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
 
 use crate::mouse::{CodeCopyFeedback, CodeCopyHover, CodeCopyKind};
-use crate::window::LINE_HEIGHT_DIP;
 
 /// Rectangle in client DIP space — `(x, y, width, height)`. Matches the
 /// painted copy-button hit rect surfaced from
@@ -324,7 +323,7 @@ impl Window {
                 frame_display,
                 rope,
                 block,
-                LINE_HEIGHT_DIP,
+                self.effective_line_height(),
                 self.view.scroll_y_dip,
             ) {
                 Some(span) => span,

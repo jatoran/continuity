@@ -7,7 +7,6 @@ use continuity_display_map::{DisplayRowIndex, FoldRange, FoldSignature, IndexSta
 use continuity_render::FrameDisplay;
 
 use crate::display_prewarm_cache::PrewarmQuery;
-use crate::window::LINE_HEIGHT_DIP;
 use crate::window_mouse_hit_test_cache::MouseHitTestFrameCacheEntry;
 use crate::window_paint::{visible_display_row_range, VIEWPORT_OVERSCAN_ROWS};
 use crate::Window;
@@ -168,7 +167,7 @@ impl Window {
         let visible_rows = visible_display_row_range(
             self.view.scroll_y_dip,
             self.view.viewport_height_dip,
-            LINE_HEIGHT_DIP,
+            self.effective_line_height(),
         );
         if crate::paint_trace::is_trace_enabled() {
             crate::paint_trace::log_event(

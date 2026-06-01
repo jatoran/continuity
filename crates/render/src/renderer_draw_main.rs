@@ -322,9 +322,10 @@ pub(crate) fn render_frame(
                     inline_code_bg: &inline_code_bg_brush,
                 },
                 &renderer.last_inline_code_hits,
+                &renderer.last_soft_wrap_overflow,
             )?
         } else {
-            renderer.last_inline_code_hits.borrow_mut().clear();
+            renderer.clear_unwrapped_frame_state();
             false
         };
         if !use_wrap_paint {

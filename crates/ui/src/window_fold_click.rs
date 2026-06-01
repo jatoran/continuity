@@ -11,7 +11,7 @@
 use continuity_render::chrome::{gutter_fold_gap_dip, gutter_width_for_line_count};
 use continuity_text::{Position, Selection};
 
-use crate::window::{Window, LINE_HEIGHT_DIP};
+use crate::window::Window;
 
 impl Window {
     /// Try to consume a `WM_LBUTTONDOWN` at `(x, y)` (client coords) as a
@@ -55,7 +55,7 @@ impl Window {
         if virtual_y < 0.0 {
             return false;
         }
-        let line_idx = (virtual_y / LINE_HEIGHT_DIP).floor() as i64;
+        let line_idx = (virtual_y / self.effective_line_height()).floor() as i64;
         if line_idx < 0 {
             return false;
         }
@@ -126,7 +126,7 @@ impl Window {
             .map(|(line, _)| line.raw() as usize)
             .unwrap_or_else(|| {
                 let virtual_y = (yf - body.y) + self.view.scroll_y_dip;
-                (virtual_y.max(0.0) / LINE_HEIGHT_DIP).floor() as usize
+                (virtual_y.max(0.0) / self.effective_line_height()).floor() as usize
             });
         let source_line = source_line.min(source_line_count.saturating_sub(1)) as u32;
         let position = Position::new(source_line, 0);

@@ -70,6 +70,44 @@ pub(crate) fn dispatch_renderer_draw(
         stats.table_chrome_path = renderer.last_table_chrome_stats();
         stats.chrome_overlay_breakdown = renderer.last_chrome_overlay_breakdown();
         crate::window_paint_trace::log_render_stats(stats, enclosing_draw_us);
+        // Soft-wrap overflow detector: when the focused wrap paint found a
+        // row whose painted advance ran past the text column, emit the
+        // offending line + measured widths so an intermittent overflow can
+        // be diagnosed from the trace instead of guessed at.
+        let overflow = renderer.last_soft_wrap_overflow();
+        if overflow.rows > 0 {
+            let line_idx = overflow.worst_source_line as usize;
+            let line_text: String = if line_idx < snap_rope.len_lines() {
+                snap_rope
+                    .line(line_idx)
+                    .to_string()
+                    .trim_end_matches(['\n', '\r'])
+                    .chars()
+                    .take(80)
+                    .collect()
+            } else {
+                String::new()
+            };
+            crate::paint_trace::log_event(
+                "soft_wrap_overflow",
+                &format!(
+                    "rows={} source_line={} display_row={} continuation={} \
+                     leading_dip={:.2} advance_dip={:.2} wrap_width_dip={:.2} \
+                     overflow_dip={:.2} font_size_dip={:.2} font_state={:#018x} text={:?}",
+                    overflow.rows,
+                    overflow.worst_source_line,
+                    overflow.worst_display_row,
+                    overflow.worst_is_continuation,
+                    overflow.worst_leading_dip,
+                    overflow.worst_advance_dip,
+                    overflow.worst_wrap_width_dip,
+                    overflow.worst_overflow_dip,
+                    params.base_font_size_dip,
+                    params.font_state.0,
+                    line_text,
+                ),
+            );
+        }
         let rows_placeholder = renderer.last_scroll_placeholder_rows();
         let rows_realized_synchronously = renderer.last_scroll_strip_rows();
         let scroll_mode = if rows_placeholder > 0 {

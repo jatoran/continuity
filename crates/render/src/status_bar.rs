@@ -29,7 +29,7 @@ use windows::Win32::Graphics::Direct2D::Common::{D2D1_COLOR_F, D2D_POINT_2F, D2D
 use windows::Win32::Graphics::Direct2D::{
     ID2D1DeviceContext, ID2D1RenderTarget, ID2D1SolidColorBrush, D2D1_DRAW_TEXT_OPTIONS_NONE,
 };
-use windows::Win32::Graphics::DirectWrite::{IDWriteFactory, IDWriteTextFormat};
+use windows::Win32::Graphics::DirectWrite::{IDWriteFactory, IDWriteTextFormat, DWRITE_TEXT_RANGE};
 
 use crate::motion::{StatusTransientDraw, StatusTransientGroup};
 use crate::params::Rgba;
@@ -335,6 +335,7 @@ fn paint_status_bar_text(
             b.left,
             top,
             (b.right - b.left).max(1.0),
+            font_size_dip,
             fg_brush,
             seg.alpha,
         )?;
@@ -350,12 +351,21 @@ fn paint_status_bar_text(
             b.left,
             top,
             (b.right - b.left).max(1.0),
+            font_size_dip,
             warn_brush,
             chip.alpha,
         )?;
     }
     paint_transients(
-        ctx, factory, format, data, &layout, top, fg_brush, warn_brush,
+        ctx,
+        factory,
+        format,
+        data,
+        &layout,
+        top,
+        font_size_dip,
+        fg_brush,
+        warn_brush,
     )?;
     Ok(layout)
 }
@@ -368,6 +378,7 @@ fn paint_transients(
     data: &StatusBarData<'_>,
     layout: &StatusBarLayout,
     top: f32,
+    font_size_dip: f32,
     fg_brush: &ID2D1SolidColorBrush,
     warn_brush: &ID2D1SolidColorBrush,
 ) -> Result<(), Error> {
@@ -424,6 +435,7 @@ fn paint_transients(
             bounds.left,
             top + transient.translate_y_dip,
             (bounds.right - bounds.left).max(1.0),
+            font_size_dip,
             brush,
             1.0,
         )?;
@@ -475,11 +487,26 @@ fn draw_segment(
     left: f32,
     top: f32,
     width: f32,
+    font_size_dip: f32,
     brush: &ID2D1SolidColorBrush,
     alpha: f32,
 ) -> Result<(), Error> {
     let wide: Vec<u16> = text.encode_utf16().collect();
     let layout = unsafe { factory.CreateTextLayout(&wide, format, width, STATUS_BAR_HEIGHT_DIP)? };
+    // The supplied `format` is the body text format, whose size tracks
+    // body zoom. The status bar is chrome — pin its glyph size to the
+    // caller-supplied (unscaled) size so Ctrl+wheel zoom never clips the
+    // fixed-height bar. Width estimates in `compute_layout` already use
+    // the same size, so glyphs and slot widths agree.
+    if font_size_dip > 0.0 {
+        let full_range = DWRITE_TEXT_RANGE {
+            startPosition: 0,
+            length: wide.len() as u32,
+        };
+        unsafe {
+            let _ = layout.SetFontSize(font_size_dip, full_range);
+        }
+    }
     let alpha = alpha.clamp(0.0, 1.0);
     unsafe {
         brush.SetOpacity(alpha);

@@ -44,4 +44,11 @@ impl Renderer {
     pub fn content_height(rope: &Rope, line_height: f32) -> f32 {
         rope.len_lines().max(1) as f32 * line_height
     }
+
+    /// Clear per-frame state that only the soft-wrap body pass populates.
+    pub(crate) fn clear_unwrapped_frame_state(&self) {
+        self.last_inline_code_hits.borrow_mut().clear();
+        self.last_soft_wrap_overflow
+            .set(crate::SoftWrapOverflowSample::default());
+    }
 }

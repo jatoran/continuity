@@ -41,7 +41,7 @@
 use continuity_render::FrameDisplay;
 use continuity_text::Position;
 
-use crate::window::{Window, LINE_HEIGHT_DIP};
+use crate::window::Window;
 
 /// How the caret display row was resolved from a frame projection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -165,7 +165,8 @@ impl Window {
         let sel = snap.selections().first()?;
         let caret = sel.head;
         let display_line = self.resolve_caret_display_line(caret)?;
-        let screen_y = display_line.display_row as f32 * LINE_HEIGHT_DIP - self.view.scroll_y_dip;
+        let screen_y =
+            display_line.display_row as f32 * self.effective_line_height() - self.view.scroll_y_dip;
         Some((caret, screen_y))
     }
 
@@ -177,14 +178,15 @@ impl Window {
         let Some(display_line_after) = self.resolve_caret_display_line(anchor.caret) else {
             return;
         };
-        let new_line_top = display_line_after.display_row as f32 * LINE_HEIGHT_DIP;
+        let line_height = self.effective_line_height();
+        let new_line_top = display_line_after.display_row as f32 * line_height;
         let content_h = self
             .estimated_content_height()
-            .max(display_line_after.total_display_rows.max(1) as f32 * LINE_HEIGHT_DIP);
+            .max(display_line_after.total_display_rows.max(1) as f32 * line_height);
         let viewport_h = self.view.viewport_height_dip;
         let new_scroll = anchored_scroll(
             new_line_top,
-            LINE_HEIGHT_DIP,
+            line_height,
             anchor.screen_y,
             viewport_h,
             content_h,
@@ -415,7 +417,7 @@ impl Window {
         let visible_rows = crate::window_paint::visible_display_row_range(
             self.view.scroll_y_dip,
             self.view.viewport_height_dip,
-            LINE_HEIGHT_DIP,
+            self.effective_line_height(),
         );
         self.build_frame_display_viewport_cached(
             Some(self.buffer_id),

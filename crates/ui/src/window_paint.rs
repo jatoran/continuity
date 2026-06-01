@@ -10,7 +10,7 @@ use windows::Win32::System::SystemInformation::GetTickCount64;
 use crate::display_prewarm_cache::PrewarmQuery;
 use crate::overlay_render::build_overlay_draw;
 use crate::paint_trace::PaintTrace;
-use crate::window::{Window, LINE_HEIGHT_DIP};
+use crate::window::Window;
 use crate::window_code_copy_hover::build_code_copy_button_draw;
 use crate::Error;
 
@@ -149,6 +149,7 @@ impl Window {
         let decorations = decorations_owned.as_deref();
         let renderer = self.renderer.as_ref().expect("renderer ready");
         let scaled_font_size = self.scaled_font_size();
+        let line_height = self.effective_line_height();
         let editor_colors = self.active_theme.editor_colors();
         let markdown_colors = self.active_theme.markdown_colors();
         // §H3 — build the per-frame markdown heading list `(line, level)`
@@ -248,7 +249,7 @@ impl Window {
         let image_reservations = self.compute_focused_pane_image_reservations(
             decorations,
             rope_for_projection,
-            LINE_HEIGHT_DIP,
+            line_height,
             body_rect.w.max(1.0),
         );
         let image_reservations = crate::window_image_placements::merge_table_row_reservations(
@@ -274,7 +275,7 @@ impl Window {
         let viewport_rows = visible_display_row_range(
             self.view.scroll_y_dip,
             self.view.viewport_height_dip,
-            LINE_HEIGHT_DIP,
+            line_height,
         );
         // Resolve which `FrameDisplay` to paint with: try motion-reuse
         // of the previous frame, then the prewarm cache, then the
@@ -488,7 +489,7 @@ impl Window {
             scroll_target_pane_id,
             scroll_focused_pane_id,
             scroll_hover_routed,
-            line_height: LINE_HEIGHT_DIP,
+            line_height,
             base_font_size_dip: scaled_font_size,
             heading_scale: DEFAULT_HEADING_SCALE,
             view: view_ref,

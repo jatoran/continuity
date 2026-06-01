@@ -14,7 +14,7 @@ use self::caret_visibility::{
     reveal_caret_display_row, CaretVisibilityEstimate,
 };
 use crate::motion::STRUCTURAL_MOTION_MS;
-use crate::window::{END_OF_BUFFER_BOTTOM_PADDING_DIP, LINE_HEIGHT_DIP};
+use crate::window::END_OF_BUFFER_BOTTOM_PADDING_DIP;
 use crate::window_helpers::invalidate_hwnd;
 use crate::{Error, Window};
 
@@ -24,8 +24,11 @@ fn compute_eof_append_minimum_reveal(
     previous_display_rows: u32,
     viewport_height_dip: f32,
     scroll_y_dip: f32,
+    line_height: f32,
 ) -> Option<(f32, f32)> {
-    let scroll_extent_h = (previous_display_rows.max(1) as f32 + 1.0) * LINE_HEIGHT_DIP
+    // Row stride scales with zoom; the EOF breathing-room inset stays a
+    // fixed `END_OF_BUFFER_BOTTOM_PADDING_DIP`.
+    let scroll_extent_h = (previous_display_rows.max(1) as f32 + 1.0) * line_height
         + END_OF_BUFFER_BOTTOM_PADDING_DIP;
     let target = (scroll_extent_h - viewport_height_dip).max(0.0);
     (target > scroll_y_dip + 0.5).then_some((target, scroll_extent_h))
@@ -85,7 +88,7 @@ impl Window {
     pub(crate) fn view_scroll_lines_impl(&mut self, lines: f32) -> Result<(), Error> {
         let hwnd = self.hwnd();
         self.stop_scroll_anim(hwnd);
-        let dy = lines * LINE_HEIGHT_DIP;
+        let dy = lines * self.effective_line_height();
         let content_h = self.estimated_content_height();
         self.view.scroll_instant(dy, content_h);
         self.request_state_save();
@@ -96,9 +99,10 @@ impl Window {
     pub(crate) fn view_scroll_page_impl(&mut self, direction: f32) -> Result<(), Error> {
         self.cancel_scroll_inertia();
         let viewport_h = self.view.viewport_height_dip;
+        let line_height = self.effective_line_height();
         // Leave one line of overlap so the user doesn't lose context per
         // page (Sublime / VS Code convention).
-        let delta = direction * (viewport_h - LINE_HEIGHT_DIP).max(LINE_HEIGHT_DIP);
+        let delta = direction * (viewport_h - line_height).max(line_height);
         let target = self.view.scroll_y_dip + delta;
         let content_h = self.estimated_content_height();
         if self.motion_policy().is_reduced_motion() || !self.view_options.smooth_scroll {
@@ -189,8 +193,9 @@ impl Window {
     /// can reach the caret without placing the final row exactly on the clip
     /// edge regardless of cache freshness.
     fn content_height_covering(&self, display_row: f32) -> f32 {
+        let line_height = self.effective_line_height();
         self.estimated_content_height()
-            .max((display_row + 1.0) * LINE_HEIGHT_DIP + END_OF_BUFFER_BOTTOM_PADDING_DIP)
+            .max((display_row + 1.0) * line_height + END_OF_BUFFER_BOTTOM_PADDING_DIP)
     }
 
     fn bottom_padding_for_display_row(display_row: f32, total_display_rows: u32) -> f32 {
@@ -298,6 +303,7 @@ impl Window {
         };
         let total_source_lines = snap.rope_snapshot().rope().len_lines().max(1);
         let caret_source_line = sel.head.line as usize;
+        let line_height = self.effective_line_height();
         // When the caret sits at the very end of the document — Enter or
         // typing that appends a new final line, or a click on the last
         // byte — the new caret line is the document's last display row.
@@ -326,7 +332,7 @@ impl Window {
             // repaint. `estimated_content_height` counts wrap continuations
             // (it reads the last painted frame's whole-document row count).
             let estimated_display_rows =
-                (self.estimated_content_height() / LINE_HEIGHT_DIP).round() as usize;
+                (self.estimated_content_height() / line_height).round() as usize;
             let doc_appears_wrapped = estimated_display_rows > total_source_lines;
             if caret_at_doc_end && doc_appears_wrapped {
                 if let Some((_, frame)) = self.last_painted_frame_display.as_ref() {
@@ -339,6 +345,7 @@ impl Window {
                             frame.display_line_count(),
                             self.view.viewport_height_dip,
                             self.view.scroll_y_dip,
+                            line_height,
                         ) {
                             self.view.jump_to(target, extent);
                         }
@@ -361,7 +368,7 @@ impl Window {
             total_source_lines,
         ) {
             let source_floor_is_safe =
-                is_source_floor_visibility_safe(&estimate, &self.view, LINE_HEIGHT_DIP);
+                is_source_floor_visibility_safe(&estimate, &self.view, line_height);
             if estimate.is_projection_backed || source_floor_is_safe {
                 self.apply_caret_visibility_estimate(
                     estimate,
@@ -386,7 +393,7 @@ impl Window {
         // that case estimate the true display row by scaling the source
         // line by the document's average wrap factor.
         let estimated_total_display_rows =
-            (self.estimated_content_height() / LINE_HEIGHT_DIP).round() as u32;
+            (self.estimated_content_height() / line_height).round() as u32;
         let needs_scaled =
             caret_display_line.is_none_or(|line| line.needs_scaled_reveal_estimate());
         let display_row = reveal_caret_display_row(
@@ -396,8 +403,8 @@ impl Window {
             estimated_total_display_rows,
             needs_scaled,
         );
-        let line_top = display_row * LINE_HEIGHT_DIP;
-        let line_bottom = line_top + LINE_HEIGHT_DIP;
+        let line_top = display_row * line_height;
+        let line_bottom = line_top + line_height;
         let viewport_top = self.view.scroll_y_dip;
         let viewport_bot = viewport_top + self.view.viewport_height_dip;
         let padding_total_display_rows = caret_display_line
@@ -411,11 +418,11 @@ impl Window {
         // the scroll short of the (possibly scaled) caret row.
         let content_h = self
             .content_height_covering(display_row)
-            .max(total_source_lines as f32 * LINE_HEIGHT_DIP)
-            .max(estimated_total_display_rows as f32 * LINE_HEIGHT_DIP)
+            .max(total_source_lines as f32 * line_height)
+            .max(estimated_total_display_rows as f32 * line_height)
             .max(
                 caret_display_line
-                    .map(|line| line.total_display_rows.max(1) as f32 * LINE_HEIGHT_DIP)
+                    .map(|line| line.total_display_rows.max(1) as f32 * line_height)
                     .unwrap_or(0.0),
             );
         if crate::paint_trace::is_trace_enabled() {
@@ -459,17 +466,18 @@ impl Window {
         total_source_lines: usize,
         caret_source_line: usize,
     ) {
+        let line_height = self.effective_line_height();
         let display_row = estimate.display_row as f32;
-        let line_top = display_row * LINE_HEIGHT_DIP;
-        let line_bottom = line_top + LINE_HEIGHT_DIP;
+        let line_top = display_row * line_height;
+        let line_bottom = line_top + line_height;
         let viewport_top = self.view.scroll_y_dip;
         let viewport_bot = viewport_top + self.view.viewport_height_dip;
         let reveal_bottom = line_bottom
             + Self::bottom_padding_for_display_row(display_row, estimate.total_display_rows);
         let content_h = self
             .content_height_covering(display_row)
-            .max(total_source_lines as f32 * LINE_HEIGHT_DIP)
-            .max(estimate.total_display_rows.max(1) as f32 * LINE_HEIGHT_DIP);
+            .max(total_source_lines as f32 * line_height)
+            .max(estimate.total_display_rows.max(1) as f32 * line_height);
         let action = if line_top < viewport_top {
             // Monotonic-safe: a non-projection-backed estimate (source-line
             // floor) under-reports the caret's display row on a wrapped
@@ -512,13 +520,14 @@ impl Window {
         let Some(caret_display_line) = self.primary_caret_display_line() else {
             return;
         };
+        let line_height = self.effective_line_height();
         let display_row = caret_display_line.display_row as f32;
-        let line_top = display_row * LINE_HEIGHT_DIP;
+        let line_top = display_row * line_height;
         let viewport_h = self.view.viewport_height_dip;
-        let target = (line_top - (viewport_h - LINE_HEIGHT_DIP) * 0.5).max(0.0);
+        let target = (line_top - (viewport_h - line_height) * 0.5).max(0.0);
         let content_h = self
             .content_height_covering(display_row)
-            .max(caret_display_line.total_display_rows.max(1) as f32 * LINE_HEIGHT_DIP);
+            .max(caret_display_line.total_display_rows.max(1) as f32 * line_height);
         self.view.jump_to(target, content_h);
     }
 }
@@ -536,7 +545,7 @@ mod tests {
             previous_rows as f32 * LINE_HEIGHT_DIP + END_OF_BUFFER_BOTTOM_PADDING_DIP - viewport_h;
 
         let (target, extent) =
-            compute_eof_append_minimum_reveal(previous_rows, viewport_h, current)
+            compute_eof_append_minimum_reveal(previous_rows, viewport_h, current, LINE_HEIGHT_DIP)
                 .expect("appended EOF row should move the viewport down");
 
         assert_eq!(target, current + LINE_HEIGHT_DIP);
@@ -555,7 +564,7 @@ mod tests {
             + LINE_HEIGHT_DIP;
 
         assert_eq!(
-            compute_eof_append_minimum_reveal(previous_rows, viewport_h, current),
+            compute_eof_append_minimum_reveal(previous_rows, viewport_h, current, LINE_HEIGHT_DIP),
             None
         );
     }

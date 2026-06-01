@@ -470,7 +470,11 @@ fn count_soft_wrap_rows(
     let mut breaks: u16 = 0;
     let mut line_start_byte = 0_usize;
     let mut last_word_break: Option<usize> = None;
+    // `running_at_word_break` mirrors the exact carry-over fix in
+    // `grapheme_word_break_points_styled` so the walker's row *count* stays
+    // consistent with the painted break *positions* on multi-segment lines.
     let mut running = 0.0_f32;
+    let mut running_at_word_break = 0.0_f32;
     let mut segment_base = 0_usize;
     let mut grapheme_measure_calls: u64 = 0;
     let mut cum_from_line_start = 0.0_f32;
@@ -506,30 +510,24 @@ fn count_soft_wrap_rows(
                 prefix_advances_bits.push(post_whitespace_advance.to_bits());
                 break_offsets.push(break_offset);
                 last_word_break = Some(byte_off + g.len());
+                running_at_word_break = running + w;
             }
             cum_from_line_start += w;
             if running + w > max_width && byte_off > line_start_byte {
-                let cut = last_word_break
-                    .filter(|c| *c > line_start_byte)
-                    .unwrap_or(byte_off);
+                let word_break = last_word_break.filter(|c| *c > line_start_byte);
+                let cut = word_break.unwrap_or(byte_off);
                 breaks = breaks.saturating_add(1);
                 line_start_byte = cut;
-                running = if cut <= byte_off {
-                    let suffix = &bytes[cut.saturating_sub(segment_base)..rel_off + g.len()];
-                    let suffix_width = measure_width(
-                        measure,
-                        content_stamp,
-                        suffix,
-                        &style,
-                        cache_context,
-                        stats.as_deref_mut(),
-                    );
-                    grapheme_measure_calls += 1;
-                    suffix_width
-                } else {
-                    0.0
+                // Exact carry-over with no re-measure (matches
+                // `grapheme_word_break_points_styled`): a word-boundary break
+                // carries everything past the break point; a hard grapheme
+                // break starts the new row at the current grapheme.
+                running = match word_break {
+                    Some(_) => (running + w - running_at_word_break).max(0.0),
+                    None => w,
                 };
                 last_word_break = None;
+                running_at_word_break = 0.0;
             } else {
                 running += w;
             }

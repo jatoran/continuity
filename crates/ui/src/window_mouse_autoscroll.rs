@@ -11,7 +11,7 @@ use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, KillTimer, SetTimer}
 
 use crate::mouse::{Autoscroll, AutoscrollDirection};
 use crate::pane_layout::Rect;
-use crate::window::{Window, LINE_HEIGHT_DIP};
+use crate::window::Window;
 use crate::window_mouse_hover::wall_clock_ms;
 use crate::window_timers::{MOUSE_DRAG_AUTOSCROLL_TIMER_ID, MOUSE_DRAG_AUTOSCROLL_TIMER_MS};
 
@@ -157,7 +157,7 @@ impl Window {
         let _ = self.view_scroll_lines_impl(lines_to_advance);
         let after_scroll_y_dip = self.view.scroll_y_dip;
         let scroll_delta_dip = after_scroll_y_dip - before_scroll_y_dip;
-        let lines_advanced = (scroll_delta_dip / LINE_HEIGHT_DIP).round() as i32;
+        let lines_advanced = (scroll_delta_dip / self.effective_line_height()).round() as i32;
 
         let (selection_x, selection_y) = clamp_cursor_to_body(body, cursor_x, cursor_y);
         let selection_changed = self.extend_drag_selection_at_pixel(selection_x, selection_y);

@@ -11,7 +11,6 @@ use continuity_display_map::{DisplayByte, DisplayLineSpec};
 use continuity_render::{hit_test_x_to_byte_for_spec, DEFAULT_HEADING_SCALE};
 use continuity_text::{Position, Selection, SelectionKind};
 
-use crate::window::LINE_HEIGHT_DIP;
 use crate::Window;
 
 mod frame_display;
@@ -227,7 +226,7 @@ impl Window {
         let y_in_body_max = (body.h - 1.0).max(0.0);
         let y_in_body = ((y as f32) - body.y).clamp(0.0, y_in_body_max);
         let virtual_y = y_in_body + self.view.scroll_y_dip;
-        (virtual_y / LINE_HEIGHT_DIP.max(1.0)).floor().max(0.0) as u32
+        (virtual_y / self.effective_line_height()).floor().max(0.0) as u32
     }
 
     /// Map a client-area x (in DIPs) on a specific display row (`spec`)

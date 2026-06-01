@@ -144,6 +144,44 @@ pub struct RenderStats {
     pub chrome_overlay_breakdown: RendererChromeOverlayBreakdown,
 }
 
+/// Soft-wrap overflow detector sample from the most recent focused-pane
+/// wrap paint.
+///
+/// A display row "overflows" when its painted visible-glyph advance
+/// (`DWRITE_TEXT_METRICS.width`, measured after bold / heading styling is
+/// applied to the layout) extends past the text column's right edge even
+/// though the soft-wrap pass decided the row fit. Diagnostic only:
+/// populated every wrap paint, surfaced to the UI via
+/// [`crate::Renderer::last_soft_wrap_overflow`], and emitted as
+/// `event:soft_wrap_overflow` when tracing is enabled.
+///
+/// Not part of [`RenderStats`] because that struct derives `Eq`, which
+/// `f32` fields would break; this rides the renderer's `last_*` accessor
+/// pattern instead.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SoftWrapOverflowSample {
+    /// Visible display rows this paint whose advance exceeded the column.
+    pub rows: u32,
+    /// Source line of the worst (largest-overflow) row.
+    pub worst_source_line: u32,
+    /// Display-row index of the worst row.
+    pub worst_display_row: u32,
+    /// Painted visible advance of the worst row, in DIPs.
+    pub worst_advance_dip: f32,
+    /// Text-column width the worst row was wrapped against, in DIPs.
+    pub worst_wrap_width_dip: f32,
+    /// How far the worst row's advance ran past the column, in DIPs.
+    pub worst_overflow_dip: f32,
+    /// `true` when the worst row is a soft-wrap continuation (hang-
+    /// indented). A continuation whose `worst_overflow_dip` ≈
+    /// `worst_leading_dip` confirms the hang-indent-vs-full-width wrap
+    /// mismatch (the break ignores the continuation's leading indent).
+    pub worst_is_continuation: bool,
+    /// Hang-indent (leading-whitespace advance) applied to the worst row
+    /// when painting, in DIPs. Zero for non-continuation rows.
+    pub worst_leading_dip: f32,
+}
+
 /// Post-body renderer sub-stage durations for one paint.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RendererPostBodyStages {

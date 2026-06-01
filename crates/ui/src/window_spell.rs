@@ -436,7 +436,7 @@ impl Window {
         let snap = self.editor.snapshot(self.buffer_id)?;
         let sel = snap.selections().first().copied()?;
         let line = sel.head.line as f32;
-        let line_height = crate::window::LINE_HEIGHT_DIP;
+        let line_height = self.effective_line_height();
         let view_top_lines = self.view.scroll_y_dip / line_height;
         let y = ((line - view_top_lines + 1.0) * line_height) as i32;
         let mut pt = POINT { x: 0, y };

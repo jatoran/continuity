@@ -87,11 +87,12 @@ impl Window {
     /// y across the geometry change.
     pub(crate) fn refresh_focused_viewport(&mut self) {
         let r = self.focused_body_rect();
-        let new_geometry = (r.w, r.h, crate::window::LINE_HEIGHT_DIP);
+        let line_height = self.effective_line_height();
+        let new_geometry = (r.w, r.h, line_height);
         let current_geometry = (
             self.view.viewport_width_dip,
             self.view.viewport_height_dip,
-            crate::window::LINE_HEIGHT_DIP,
+            line_height,
         );
         if new_geometry == current_geometry {
             if crate::paint_trace::is_trace_enabled() {

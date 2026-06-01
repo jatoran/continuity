@@ -86,4 +86,12 @@ impl Renderer {
     pub fn last_chrome_overlay_breakdown(&self) -> crate::RendererChromeOverlayBreakdown {
         self.last_chrome_overlay_breakdown.get()
     }
+
+    /// Soft-wrap overflow detector sample from the most recent focused-
+    /// pane wrap paint. UI reads this after `draw_buffer` and emits
+    /// `event:soft_wrap_overflow` when `rows > 0` and tracing is on.
+    #[must_use]
+    pub fn last_soft_wrap_overflow(&self) -> crate::SoftWrapOverflowSample {
+        self.last_soft_wrap_overflow.get()
+    }
 }

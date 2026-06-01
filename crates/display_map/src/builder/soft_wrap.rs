@@ -164,7 +164,17 @@ fn grapheme_word_break_points_styled(
     let mut breaks: Vec<usize> = Vec::new();
     let mut line_start_byte = 0_usize;
     let mut last_word_break: Option<usize> = None;
+    // `running` is the row-relative width accumulated since the last break.
+    // `running_at_word_break` captures `running` (including the trailing
+    // whitespace) at `last_word_break`, so the carry-over width after a
+    // word-boundary break is exact and segment-independent:
+    // `(running + w) - running_at_word_break`. The previous code re-measured
+    // a *current-segment-only* suffix, which dropped the width of any styled
+    // segment (inline code, bold, link) the carried word spanned and
+    // over-filled the continuation row past the column — the soft-wrap
+    // overflow on inline-code / styled lines.
     let mut running = 0.0_f32;
+    let mut running_at_word_break = 0.0_f32;
     let mut segment_base = 0_usize;
 
     for seg in &spec.segments {
@@ -178,25 +188,23 @@ fn grapheme_word_break_points_styled(
             let w = measure.measure(g, &style);
             if g.chars().any(|c| c.is_whitespace()) {
                 last_word_break = Some(byte_off + g.len());
+                running_at_word_break = running + w;
             }
             if running + w > max_width && byte_off > line_start_byte {
-                let cut = last_word_break
-                    .filter(|c| *c > line_start_byte)
-                    .unwrap_or(byte_off);
+                let word_break = last_word_break.filter(|c| *c > line_start_byte);
+                let cut = word_break.unwrap_or(byte_off);
                 breaks.push(cut);
                 line_start_byte = cut;
-                // Re-measure the carry-over fragment under the current
-                // segment's style — close enough; cross-segment
-                // carry-overs are short by construction.
-                running = if cut <= byte_off {
-                    measure.measure(
-                        &bytes[cut.saturating_sub(segment_base)..rel_off + g.len()],
-                        &style,
-                    )
-                } else {
-                    0.0
+                // Carry-over width with no re-measure: a word-boundary break
+                // carries everything after the break point; a hard grapheme
+                // break (no usable word break) starts the new row at the
+                // current grapheme, whose width is `w`.
+                running = match word_break {
+                    Some(_) => (running + w - running_at_word_break).max(0.0),
+                    None => w,
                 };
                 last_word_break = None;
+                running_at_word_break = 0.0;
             } else {
                 running += w;
             }

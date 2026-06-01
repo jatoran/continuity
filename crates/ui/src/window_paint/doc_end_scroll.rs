@@ -2,7 +2,7 @@
 
 use continuity_render::FrameDisplay;
 
-use crate::window::{Window, END_OF_BUFFER_BOTTOM_PADDING_DIP, LINE_HEIGHT_DIP};
+use crate::window::{Window, END_OF_BUFFER_BOTTOM_PADDING_DIP};
 
 /// Upper bound on consecutive *moving* paints the document-end snap will
 /// re-arm itself while the projection's whole-document row index is still
@@ -151,7 +151,10 @@ impl Window {
         // `estimated_rows` is read only for the diagnostic trace below; the
         // scroll extent uses the prefix-sum total, never the estimate.
         let estimated_rows = frame_display.row_index().estimated_total_rows();
-        let content_h = realized_rows as f32 * LINE_HEIGHT_DIP;
+        let line_height = self.effective_line_height();
+        // Row stride scales with zoom; the EOF breathing-room inset stays a
+        // fixed `END_OF_BUFFER_BOTTOM_PADDING_DIP`.
+        let content_h = realized_rows as f32 * line_height;
         let scroll_extent_h = content_h + END_OF_BUFFER_BOTTOM_PADDING_DIP;
         let previous_scroll_y_dip = self.view.scroll_y_dip;
         let step = compute_doc_end_snap_step(

@@ -29,7 +29,7 @@ use continuity_display_map::FoldRange;
 use continuity_render::{FrameDisplay, InlineImagePlacement};
 
 use crate::display_prewarm_cache::PrewarmQuery;
-use crate::window::{Window, LINE_HEIGHT_DIP};
+use crate::window::Window;
 use crate::window_paint::{visible_display_row_range, VIEWPORT_OVERSCAN_ROWS};
 use crate::window_paint_builders::NonFocusedPaneRender;
 use crate::window_projection_plan::realized_covers;
@@ -50,8 +50,12 @@ pub(super) fn log_spectator_cache(pane_idx: usize, action: &str, fields: &str) {
     );
 }
 
-fn max_scroll_y_for_frame(frame_display: &FrameDisplay, viewport_height_dip: f32) -> f32 {
-    let content_h = frame_display.display_line_count().max(1) as f32 * LINE_HEIGHT_DIP;
+fn max_scroll_y_for_frame(
+    frame_display: &FrameDisplay,
+    viewport_height_dip: f32,
+    line_height: f32,
+) -> f32 {
+    let content_h = frame_display.display_line_count().max(1) as f32 * line_height;
     (content_h - viewport_height_dip.max(0.0)).max(0.0)
 }
 
@@ -59,13 +63,13 @@ fn should_clamp_scroll_y_to_frame(
     frame_display: &FrameDisplay,
     scroll_y_dip: f32,
     viewport_height_dip: f32,
+    line_height: f32,
 ) -> bool {
     if !scroll_y_dip.is_finite() || scroll_y_dip < 0.0 {
         return true;
     }
     let total_display_rows = frame_display.display_line_count();
-    let visible_rows =
-        visible_display_row_range(scroll_y_dip, viewport_height_dip, LINE_HEIGHT_DIP);
+    let visible_rows = visible_display_row_range(scroll_y_dip, viewport_height_dip, line_height);
     total_display_rows == 0 || visible_rows.start >= total_display_rows
 }
 
@@ -73,11 +77,12 @@ fn clamp_scroll_y_to_frame(
     frame_display: &FrameDisplay,
     scroll_y_dip: f32,
     viewport_height_dip: f32,
+    line_height: f32,
 ) -> f32 {
     if scroll_y_dip.is_finite() {
         scroll_y_dip.clamp(
             0.0,
-            max_scroll_y_for_frame(frame_display, viewport_height_dip),
+            max_scroll_y_for_frame(frame_display, viewport_height_dip, line_height),
         )
     } else {
         0.0
@@ -88,10 +93,10 @@ fn frame_paint_row_range(
     frame_display: &FrameDisplay,
     scroll_y_dip: f32,
     viewport_height_dip: f32,
+    line_height: f32,
 ) -> std::ops::Range<u32> {
     let total_display_rows = frame_display.display_line_count();
-    let visible_rows =
-        visible_display_row_range(scroll_y_dip, viewport_height_dip, LINE_HEIGHT_DIP);
+    let visible_rows = visible_display_row_range(scroll_y_dip, viewport_height_dip, line_height);
     let start = visible_rows.start.min(total_display_rows);
     let end = visible_rows.end.min(total_display_rows).max(start);
     start..end
@@ -221,6 +226,10 @@ pub(crate) fn build_spectator_pane_data(
     let mut frame_displays: Vec<FrameDisplay> = Vec::with_capacity(other_panes.len());
     let mut cache_hits: u32 = 0;
     let mut cache_misses: u32 = 0;
+    // Spectator panes render at the focused pane's scaled font size
+    // (`window.scaled_font_size()` below), so they share the focused
+    // pane's zoomed line height for all vertical geometry.
+    let line_height = window.effective_line_height();
     for (i, p) in other_panes.iter_mut().enumerate() {
         let dec = window.decoration_cache.get(p.document);
         let rope = p.snapshot.rope_snapshot().rope();
@@ -237,7 +246,7 @@ pub(crate) fn build_spectator_pane_data(
             p.buffer_id,
             &window.image_expand_state,
             cached_image_dimensions,
-            LINE_HEIGHT_DIP,
+            line_height,
             p.rect.2.max(1.0),
         );
         let reservations = crate::window_image_placements::merge_table_row_reservations(
@@ -299,7 +308,7 @@ pub(crate) fn build_spectator_pane_data(
         p.view.viewport_height_dip = spectator_viewport_h;
         p.view.viewport_width_dip = p.rect.2.max(0.0);
         let visible_rows =
-            visible_display_row_range(p.view.scroll_y_dip, spectator_viewport_h, LINE_HEIGHT_DIP);
+            visible_display_row_range(p.view.scroll_y_dip, spectator_viewport_h, line_height);
         let projection_stamp = current_projection_stamp(&PaintProjectionInputs {
             buffer_id: p.buffer_id,
             rope_revision: revision,
@@ -430,17 +439,26 @@ pub(crate) fn build_spectator_pane_data(
             }
             resolve.frame_display
         };
-        if should_clamp_scroll_y_to_frame(&frame_display, p.view.scroll_y_dip, spectator_viewport_h)
-        {
-            let clamped_scroll_y_dip =
-                clamp_scroll_y_to_frame(&frame_display, p.view.scroll_y_dip, spectator_viewport_h);
-            let clamped_visible_rows = visible_display_row_range(
+        if should_clamp_scroll_y_to_frame(
+            &frame_display,
+            p.view.scroll_y_dip,
+            spectator_viewport_h,
+            line_height,
+        ) {
+            let clamped_scroll_y_dip = clamp_scroll_y_to_frame(
+                &frame_display,
+                p.view.scroll_y_dip,
+                spectator_viewport_h,
+                line_height,
+            );
+            let clamped_visible_rows =
+                visible_display_row_range(clamped_scroll_y_dip, spectator_viewport_h, line_height);
+            let clamped_paint_rows = frame_paint_row_range(
+                &frame_display,
                 clamped_scroll_y_dip,
                 spectator_viewport_h,
-                LINE_HEIGHT_DIP,
+                line_height,
             );
-            let clamped_paint_rows =
-                frame_paint_row_range(&frame_display, clamped_scroll_y_dip, spectator_viewport_h);
             let realized = frame_display.realized_row_range();
             if !realized_covers(realized.clone(), &clamped_paint_rows) {
                 frame_display = realtime_miss::build_spectator_viewport_partial(

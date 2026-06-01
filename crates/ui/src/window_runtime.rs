@@ -8,9 +8,7 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::System::SystemInformation::GetTickCount64;
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer, WHEEL_DELTA};
 
-use crate::window::{
-    Window, CARET_BLINK_TIMER_ID, LINE_HEIGHT_DIP, SCROLL_ANIM_TIMER_ID, SCROLL_ANIM_TIMER_MS,
-};
+use crate::window::{Window, CARET_BLINK_TIMER_ID, SCROLL_ANIM_TIMER_ID, SCROLL_ANIM_TIMER_MS};
 
 impl Window {
     pub(crate) fn invalidate(&self, hwnd: HWND) {
@@ -209,16 +207,17 @@ impl Window {
     /// folds, and reserved image rows clamp against real content rather
     /// than source lines or scrollbar estimates.
     pub(crate) fn estimated_content_height(&self) -> f32 {
+        let line_height = self.effective_line_height();
         if let Some((_, fd)) = self.last_painted_frame_display.as_ref() {
             let display_rows = fd.display_line_count().max(1) as f32;
-            return display_rows * LINE_HEIGHT_DIP;
+            return display_rows * line_height;
         }
         let snap = match self.editor.snapshot(self.buffer_id) {
             Some(s) => s,
             None => return 0.0,
         };
         let lines = snap.rope_snapshot().rope().len_lines().max(1) as f32;
-        lines * LINE_HEIGHT_DIP
+        lines * line_height
     }
 
     /// HWND accessor used by view-command implementations. Public

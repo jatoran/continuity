@@ -3,7 +3,6 @@
 use continuity_render::TABLE_CELL_PAD_DIP;
 use continuity_text::{Position, Selection, SelectionKind};
 
-use crate::window::LINE_HEIGHT_DIP;
 use crate::Window;
 
 impl Window {
@@ -127,7 +126,7 @@ impl Window {
         } else {
             continuity_render::chrome::BODY_LEFT_PADDING_DIP
         };
-        let line_height = LINE_HEIGHT_DIP.max(1.0);
+        let line_height = self.effective_line_height();
         let row_top_client = body.y + (dl_idx as f32) * line_height - self.view.scroll_y_dip;
         let row_bottom_client = row_top_client + line_height;
         if client_y < row_top_client || client_y > row_bottom_client {

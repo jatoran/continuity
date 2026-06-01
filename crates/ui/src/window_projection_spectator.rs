@@ -25,7 +25,7 @@ use continuity_render::FrameDisplay;
 use crate::display_prewarm_cache::PrewarmQuery;
 use crate::pane_tree::PaneId;
 use crate::projection_worker::{ProjectionPlan, ProjectionStamp};
-use crate::window::{Window, LINE_HEIGHT_DIP};
+use crate::window::Window;
 use crate::window_paint::{collect_non_focused_panes, visible_display_row_range};
 use crate::window_paint_builders::NonFocusedPaneRender;
 use crate::window_projection_worker::{current_projection_stamp, PaintProjectionInputs};
@@ -237,8 +237,11 @@ impl Window {
             });
         let wrap_width_dip = spectator_wrap_width_dip(self, pane);
         let viewport_h = pane.view.viewport_height_dip.max(pane.rect.3);
-        let viewport_rows =
-            visible_display_row_range(pane.view.scroll_y_dip, viewport_h, LINE_HEIGHT_DIP);
+        let viewport_rows = visible_display_row_range(
+            pane.view.scroll_y_dip,
+            viewport_h,
+            self.effective_line_height(),
+        );
         // Deferred font-swap (see `window_font_swap`): spectator panes
         // share the window-wide font state, so a pending font commit
         // also drives their projection rebuilds against the target
@@ -344,7 +347,7 @@ impl Window {
                 inputs.pane.buffer_id,
                 &self.image_expand_state,
                 &mut |path| renderer.cached_image_dimensions(path),
-                LINE_HEIGHT_DIP,
+                self.effective_line_height(),
                 inputs.pane.rect.2.max(1.0),
             )
         } else {

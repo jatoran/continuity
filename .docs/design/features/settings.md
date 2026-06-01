@@ -20,7 +20,7 @@ TOML schema at `settings.toml`, parsed and validated at load time. A single watc
 font_family_prose   = "Segoe UI Variable"   # Phase E9
 font_family_mono    = "Cascadia Mono"
 font_size           = 14.0
-line_height         = 1.35
+line_height         = 1.35                  # row stride = round(scaled_font_size × this)
 word_wrap           = true
 ruler_columns       = []
 caret_style         = "bar"                 # "bar" | "block" | "underline"
@@ -96,7 +96,7 @@ daily_retention = 30
 3. UI windows poll `control_rx` on a `WM_TIMER` (CONFIG_POLL_TIMER_ID), drain the event, call `apply_settings(&new)`.
 
 ### Per-buffer apply
-- `apply_settings` rebuilds `view_options` (every `editor.*` toggle, `editor.mouse_wheel_scroll_speed`), font family / size scaling, theme name resolution, auto-pair config, motion policy (`ui.reduced_motion`), view-state defaults (word_wrap, ruler_columns).
+- `apply_settings` rebuilds `view_options` (every `editor.*` toggle, `editor.mouse_wheel_scroll_speed`), font family / size scaling, theme name resolution, auto-pair config, motion policy (`ui.reduced_motion`), view-state defaults (word_wrap, ruler_columns). `editor.line_height` lands on `SettingsProjections.line_height_multiplier`, consumed by `Window::effective_line_height()` (`= round(scaled_font_size × line_height_multiplier)`) — the canonical row stride for paint and all vertical geometry (see `rendering.md` § Effective line height).
 - The watcher itself lives in the app crate (`app::registry`); each window subscribes during startup so single-watcher / fan-out semantics hold.
 
 ### `settings.open` (Phase A3 + E1)

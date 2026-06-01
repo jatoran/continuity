@@ -9,7 +9,7 @@
 
 use windows::Win32::UI::Input::KeyboardAndMouse::SetCapture;
 
-use crate::window::{Window, LINE_HEIGHT_DIP};
+use crate::window::Window;
 use crate::window_helpers::invalidate_hwnd;
 
 /// Map a minimap hit line to an editor scroll target that centers the
@@ -82,11 +82,12 @@ impl Window {
             return false;
         };
         let content_height_dip = self.estimated_content_height();
-        let target_buffer_y = hit.line as f32 * LINE_HEIGHT_DIP;
+        let line_height = self.effective_line_height();
+        let target_buffer_y = hit.line as f32 * line_height;
         let target_dip = compute_minimap_target_scroll(
             hit.line,
             self.view.viewport_height_dip,
-            LINE_HEIGHT_DIP,
+            line_height,
             content_height_dip,
         );
         let before = self.view.scroll_y_dip;

@@ -223,6 +223,13 @@ pub(crate) fn paint_post_body(
     let status_bar_start = Instant::now();
     if params.view_options.show_status_bar {
         if let Some(data) = params.status_bar {
+            // The status bar is chrome, not content — it must not grow
+            // with Ctrl+wheel body zoom (the bar height is fixed, so a
+            // zoomed font clips). `base_font_size_dip` already carries the
+            // body zoom, so divide it back out to recover the unscaled
+            // base size and pin the bar to that.
+            let status_bar_font_size =
+                params.base_font_size_dip / params.view.font_size_scale.max(0.01);
             crate::status_bar::paint_status_bar_frame_text(
                 device_context,
                 dwrite,
@@ -230,7 +237,7 @@ pub(crate) fn paint_post_body(
                 data,
                 viewport_w,
                 params.client_height_dip,
-                params.base_font_size_dip,
+                status_bar_font_size,
                 &mkb,
             );
         }

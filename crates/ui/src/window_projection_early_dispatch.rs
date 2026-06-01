@@ -271,17 +271,18 @@ impl Window {
             self.compute_focused_pane_image_reservations(
                 decorations,
                 rope,
-                crate::window::LINE_HEIGHT_DIP,
+                self.effective_line_height(),
                 body_rect.w.max(1.0),
             )
         };
         let projection_metrics =
             self.display_projection_metrics(self.current_search_minimap_active(), rope.len_lines());
+        let line_height = self.effective_line_height();
         let viewport_rows = viewport_rows_override.unwrap_or_else(|| {
             visible_display_row_range(
                 self.view.scroll_y_dip,
                 self.view.viewport_height_dip,
-                crate::window::LINE_HEIGHT_DIP,
+                line_height,
             )
         });
 

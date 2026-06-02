@@ -409,6 +409,12 @@ pub(crate) fn paint_post_body(
     }
 
     let modal_start = Instant::now();
+    // Overlays (palette, find bar, quick-open, goto, pickers) and the chord
+    // HUD are chrome with fixed layout rects (`overlay_render::ROW_HEIGHT`
+    // etc.), so their text must not grow with body zoom or it overruns the
+    // rows. `base_font_size_dip` carries the zoom; divide it back out to
+    // recover the unscaled base and pin the overlay text to it.
+    let overlay_font_size = params.base_font_size_dip / params.view.font_size_scale.max(0.01);
     if let Some(overlay) = params.overlay {
         paint_overlay_with_motion(
             device_context,
@@ -416,6 +422,7 @@ pub(crate) fn paint_post_body(
             params.format,
             overlay,
             params.overlay_motion,
+            overlay_font_size,
         )?;
     }
 
@@ -426,6 +433,7 @@ pub(crate) fn paint_post_body(
             params.format,
             hud,
             params.chord_hud_motion,
+            overlay_font_size,
         )?;
     }
     stages.modal_overlays_us = elapsed_us(modal_start);

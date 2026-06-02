@@ -3,7 +3,8 @@
 use windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F;
 use windows::Win32::Graphics::Direct2D::ID2D1DeviceContext;
 
-use crate::overlay::{BrushCache, OverlayScrollbar, Rect};
+use crate::overlay::brush::BrushCache;
+use crate::overlay::{OverlayScrollbar, Rect};
 use crate::Error;
 
 pub(crate) fn paint_overlay_scrollbar(

@@ -213,7 +213,7 @@ impl Window {
 
     /// Cached counterpart of [`Self::heading_lines_for_projection`].
     /// Keyed by `(buffer, decoration_revision, rope.len_lines())`
-    /// — see [`crate::window::HeadingLinesCacheEntry`] for the cache
+    /// — see [`crate::window_heading_lines_cache::HeadingLinesCacheEntry`] for the cache
     /// design rationale. Returns a fresh `Vec<(line, level)>` for
     /// the caller to own; the cache stores its own clone.
     ///
@@ -242,12 +242,13 @@ impl Window {
             }
         }
         let headings = Self::heading_lines_for_projection(rope, decorations);
-        *self.heading_lines_cache.borrow_mut() = Some(crate::window::HeadingLinesCacheEntry {
-            buffer: buffer_id,
-            rope_line_count,
-            decoration_revision,
-            headings: headings.clone(),
-        });
+        *self.heading_lines_cache.borrow_mut() =
+            Some(crate::window_heading_lines_cache::HeadingLinesCacheEntry {
+                buffer: buffer_id,
+                rope_line_count,
+                decoration_revision,
+                headings: headings.clone(),
+            });
         headings
     }
 }

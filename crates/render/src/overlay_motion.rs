@@ -16,23 +16,25 @@ use crate::{Error, Rgba};
 /// # Errors
 ///
 /// Returns [`Error::Graphics`] on any underlying Win32 failure.
+#[allow(clippy::too_many_arguments)]
 pub fn paint_overlay_with_motion(
     ctx: &ID2D1DeviceContext,
     dwrite: &IDWriteFactory,
     format: &IDWriteTextFormat,
     overlay: &OverlayDraw,
     motion: Option<SurfaceMotion>,
+    chrome_font_size_dip: f32,
 ) -> Result<(), Error> {
     let motion = motion.unwrap_or_default();
     if motion.opacity <= f32::EPSILON {
         return Ok(());
     }
     if motion.is_identity() {
-        return paint_overlay(ctx, dwrite, format, overlay);
+        return paint_overlay(ctx, dwrite, format, overlay, chrome_font_size_dip);
     }
     let mut shifted = overlay.clone();
     apply_overlay_motion(&mut shifted, motion);
-    paint_overlay(ctx, dwrite, format, &shifted)
+    paint_overlay(ctx, dwrite, format, &shifted, chrome_font_size_dip)
 }
 
 fn apply_overlay_motion(overlay: &mut OverlayDraw, motion: SurfaceMotion) {

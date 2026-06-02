@@ -173,6 +173,22 @@ impl ActiveTheme {
     pub(crate) fn editor_focus_dim_alpha(&self) -> Color {
         self.current.editor_focus_dim_alpha()
     }
+
+    /// Whether the resolved theme reads as a "dark" surface — used to
+    /// match the OS-drawn title bar to the editor (Tier-1 caption
+    /// theming). Decided by the perceived luminance of
+    /// `editor.background` rather than the mode selector, so a custom
+    /// theme installed into either slot still gets a correct caption.
+    /// Allocation-free (a `BTreeMap` lookup of a `Copy` color), so it is
+    /// safe to call on the paint path.
+    #[must_use]
+    pub(crate) fn is_dark(&self) -> bool {
+        let bg = self.current.editor_background();
+        // Rec. 601 luma over the 0..=255 channels; below mid-range reads
+        // as a dark background.
+        let luma = 0.299 * f32::from(bg.r) + 0.587 * f32::from(bg.g) + 0.114 * f32::from(bg.b);
+        luma < 128.0
+    }
 }
 
 /// Convert a `theme::Color` (sRGB 0-255) to a `render::Rgba` (linear-ish

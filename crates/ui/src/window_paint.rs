@@ -36,6 +36,12 @@ pub(crate) use crate::window_paint_viewport_rows::{
 
 impl Window {
     pub(crate) fn on_paint(&mut self, hwnd: HWND) -> Result<(), Error> {
+        // Keep the OS-drawn title bar matched to the active theme. Cheap
+        // and guarded — only issues a syscall when the light/dark cast
+        // changed — so it runs before the background-paint skip to ensure
+        // a theme flip that lands on a throttled frame still recolors the
+        // caption.
+        self.sync_titlebar_theme();
         if self.should_skip_background_paint() {
             return Ok(());
         }

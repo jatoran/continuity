@@ -140,6 +140,7 @@ impl Window {
             language: Self::default_language(),
             language_revision: None,
             active_theme,
+            titlebar_dark_applied: None,
             view_options: crate::window_view_options::ViewOptions::default(),
             right_edge_chrome_defaults:
                 crate::window_right_edge_chrome::RightEdgeChromeState::default(),
@@ -324,6 +325,10 @@ impl Window {
         }
 
         window.hwnd = hwnd;
+        // Match the OS title bar to the active theme before the window is
+        // shown (in `apply_initial_placement` below), so the first frame
+        // has no light/dark caption flash.
+        window.sync_titlebar_theme();
         window.window_dpi = continuity_win::dpi_for_window(hwnd);
         window.font_state = window.current_font_state_id();
         crate::window_registry::register(hwnd);

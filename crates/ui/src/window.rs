@@ -27,6 +27,7 @@ use crate::display_prewarm_cache::DisplayMapPrewarm;
 use crate::overlays::Overlays;
 use crate::pane_state::PerPaneState;
 use crate::pane_tree::{PaneId, PaneTree, TabId};
+use crate::window_heading_lines_cache::HeadingLinesCacheEntry;
 use crate::window_mouse_hit_test_cache::MouseHitTestFrameCacheEntry;
 use crate::window_theme::ActiveTheme;
 use continuity_buffer::BufferId;
@@ -171,6 +172,11 @@ pub struct Window {
     /// Per-window theme state (mode, system_dark flag, current resolved
     /// theme). Owned by this window's UI thread.
     pub(crate) active_theme: ActiveTheme,
+    /// Last `DWMWA_USE_IMMERSIVE_DARK_MODE` value pushed to the OS title
+    /// bar. `None` until the first sync. Guards [`Self::sync_titlebar_theme`]
+    /// so the DWM syscall only fires when the resolved theme's light/dark
+    /// cast actually changes. Owned by this window's UI thread.
+    pub(crate) titlebar_dark_applied: Option<bool>,
     /// Phase-11 per-window view-options state (line numbers, minimap,
     /// ruler columns, caret style, …).
     pub(crate) view_options: crate::window_view_options::ViewOptions,
@@ -574,25 +580,4 @@ pub struct Window {
     /// large markdown buffers (~400 ms for 9 k lines in release).
     /// See [`crate::window_row_index_cache`] for the contract.
     pub(crate) row_index_cache: RefCell<crate::window_row_index_cache::RowIndexCache>,
-}
-
-/// Cache entry backing [`Window::heading_lines_cache`].
-///
-/// Key is `(buffer, decoration_revision, rope_line_count)`. The
-/// rope's *revision* deliberately is NOT in the key — typing inside
-/// a heading line moves the rope but neither the heading line
-/// number set (returned here) nor the decoration tree changes
-/// between two decoration_revisions. Keying on `rope_line_count`
-/// catches the one rope mutation that *does* invalidate the line
-/// set (a newline insert/delete) while letting an entire typing
-/// burst between two decoration updates hit the cache. Combined
-/// with the `byte_to_line`-via-ropey rewrite of
-/// [`Window::heading_lines_for_projection`], a cache miss is now
-/// O(num_headings · log N) rather than O(N · num_headings).
-#[derive(Clone)]
-pub(crate) struct HeadingLinesCacheEntry {
-    pub(crate) buffer: BufferId,
-    pub(crate) rope_line_count: usize,
-    pub(crate) decoration_revision: Option<u64>,
-    pub(crate) headings: Vec<(u32, u8)>,
 }

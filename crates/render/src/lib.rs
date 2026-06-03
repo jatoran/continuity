@@ -10,6 +10,7 @@ mod chrome_centered;
 mod chrome_command_list;
 // §H3 fold-triangle painter; called from `chrome_post::paint_post_text_chrome`.
 pub mod chrome_fold;
+mod chrome_indent_guides;
 mod chrome_line_numbers;
 mod chrome_post;
 pub mod code_copy_button_paint;
@@ -192,6 +193,9 @@ pub use table_layout::{
     MAX_TABLE_COL_WIDTH_DIP, MIN_TABLE_COL_WIDTH_DIP, TABLE_CELL_PAD_DIP,
 };
 pub use table_suppress::compute_suppressed_table_blocks;
-pub use text_helpers::{hit_test_x_to_byte, hit_test_x_to_byte_for_spec, utf16_index_to_utf8_byte};
+pub use text_helpers::{
+    hit_test_x_to_byte, hit_test_x_to_byte_for_spec, hit_test_x_to_byte_sized,
+    utf16_index_to_utf8_byte,
+};
 pub use text_metrics::{DirectWriteCacheStats, DirectWriteWidthMeasure};
 pub use time_machine_hud_paint::{paint_time_machine_hud, TimeMachineHudDraw, TimeMachineHudTick};

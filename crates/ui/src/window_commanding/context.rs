@@ -137,13 +137,10 @@ impl Context for Window {
         self.dispatch_selection_edit(edit)
     }
 
-    fn auto_pair_for(&self, c: char) -> Option<(char, char)> {
-        self.auto_pair.pair_for(c)
-    }
-
-    fn try_delete_back_pair(&mut self) -> Result<bool, continuity_command::Error> {
-        self.try_delete_auto_pair()
-    }
+    // Auto-pair lookups + the live indent configuration moved to
+    // `impl EditConfigContext for Window` in `crate::window_indent`
+    // when those methods migrated to the `EditConfigContext`
+    // supertrait (command crate 600-line split).
 
     fn move_word(&mut self, delta: i32) -> Result<(), continuity_command::Error> {
         let _ = self.move_word_selection(delta, false);

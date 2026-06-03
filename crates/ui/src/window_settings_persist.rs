@@ -79,6 +79,19 @@ impl Window {
         self.persist_scalar_setting(section, key, Value::from(value_f64))
     }
 
+    /// Persist an integer setting (indent width, tab width, etc.) back
+    /// to `settings.toml`. See [`Window::persist_scalar_setting`]. The
+    /// value is stored as a TOML integer (`toml_edit` represents these
+    /// as `i64`).
+    pub(crate) fn persist_int_setting(
+        &mut self,
+        section: &str,
+        key: &str,
+        value_u32: u32,
+    ) -> Result<(), PersistError> {
+        self.persist_scalar_setting(section, key, Value::from(i64::from(value_u32)))
+    }
+
     /// Core writeback path shared by every scalar persistence helper.
     ///
     /// Reads the file (or the bundled template if the file does not
@@ -176,6 +189,15 @@ impl Window {
     /// contract as [`Window::persist_string_or_log`].
     pub(crate) fn persist_float_or_log(&mut self, section: &str, key: &str, value_f64: f64) {
         if let Err(e) = self.persist_float_setting(section, key, value_f64) {
+            eprintln!("continuity: persist {section}.{key} failed: {e}");
+        }
+    }
+
+    /// Soft-failure companion to [`Window::persist_int_setting`]. Used by
+    /// the indent command family (indent width, tab width) — same
+    /// contract as [`Window::persist_string_or_log`].
+    pub(crate) fn persist_int_or_log(&mut self, section: &str, key: &str, value_u32: u32) {
+        if let Err(e) = self.persist_int_setting(section, key, value_u32) {
             eprintln!("continuity: persist {section}.{key} failed: {e}");
         }
     }

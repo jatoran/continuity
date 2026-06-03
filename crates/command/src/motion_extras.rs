@@ -140,6 +140,7 @@ mod tests {
     }
     impl crate::ViewContext for Captor {}
     impl crate::FindContext for Captor {}
+    impl crate::EditConfigContext for Captor {}
 
     #[test]
     fn motion_extras_dispatch() {

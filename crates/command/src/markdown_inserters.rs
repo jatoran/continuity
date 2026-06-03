@@ -202,6 +202,7 @@ mod tests {
         }
     }
     impl crate::ViewContext for InsertCaptor {}
+    impl crate::EditConfigContext for InsertCaptor {}
 
     fn dispatch_inserter(id: CommandId) -> Vec<String> {
         let mut registry = Registry::new();

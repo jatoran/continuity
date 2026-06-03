@@ -57,6 +57,7 @@ impl Window {
             trailing_whitespace: self.view_options.trailing_whitespace,
             minimap: self.view_options.minimap,
             indent_size: self.view_options.indent_size,
+            tab_width: self.view_options.tab_width,
             ruler_columns,
             caret_shape: caret_shape_for(self.view_options.caret_style),
             caret_visible: self.caret_blink_visible,
@@ -83,6 +84,12 @@ impl Window {
             // as foldable and computes the heading-fold extent for the
             // gutter "▸ N" indicator.
             markdown_headings: heading_lines_for_folds,
+            // Markdown render-paint gates mirrored from
+            // `[markdown].render_highlight` / `render_divider`. The
+            // display map handles the marker-hide side; these flags gate
+            // the highlight background fill and the horizontal-rule line.
+            render_highlight_bg: self.markdown_render_toggles().highlight,
+            render_divider: self.markdown_render_toggles().divider,
         }
     }
 }

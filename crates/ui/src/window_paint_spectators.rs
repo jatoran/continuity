@@ -307,6 +307,12 @@ pub(crate) fn build_spectator_pane_data(
         let spectator_viewport_h = p.rect.3.max(0.0);
         p.view.viewport_height_dip = spectator_viewport_h;
         p.view.viewport_width_dip = p.rect.2.max(0.0);
+        p.view.line_height_dip = line_height;
+        p.view.overscroll_bottom_dip = crate::window_font_picker::compute_overscroll_bottom_dip(
+            window.view_options.scroll_past_end,
+            spectator_viewport_h,
+            line_height,
+        );
         let visible_rows =
             visible_display_row_range(p.view.scroll_y_dip, spectator_viewport_h, line_height);
         let projection_stamp = current_projection_stamp(&PaintProjectionInputs {

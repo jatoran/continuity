@@ -20,7 +20,7 @@ use windows::Win32::Graphics::Direct2D::{
 
 use crate::chrome::{paint_current_line_highlight, paint_trailing_whitespace};
 use crate::chrome_caret::caret_rect_for_shape;
-use crate::decoration_paint::{paint_block_backgrounds, paint_horizontal_rules};
+use crate::decoration_paint::{paint_block_backgrounds, paint_horizontal_rules_pass};
 use crate::params::{DrawParams, Rgba};
 use crate::render_stats::chrome_overlay_breakdown::RendererChromeOverlayBreakdown;
 use crate::renderer::Renderer;
@@ -74,6 +74,7 @@ pub(crate) fn render_frame(
         &renderer.dwrite_factory,
         params.format,
         column_advance,
+        params.view_options.tab_width,
     );
     let body_translate = Matrix3x2 {
         M11: 1.0,
@@ -419,22 +420,17 @@ pub(crate) fn render_frame(
             .decoration_us
             .saturating_add(elapsed_us(spell_started));
 
-        if let Some(decorations) = params.decorations {
-            let started = Instant::now();
-            paint_horizontal_rules(
-                &renderer.d2d_context,
-                rope,
-                params.frame_display,
-                decorations,
-                selections,
-                &hr_brush,
-                line_height,
-                margins.left,
-                editor_w,
-                scroll_y,
-            );
-            breakdown.horizontal_rules_us = elapsed_us(started);
-        }
+        breakdown.horizontal_rules_us = paint_horizontal_rules_pass(
+            &renderer.d2d_context,
+            rope,
+            selections,
+            params,
+            &hr_brush,
+            line_height,
+            margins.left,
+            editor_w,
+            scroll_y,
+        );
 
         let focus_dim_started = Instant::now();
         crate::renderer_focus_dim_pass::paint_focus_dim_pass(

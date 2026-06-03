@@ -310,6 +310,7 @@ mod tests {
         }
     }
     impl crate::FindContext for CountingCtx {}
+    impl crate::EditConfigContext for CountingCtx {}
     impl Context for CountingCtx {
         fn lookup(&self, key: &str) -> Option<&str> {
             (key == "editor.focused").then_some("true")

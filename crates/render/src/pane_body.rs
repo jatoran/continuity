@@ -111,7 +111,12 @@ pub(crate) unsafe fn paint_all_pane_bodies(
     }
     let column_advance =
         measure_space_advance_dip(factory, params.format, params.base_font_size_dip);
-    let tab_advance = measure_tab_advance_dip(factory, params.format, column_advance);
+    let tab_advance = measure_tab_advance_dip(
+        factory,
+        params.format,
+        column_advance,
+        params.view_options.tab_width,
+    );
     for body in params.pane_bodies {
         body::paint_pane_body(
             ctx,

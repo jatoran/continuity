@@ -409,6 +409,7 @@ mod tests {
     }
 
     impl crate::FindContext for Captor {}
+    impl crate::EditConfigContext for Captor {}
     impl Context for Captor {
         fn lookup(&self, key: &str) -> Option<&str> {
             (key == "editor.focused").then_some("true")

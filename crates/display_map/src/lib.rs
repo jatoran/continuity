@@ -36,6 +36,7 @@ pub mod id;
 pub mod image_row_reservation_provider;
 pub mod line;
 pub mod map;
+pub mod markdown_toggles;
 pub mod row_index;
 mod row_index_fenwick;
 pub mod segment;
@@ -61,6 +62,7 @@ pub use image_row_reservation_provider::{
 };
 pub use line::DisplayLineSpec;
 pub use map::DisplayMap;
+pub use markdown_toggles::MarkdownRenderToggles;
 pub use row_index::dirty::RowDirty;
 pub use row_index::splice::RowSplice;
 pub use row_index::{DisplayRowIndex, IndexStamps, PartialRowIndexState};

@@ -21,6 +21,7 @@ use crate::id::{SourceByte, SourceLine};
 use crate::image_row_reservation_provider::ImageRowReservation;
 use crate::line::DisplayLineSpec;
 use crate::map::DisplayMap;
+use crate::markdown_toggles::MarkdownRenderToggles;
 use crate::row_index::{DisplayRowIndex, IndexStamps};
 use crate::segment_cache::SegmentCache;
 use crate::wrap::{WidthMeasure, WrapConfig};
@@ -67,6 +68,16 @@ pub struct DisplayMapBuilder<'a> {
     /// list to skip painting visual chrome. Empty (`&[]`) means no
     /// suppression — every table renders as cells, the default.
     suppressed_table_blocks: &'a [std::ops::Range<usize>],
+    /// Per-decoration render toggles. Gates emphasis/strong styling and
+    /// delimiter hiding, the `==` highlight delimiter hide, setext
+    /// heading rendering, and thematic-break marker hiding inside
+    /// [`segments::build_line_segments`]. Default
+    /// ([`MarkdownRenderToggles::default`]) is italic-off / rest-on.
+    /// Carried on the builder (rather than passed per call) so every
+    /// row-count walker and spec-materialization path funnels through
+    /// `build_line_segments` with the same toggle set — the soft-wrap
+    /// row-count / segment-agreement invariant.
+    markdown_toggles: MarkdownRenderToggles,
     wrap: WrapConfig,
     row_count_cache: Option<row_counts::RowCountCacheContext<'a>>,
     walker_reason: WalkerCallReason,
@@ -89,10 +100,26 @@ impl<'a> DisplayMapBuilder<'a> {
             folds,
             image_reservations: &[],
             suppressed_table_blocks: &[],
+            markdown_toggles: MarkdownRenderToggles::default(),
             wrap,
             row_count_cache: None,
             walker_reason: WalkerCallReason::ViewportRealize,
         }
+    }
+
+    /// Set the per-decoration markdown render toggles. Defaults to
+    /// [`MarkdownRenderToggles::default`] (italic off, rest on) when not
+    /// called. The toggle set gates emphasis/strong styling + delimiter
+    /// hide, the `==` highlight delimiter hide, setext heading
+    /// rendering, and thematic-break marker hide — never decoration
+    /// production. Threaded into every `build_line_segments` call site
+    /// (full build, viewport materialize, row-count walker, dirty /
+    /// spliced rebuild) so the realized segments and the soft-wrap row
+    /// counts always agree.
+    #[must_use]
+    pub fn with_markdown_toggles(mut self, toggles: MarkdownRenderToggles) -> Self {
+        self.markdown_toggles = toggles;
+        self
     }
 
     /// Mark the listed `EvaluatedTable.block_range`s as
@@ -244,6 +271,7 @@ impl<'a> DisplayMapBuilder<'a> {
             self.folds,
             self.image_reservations,
             self.suppressed_table_blocks,
+            self.markdown_toggles,
             self.wrap,
             measure,
             self.row_count_cache,
@@ -278,6 +306,7 @@ impl<'a> DisplayMapBuilder<'a> {
             self.folds,
             self.image_reservations,
             self.suppressed_table_blocks,
+            self.markdown_toggles,
             self.wrap,
             measure,
             self.row_count_cache,
@@ -433,7 +462,12 @@ impl<'a> DisplayMapBuilder<'a> {
             rope_revision: self.snapshot.revision().0,
             decoration_revision: self.decorations.revision,
             wrap_width_dip: self.wrap.width_dip,
-            font_state: 0,
+            // Fold the markdown toggle set into the opaque font-state
+            // slot so a hot-reload toggle flip drifts the index stamps
+            // and forces a row-count rebuild — toggling italic widens
+            // lines (markers become visible), changing soft-wrap row
+            // counts, so a stale index must not be reused.
+            font_state: self.markdown_toggles.hash_key(),
             fold_signature: FoldSignature::compute(self.folds),
         }
     }
@@ -469,6 +503,7 @@ impl<'a> DisplayMapBuilder<'a> {
             self.caret_bytes,
             self.folds,
             self.suppressed_table_blocks,
+            self.markdown_toggles,
             line_start,
             line_end,
             &line_text,
@@ -528,6 +563,7 @@ mod rebuild_spliced;
 mod row_counts;
 mod segment_coalescing;
 mod segments;
+mod segments_helpers;
 mod soft_wrap;
 pub mod splice_row_index;
 pub(crate) mod stats;

@@ -233,6 +233,10 @@ keys = ["ctrl+j"]
 command = "editor.join_lines"
 
 [[binding]]
+keys = ["ctrl+shift+j"]
+command = "editor.join_selected_lines"
+
+[[binding]]
 keys = ["ctrl+alt+s"]
 command = "editor.sort_lines_asc"
 

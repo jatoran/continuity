@@ -56,6 +56,11 @@ reveal before arming the snap. This prevents a provisional paint row count
 from finalizing at the old bottom while still letting the paint frame
 converge to the exact display-map bottom.
 
+The EOF visibility guard distinguishes user scroll-past-end overscroll
+from the editor's one-line EOF breathing-room inset. A viewport parked at
+the functional EOF inset still reveals an appended final line; only scroll
+positions beyond that inset suppress the reveal.
+
 ### Blink (B5)
 `on_caret_blink_tick`:
 1. Evict expired jump_glow + caret_tween opportunistically; active motion is driven by `MOTION_TIMER_ID`.

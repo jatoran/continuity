@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use continuity_buffer::FileAssociation;
+use continuity_buffer::{BufferId, FileAssociation};
 use crossbeam_channel::Sender;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
@@ -35,8 +35,13 @@ pub(crate) fn read_file(path: &Path) -> std::io::Result<ReadFileResult> {
     let (content, encoding_notice) = decode_file_bytes(&bytes);
     let meta = std::fs::metadata(path)?;
     let mtime_ms = meta.modified().ok().and_then(system_time_ms).unwrap_or(0);
-    let raw_hash = fnv1a_64(&bytes);
-    let content_hash = fnv1a_64(content.as_bytes());
+    // Hash with the SAME function the dirty-state check uses
+    // (`continuity_persist::fnv1a_64`), never a second local FNV-1a: the
+    // worker's `content_hash` is compared byte-for-byte against
+    // `continuity_persist::fnv1a_64_chunks(rope)` in `is_tab_dirty`, so a
+    // divergent prime would make every saved buffer read permanently dirty.
+    let raw_hash = continuity_persist::fnv1a_64(&bytes);
+    let content_hash = continuity_persist::fnv1a_64(content.as_bytes());
     let file = FileAssociation::new(path.to_path_buf(), mtime_ms, raw_hash)
         .with_content_hash(content_hash);
     Ok(ReadFileResult {
@@ -102,7 +107,7 @@ pub(crate) fn write_file(path: &Path, content: &str) -> std::io::Result<FileAsso
     std::fs::write(path, content.as_bytes())?;
     let meta = std::fs::metadata(path)?;
     let mtime_ms = meta.modified().ok().and_then(system_time_ms).unwrap_or(0);
-    let content_hash = fnv1a_64(content.as_bytes());
+    let content_hash = continuity_persist::fnv1a_64(content.as_bytes());
     Ok(
         FileAssociation::new(path.to_path_buf(), mtime_ms, content_hash)
             .with_content_hash(content_hash),
@@ -132,10 +137,12 @@ pub(crate) fn install_watch(
 pub(crate) fn send_failed(
     event_tx: &Sender<FileIoEvent>,
     operation: &'static str,
+    buffer_id: Option<BufferId>,
     path: Option<PathBuf>,
     error: std::io::Error,
 ) {
     let _ = event_tx.send(FileIoEvent::Failed {
+        buffer_id,
         operation,
         path,
         reason: error.to_string(),
@@ -171,15 +178,4 @@ fn system_time_ms(time: SystemTime) -> Option<i64> {
     time.duration_since(UNIX_EPOCH)
         .ok()
         .and_then(|d| i64::try_from(d.as_millis()).ok())
-}
-
-fn fnv1a_64(bytes: &[u8]) -> u64 {
-    const OFFSET: u64 = 0xcbf29ce484222325;
-    const PRIME: u64 = 0x100000001b3;
-    let mut h = OFFSET;
-    for b in bytes {
-        h ^= u64::from(*b);
-        h = h.wrapping_mul(PRIME);
-    }
-    h
 }

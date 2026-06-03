@@ -78,6 +78,7 @@ mod tests {
     }
     impl crate::ViewContext for StubCtx {}
     impl crate::FindContext for StubCtx {}
+    impl crate::EditConfigContext for StubCtx {}
 
     #[test]
     fn registered_handlers_dispatch_into_context() {

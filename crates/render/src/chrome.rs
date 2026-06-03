@@ -31,7 +31,9 @@ pub const GUTTER_BASELINE_FONT_SIZE_DIP: f32 = 13.0;
 /// constant remains for tests, layout fallbacks, and any path that does
 /// not yet know its active font size or source line count. Sized to fit
 /// two digits plus one char of right margin. The editor body starts
-/// after this *plus* [`GUTTER_BODY_GAP_DIP`].
+/// after this *plus* [`GUTTER_BODY_GAP_DIP`]. Acts as a floor on the
+/// computed width, so at very small fonts it can partially absorb the
+/// [`GUTTER_LEFT_PADDING_DIP`] left breathing room.
 pub const GUTTER_WIDTH_DIP: f32 = 22.0;
 
 /// Minimum gutter digit budget. Small buffers still reserve a stable
@@ -74,11 +76,15 @@ pub fn gutter_fold_gap_dip(font_size_dip: f32) -> f32 {
 }
 
 /// Gutter width for the given font size and source line count in DIPs.
-/// Sized to fit the largest full line number in the buffer plus the
-/// fold-icon / breathing-room gap ([`gutter_fold_gap_dip`]) on the right,
-/// so digits never butt against the gutter↔body divider and the fold
-/// icons have a column of their own. Scales linearly with font size so
-/// larger UIs get proportionally wider gutters.
+/// Sized to fit the largest full line number in the buffer plus a fixed
+/// left breathing-room pad ([`GUTTER_LEFT_PADDING_DIP`]) and the fold-icon
+/// / breathing-room gap ([`gutter_fold_gap_dip`]) on the right, so digits
+/// never kiss the pane edge on the left nor butt against the gutter↔body
+/// divider on the right and the fold icons have a column of their own.
+/// Scales linearly with font size so larger UIs get proportionally wider
+/// gutters. This is the single source of truth for gutter geometry: every
+/// downstream consumer derives from it, so the left pad propagates
+/// everywhere automatically.
 #[must_use]
 pub fn gutter_width_for_line_count(font_size_dip: f32, source_line_count: usize) -> f32 {
     let font_size_dip = if font_size_dip > 0.0 {
@@ -87,11 +93,15 @@ pub fn gutter_width_for_line_count(font_size_dip: f32, source_line_count: usize)
         GUTTER_BASELINE_FONT_SIZE_DIP
     };
     let digits = gutter_digit_count_for_line_count(source_line_count) as f32;
-    // Digit columns at ~0.55 em each, plus the fold-icon / breathing-room
-    // gap on the right edge. Reserving the gap explicitly (rather than
-    // folding it into a fixed "+1 char") keeps the digits from clipping
-    // when the gap widens or the buffer's line count grows.
-    let scaled = font_size_dip * 0.55 * digits + gutter_fold_gap_dip(font_size_dip);
+    // Left breathing room ([`GUTTER_LEFT_PADDING_DIP`]), plus digit columns
+    // at ~0.55 em each, plus the fold-icon / breathing-room gap on the right
+    // edge. Reserving both pads explicitly (rather than folding them into a
+    // fixed "+1 char") keeps the digits from clipping when either gap widens
+    // or the buffer's line count grows, and keeps every downstream consumer
+    // in lock-step with the left pad.
+    let scaled = GUTTER_LEFT_PADDING_DIP
+        + font_size_dip * 0.55 * digits
+        + gutter_fold_gap_dip(font_size_dip);
     scaled.max(GUTTER_WIDTH_DIP)
 }
 
@@ -106,6 +116,23 @@ pub fn gutter_width_for_font_size(font_size_dip: f32) -> f32 {
 /// start of editor text. Without it the leftmost glyph butts up against
 /// the separator rule.
 pub const GUTTER_BODY_GAP_DIP: f32 = 8.0;
+
+/// Breathing room reserved on the *left* edge of the line-number gutter so
+/// the digits do not kiss the pane/window edge. Like
+/// [`GUTTER_BODY_GAP_DIP`] it is a fixed DIP constant (not a setting); it
+/// scales with DPI because the whole gutter is measured in DIPs, but not
+/// with font size, mirroring the simple fixed body gap.
+///
+/// Folded *inside* [`gutter_width_for_line_count`], so the canonical gutter
+/// width already accounts for it and every downstream consumer (body
+/// margin, gutter↔body divider, fold-icon column, hover band, spectator
+/// margins, inline-image margin, UI hit-tests, soft-wrap width) stays in
+/// sync automatically. The trailing-aligned digit box is drawn from this
+/// offset and its width is reduced by the same amount, so the digits' right
+/// edge is unchanged (they never collide with the fold-icon gap) while
+/// their left edge gains the padding. At very small fonts the
+/// [`GUTTER_WIDTH_DIP`] floor can partially absorb this padding.
+pub const GUTTER_LEFT_PADDING_DIP: f32 = 6.0;
 
 // Re-export the minimap column width from the minimap module so the
 // margin resolver and the painter share a single source of truth. The
@@ -259,180 +286,6 @@ pub(crate) fn paint_current_line_highlight(
         bottom: top + line_height * rows as f32,
     };
     unsafe { ctx.FillRectangle(&rect, color) };
-}
-
-/// Paint vertical indent-guide rules aligned with the first character
-/// of each enclosing parent indent level. Tabs and spaces are measured
-/// at their actual rendered advance so guides land under the visible
-/// leading whitespace boundaries, not under a `space_advance * column`
-/// approximation.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn paint_indent_guides(
-    ctx: &ID2D1DeviceContext,
-    rope: &Rope,
-    line_height: f32,
-    scroll_y: f32,
-    margins: ContentMargins,
-    indent_size: u32,
-    column_advance: f32,
-    tab_advance: f32,
-    first_visible: usize,
-    last_visible: usize,
-    color: &ID2D1SolidColorBrush,
-) {
-    if indent_size == 0 || column_advance <= 0.0 {
-        return;
-    }
-    let tab_advance = if tab_advance > 0.0 {
-        tab_advance
-    } else {
-        column_advance * indent_size as f32
-    };
-    let total_lines = rope.len_lines();
-    if total_lines == 0 {
-        return;
-    }
-    let last_visible = last_visible.min(total_lines);
-    if first_visible >= last_visible {
-        return;
-    }
-    // Phase 17.6 intelligent indent guides: extend the visible window
-    // by a small skirt so the blank-line carry-over reaches a non-blank
-    // anchor when the user is editing near a paragraph boundary.
-    const SKIRT: usize = 64;
-    let scan_start = first_visible.saturating_sub(SKIRT);
-    let scan_end = (last_visible + SKIRT).min(total_lines);
-
-    // Per-scanned-line indent-unit boundary x-positions in DIPs from
-    // `margins.left`. Each entry is the x where one indent unit ends
-    // (a `\t` contributes `tab_advance`; a run of `indent_size`
-    // consecutive spaces contributes `indent_size * column_advance`).
-    // `None` marks a blank line (only whitespace).
-    let mut raw: Vec<Option<Vec<f32>>> = Vec::with_capacity(scan_end - scan_start);
-    for line_idx in scan_start..scan_end {
-        raw.push(measure_indent_boundaries(
-            rope,
-            line_idx,
-            indent_size,
-            column_advance,
-            tab_advance,
-        ));
-    }
-    // Carry the boundary list of the previous non-blank line forward
-    // across blank gaps.
-    let mut forward = raw.clone();
-    let mut last_bounds: Option<Vec<f32>> = None;
-    for slot in forward.iter_mut() {
-        match slot {
-            Some(v) => last_bounds = Some(v.clone()),
-            None => *slot = last_bounds.clone(),
-        }
-    }
-    // Carry the boundary list of the next non-blank line backward; a
-    // blank line draws guides up to `min(forward.len(), backward.len())`
-    // levels so a gap only spans depths both surrounding paragraphs share.
-    let mut backward = raw.clone();
-    let mut next_bounds: Option<Vec<f32>> = None;
-    for slot in backward.iter_mut().rev() {
-        match slot {
-            Some(v) => next_bounds = Some(v.clone()),
-            None => *slot = next_bounds.clone(),
-        }
-    }
-
-    for line_idx in first_visible..last_visible {
-        let local = line_idx - scan_start;
-        // Resolve this line's effective boundary set:
-        // - non-blank → its own measured boundaries.
-        // - blank with both flanks → use the forward neighbour, truncated
-        //   to the shorter flank's length (parents shared on both sides).
-        // - edge of buffer → skip.
-        let (bounds, depth): (&[f32], usize) =
-            match (&raw[local], &forward[local], &backward[local]) {
-                (Some(v), _, _) => (v.as_slice(), v.len()),
-                (None, Some(f), Some(b)) => {
-                    let n = f.len().min(b.len());
-                    (&f[..n], n)
-                }
-                _ => continue,
-            };
-        if depth == 0 {
-            continue;
-        }
-        let y = line_idx as f32 * line_height - scroll_y;
-        // A guide at offset C means "an enclosing parent's content
-        // starts at C". For depth N, parents sit at 0, bounds[0], …,
-        // bounds[N-2] — i.e. each guide aligns under the first character
-        // of the line one indent level shallower, not under this line's
-        // own first character.
-        for k in 0..depth {
-            let col_x = if k == 0 { 0.0 } else { bounds[k - 1] };
-            // Half-pixel offset so the 1-DIP rule hits one device row
-            // cleanly under DirectWrite's grayscale AA, matching the
-            // ruler-columns rendering convention.
-            let x = (margins.left + col_x).floor() + 0.5;
-            let rect = D2D_RECT_F {
-                left: x,
-                top: y,
-                right: x + 1.0,
-                bottom: y + line_height,
-            };
-            unsafe { ctx.FillRectangle(&rect, color) };
-        }
-    }
-}
-
-/// Boundary x-positions (DIPs from `margins.left`) where each indent
-/// unit on `line_idx` ends. A `\t` is one unit of width `tab_advance`;
-/// a run of `indent_size` consecutive spaces is one unit of width
-/// `indent_size * column_advance`. A trailing partial space run (fewer
-/// than `indent_size` spaces) is ignored — it doesn't form a parent
-/// level. Returns `None` for a blank line (only whitespace).
-fn measure_indent_boundaries(
-    rope: &Rope,
-    line_idx: usize,
-    indent_size: u32,
-    column_advance: f32,
-    tab_advance: f32,
-) -> Option<Vec<f32>> {
-    let line = rope.line(line_idx);
-    let mut bounds: Vec<f32> = Vec::new();
-    let mut x: f32 = 0.0;
-    let mut space_run: u32 = 0;
-    let mut saw_non_ws = false;
-    for ch in line.chars() {
-        match ch {
-            ' ' => {
-                x += column_advance;
-                space_run += 1;
-                if space_run >= indent_size {
-                    bounds.push(x);
-                    space_run = 0;
-                }
-            }
-            '\t' => {
-                // Tab advances to its own rendered stop. Drop any partial
-                // space run; mixed `   \t` indentation collapses to the
-                // tab's boundary, matching what the renderer draws.
-                if space_run > 0 {
-                    x -= space_run as f32 * column_advance;
-                    space_run = 0;
-                }
-                x += tab_advance;
-                bounds.push(x);
-            }
-            '\n' | '\r' => break,
-            _ => {
-                saw_non_ws = true;
-                break;
-            }
-        }
-    }
-    if saw_non_ws {
-        Some(bounds)
-    } else {
-        None
-    }
 }
 
 /// Paint vertical ruler rules at the columns named in `columns`. Drawn

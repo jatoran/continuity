@@ -44,7 +44,20 @@ impl Window {
         )
     }
 
-    /// Font-state key for the current font family, zoom, locale, and DPI.
+    /// Font-state key for the current font family, zoom, locale, DPI,
+    /// configured tab width, and markdown render toggles. The tab width
+    /// is folded in because the renderer pins the literal-tab advance
+    /// per-format via `SetIncrementalTabStop`; two layouts differing
+    /// only in tab width are different glyph runs and must not collide
+    /// in the layout cache. A `tab_width` change therefore shifts this
+    /// id and evicts the stale layouts. See [`FontStateId::with_tab_width`].
+    ///
+    /// The markdown render toggle set is folded in for the same reason:
+    /// flipping `render_italic` (etc.) changes the projected segment
+    /// list and the soft-wrap row counts, so every cached frame /
+    /// segment list / wrap profile / row index built against the old
+    /// toggles must be invalidated. See
+    /// [`FontStateId::with_markdown_toggles`].
     #[must_use]
     pub(crate) fn current_font_state_id(&self) -> FontStateId {
         FontStateId::from_parts(
@@ -53,6 +66,18 @@ impl Window {
             FONT_LOCALE,
             self.dpi_scale(),
         )
+        .with_tab_width(self.view_options.tab_width)
+        .with_markdown_toggles(self.markdown_render_toggles().hash_key())
+    }
+
+    /// The active markdown render toggle set, projected from
+    /// `[markdown].render_*` via [`crate::window_settings_projections::SettingsProjections`].
+    /// Threaded into the display-map builder + render paint gates per
+    /// frame; also folded into [`Self::current_font_state_id`] so a
+    /// hot-reload flip invalidates stale caches.
+    #[must_use]
+    pub(crate) fn markdown_render_toggles(&self) -> continuity_display_map::MarkdownRenderToggles {
+        self.settings_projections.markdown_render_toggles
     }
 
     /// Handle `WM_DPICHANGED`: accept Windows' suggested window rect, then
@@ -126,6 +151,7 @@ impl Window {
             self.cache.invalidate_other_font_states(next);
         }
         self.text_format = Some(format);
+        self.apply_tab_stop_to_text_format();
         self.font_state = next;
         Ok(())
     }

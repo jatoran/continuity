@@ -34,35 +34,17 @@ fn compute_eof_append_minimum_reveal(
     (target > scroll_y_dip + 0.5).then_some((target, scroll_extent_h))
 }
 
+fn is_beyond_eof_reveal_inset(
+    scroll_y_dip: f32,
+    content_height_dip: f32,
+    viewport_height_dip: f32,
+) -> bool {
+    let eof_reveal_max_scroll =
+        (content_height_dip + END_OF_BUFFER_BOTTOM_PADDING_DIP - viewport_height_dip).max(0.0);
+    scroll_y_dip > eof_reveal_max_scroll + 0.5
+}
+
 impl Window {
-    /// Adjust per-pane font zoom by `factor`. Invalidates the layout cache
-    /// for the previous font state.
-    ///
-    /// δ.3 — the whole mutation is anchored so the caret line stays at
-    /// the same screen y across the zoom (relevant when wrap is on:
-    /// char advance changes → wrap rows change → caret display-line
-    /// index shifts).
-    pub(crate) fn view_adjust_zoom_impl(&mut self, factor: f32) -> Result<(), Error> {
-        self.with_caret_line_anchored(|w| {
-            w.view.adjust_zoom(factor);
-            w.invalidate_font_state();
-        });
-        self.request_state_save();
-        Ok(())
-    }
-
-    /// Reset per-pane font zoom to 1.0.
-    ///
-    /// δ.3 — anchored, same rationale as [`Self::view_adjust_zoom_impl`].
-    pub(crate) fn view_reset_zoom_impl(&mut self) -> Result<(), Error> {
-        self.with_caret_line_anchored(|w| {
-            w.view.reset_zoom();
-            w.invalidate_font_state();
-        });
-        self.request_state_save();
-        Ok(())
-    }
-
     /// Toggle soft wrap. Invalidates layouts for the now-stale wrap width.
     ///
     /// δ.3 — anchored so the caret stays at the same screen y across
@@ -88,8 +70,11 @@ impl Window {
     pub(crate) fn view_scroll_lines_impl(&mut self, lines: f32) -> Result<(), Error> {
         let hwnd = self.hwnd();
         self.stop_scroll_anim(hwnd);
-        let dy = lines * self.effective_line_height();
+        let line_height = self.effective_line_height();
+        let dy = lines * line_height;
         let content_h = self.estimated_content_height();
+        self.view.line_height_dip = line_height;
+        self.view.overscroll_bottom_dip = self.overscroll_bottom_dip();
         self.view.scroll_instant(dy, content_h);
         self.request_state_save();
         Ok(())
@@ -105,6 +90,8 @@ impl Window {
         let delta = direction * (viewport_h - line_height).max(line_height);
         let target = self.view.scroll_y_dip + delta;
         let content_h = self.estimated_content_height();
+        self.view.line_height_dip = line_height;
+        self.view.overscroll_bottom_dip = self.overscroll_bottom_dip();
         if self.motion_policy().is_reduced_motion() || !self.view_options.smooth_scroll {
             self.view.jump_to(target, content_h);
             let hwnd = self.hwnd();
@@ -125,6 +112,8 @@ impl Window {
     pub(crate) fn view_scroll_doc_start_impl(&mut self) -> Result<(), Error> {
         self.cancel_scroll_inertia();
         let content_h = self.estimated_content_height();
+        self.view.line_height_dip = self.effective_line_height();
+        self.view.overscroll_bottom_dip = self.overscroll_bottom_dip();
         if self.motion_policy().is_reduced_motion() || !self.view_options.smooth_scroll {
             self.view.jump_to(0.0, content_h);
             let hwnd = self.hwnd();
@@ -145,6 +134,12 @@ impl Window {
     pub(crate) fn view_scroll_doc_end_impl(&mut self) -> Result<(), Error> {
         self.cancel_scroll_inertia();
         let content_h = self.estimated_content_height() + END_OF_BUFFER_BOTTOM_PADDING_DIP;
+        // MUST land the last line at the viewport BOTTOM (one EOF inset),
+        // never the top: this path passes `content_h` itself as the scroll
+        // target, so a non-zero overscroll allowance in the clamp would
+        // overshoot upward by that allowance. Zero it for the doc-end snap
+        // so Ctrl+End is unaffected by scroll-past-end.
+        self.view.overscroll_bottom_dip = 0.0;
         if self.motion_policy().is_reduced_motion() || !self.view_options.smooth_scroll {
             self.view.jump_to(content_h, content_h);
             let hwnd = self.hwnd();
@@ -324,6 +319,23 @@ impl Window {
             };
             let caret_byte = caret_line_start + sel.head.byte_in_line as usize;
             let caret_at_doc_end = caret_byte >= rope.len_bytes();
+            // Scroll-past-end guard: when the viewport is parked in the
+            // overscroll zone (scrolled past the normal bottom so blank space
+            // shows below the last line), the caret at EOF is already on
+            // screen. Typing there must not yank the viewport back up to pin
+            // the last line to the bottom — the caret is visible, so leave the
+            // scroll untouched. The reveal/snap below still fires when the
+            // caret is genuinely below the viewport (i.e. not in overscroll).
+            if caret_at_doc_end {
+                let content_h = self.estimated_content_height();
+                if is_beyond_eof_reveal_inset(
+                    self.view.scroll_y_dip,
+                    content_h,
+                    self.view.viewport_height_dip,
+                ) {
+                    return;
+                }
+            }
             // Only defer to the snap when the cold display-row lookup can
             // actually under-count — i.e. the document soft-wraps (more
             // display rows than source lines). On a 1:1 buffer the direct
@@ -534,7 +546,7 @@ impl Window {
 
 #[cfg(test)]
 mod tests {
-    use super::compute_eof_append_minimum_reveal;
+    use super::{compute_eof_append_minimum_reveal, is_beyond_eof_reveal_inset};
     use crate::window::{END_OF_BUFFER_BOTTOM_PADDING_DIP, LINE_HEIGHT_DIP};
 
     #[test]
@@ -567,5 +579,21 @@ mod tests {
             compute_eof_append_minimum_reveal(previous_rows, viewport_h, current, LINE_HEIGHT_DIP),
             None
         );
+    }
+
+    #[test]
+    fn eof_reveal_inset_is_not_user_overscroll() {
+        let content_h = 160.0 * LINE_HEIGHT_DIP;
+        let viewport_h = 700.0;
+        let eof_bottom = content_h + END_OF_BUFFER_BOTTOM_PADDING_DIP - viewport_h;
+
+        assert!(!is_beyond_eof_reveal_inset(
+            eof_bottom, content_h, viewport_h
+        ));
+        assert!(is_beyond_eof_reveal_inset(
+            eof_bottom + LINE_HEIGHT_DIP,
+            content_h,
+            viewport_h
+        ));
     }
 }

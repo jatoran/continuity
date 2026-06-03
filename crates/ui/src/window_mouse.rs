@@ -244,6 +244,14 @@ impl Window {
         if self.file_tree.is_visible() && x as f32 <= self.file_tree.visible_width_dip() {
             return true;
         }
+        // Cross-cutting overlay guard (mirrors `on_left_button_down`): a
+        // double-click inside an active overlay's panel is claimed by the
+        // overlay — inside a text field it selects the whole field — so it
+        // never leaks through to the buffer's `place_caret_at_pixel` +
+        // `select_word` behind the overlay.
+        if self.overlay_input_dbl_click(x, y) {
+            return true;
+        }
         self.clear_unsaved_close_arm();
         let click_line = self
             .client_to_buffer_position(x, y)

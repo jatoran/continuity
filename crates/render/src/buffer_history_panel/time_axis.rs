@@ -28,17 +28,27 @@ enum TickGranularity {
 /// Returns an empty vector when the strip is too narrow or the
 /// viewport collapses (which only happens during pathological
 /// resizes).
+///
+/// `scale` is the global text-zoom multiplier: the minimum spacing
+/// between adjacent labels grows with it so the larger date glyphs do
+/// not overlap when the user has zoomed in.
 #[must_use]
 pub(crate) fn compute_time_axis_ticks(
     start_ms: i64,
     end_ms: i64,
     strip_w_dip: f32,
+    scale: f32,
 ) -> Vec<TimeAxisTick> {
-    if strip_w_dip < 60.0 || end_ms <= start_ms {
+    let scale = if scale.is_finite() {
+        scale.clamp(0.25, 8.0)
+    } else {
+        1.0
+    };
+    if strip_w_dip < 60.0 * scale || end_ms <= start_ms {
         return Vec::new();
     }
-    const MIN_LABEL_SPACING_DIP: f32 = 110.0;
-    let max_ticks = ((strip_w_dip / MIN_LABEL_SPACING_DIP).floor() as usize).clamp(2, 7);
+    let min_label_spacing = 110.0 * scale;
+    let max_ticks = ((strip_w_dip / min_label_spacing).floor() as usize).clamp(2, 7);
     let span = end_ms - start_ms;
     const HOUR: i64 = 3_600_000;
     const DAY: i64 = 24 * HOUR;

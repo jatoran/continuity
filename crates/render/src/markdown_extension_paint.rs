@@ -46,6 +46,13 @@ pub(crate) fn paint_inline_color_pre_text(
     line_height: f32,
     highlight_bg_brush: &ID2D1SolidColorBrush,
 ) {
+    // `render_highlight` OFF skips the `==text==` background fill. The
+    // display map keeps the `==` markers visible, so the user sees raw
+    // markup. The `{#hex:}` foreground overdraw is a separate pass
+    // (`paint_inline_color_post_text`) and stays unaffected.
+    if !params.view_options.render_highlight_bg {
+        return;
+    }
     if params.inline_color_spans.is_empty() {
         return;
     }

@@ -45,6 +45,11 @@ impl Window {
             viewport,
             colors,
             top_buffers,
+            // Global text zoom: the `text_format` used for this paint is
+            // built at `base_font * font_size_scale`, so the metrics
+            // dashboard scales its geometry by the same factor to keep
+            // every value inside its cell.
+            scale: self.view.font_size_scale,
         };
         let layout =
             continuity_render::metrics_panel::layout::compute_metrics_panel_layout(&inputs);

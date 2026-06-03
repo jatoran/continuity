@@ -10,7 +10,7 @@ use std::sync::Arc;
 use ropey::Rope;
 
 use continuity_decorate::Decorations;
-use continuity_display_map::{FoldRange, ImageRowReservation, RowSplice};
+use continuity_display_map::{FoldRange, ImageRowReservation, MarkdownRenderToggles, RowSplice};
 use continuity_render::{FrameDisplay, DEFAULT_HEADING_SCALE};
 use windows::Win32::Graphics::DirectWrite::IDWriteTextFormat;
 
@@ -109,6 +109,13 @@ pub(crate) struct ProjectionRequest {
     /// request so the worker measures at the current font — see
     /// [`WorkerFontMetrics`] (RC1 stale-font fix).
     pub font_metrics: WorkerFontMetrics,
+    /// Markdown render toggle set at dispatch time. Gates emphasis /
+    /// strong styling, the `==` highlight + thematic-break / setext
+    /// rendering inside the builder. Carried as data (not just folded
+    /// into `stamp.font_state`) because the worker needs the actual
+    /// booleans to build segments; the stamp's `font_state` already
+    /// discriminates results so a toggle flip rejects stale frames.
+    pub markdown_toggles: MarkdownRenderToggles,
     /// Plan classification.
     pub plan: ProjectionPlan,
 }

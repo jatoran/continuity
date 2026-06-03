@@ -27,8 +27,8 @@ use crate::edit_line_text::{
 use crate::edit_lines::{
     plan_delete_to_line_end, plan_delete_to_line_start, plan_duplicate_line,
     plan_duplicate_selection, plan_insert_newline_above, plan_insert_newline_below,
-    plan_insert_newline_smart, plan_join_lines, plan_move_line_down, plan_move_line_up,
-    plan_toggle_bullet_at_line_start,
+    plan_insert_newline_smart, plan_join_lines, plan_join_selected_lines, plan_move_line_down,
+    plan_move_line_up, plan_toggle_bullet_at_line_start,
 };
 use crate::edit_markdown::{
     plan_markdown_cycle_list_marker, plan_markdown_insert_code_fence,
@@ -105,6 +105,11 @@ pub enum SelectionEdit {
     MoveLineDown,
     /// Join the line below each selection's line into the current line.
     JoinLines,
+    /// Collapse every line break within the lines covered by each selection
+    /// into a single space, joining the whole selected block into one line
+    /// (VS Code "Join Lines"). Distinct from [`SelectionEdit::JoinLines`],
+    /// which only folds the single line below each caret (Vim `J`).
+    JoinSelectedLines,
     /// Sort the lines covered by selections.
     SortLines(SortKind),
     /// Reverse the order of lines covered by selections.
@@ -352,6 +357,7 @@ pub fn plan(buffer: &Buffer, edit: &SelectionEdit) -> Result<Option<SelectionEdi
         SelectionEdit::MoveLineUp => plan_move_line_up(buffer),
         SelectionEdit::MoveLineDown => plan_move_line_down(buffer),
         SelectionEdit::JoinLines => plan_join_lines(buffer),
+        SelectionEdit::JoinSelectedLines => plan_join_selected_lines(buffer),
         SelectionEdit::SortLines(kind) => plan_sort_lines(buffer, *kind),
         SelectionEdit::ReverseLines => plan_reverse_lines(buffer),
         SelectionEdit::UniqueLines => plan_unique_lines(buffer),

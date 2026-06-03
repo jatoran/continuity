@@ -264,6 +264,7 @@ mod tests {
     struct PassCtx;
     impl continuity_command::ViewContext for PassCtx {}
     impl continuity_command::FindContext for PassCtx {}
+    impl continuity_command::EditConfigContext for PassCtx {}
 
     impl Context for PassCtx {
         fn lookup(&self, _key: &str) -> Option<&str> {
@@ -390,6 +391,7 @@ mod tests {
         }
         impl continuity_command::ViewContext for EditorCtx {}
         impl continuity_command::FindContext for EditorCtx {}
+        impl continuity_command::EditConfigContext for EditorCtx {}
 
         impl Context for EditorCtx {
             fn lookup(&self, key: &str) -> Option<&str> {

@@ -129,6 +129,44 @@ pub(crate) fn paint_block_backgrounds(
 /// same amount as the glyphs. Without this translation an HR low in a
 /// soft-wrapped buffer paints on top of whatever line happens to sit at
 /// `source_line * line_height` — the false-divider symptom.
+/// Focused-pane thematic-break paint pass. Wraps [`paint_horizontal_rules`]
+/// with the decorations-present guard, the `[markdown].render_divider`
+/// read, and the timing capture so the renderer's main draw routine stays
+/// under the 600-line cap. Returns the microseconds spent (0 when there
+/// are no decorations to paint against). Owning thread: the renderer's UI
+/// thread.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn paint_horizontal_rules_pass(
+    ctx: &ID2D1DeviceContext,
+    rope: &Rope,
+    selections: &[Selection],
+    params: &crate::params::DrawParams<'_>,
+    rule_brush: &ID2D1SolidColorBrush,
+    line_height: f32,
+    body_left_dip: f32,
+    body_width_dip: f32,
+    scroll_y_dip: f32,
+) -> u64 {
+    let Some(decorations) = params.decorations else {
+        return 0;
+    };
+    let started = std::time::Instant::now();
+    paint_horizontal_rules(
+        ctx,
+        rope,
+        params.frame_display,
+        decorations,
+        selections,
+        rule_brush,
+        line_height,
+        body_left_dip,
+        body_width_dip,
+        scroll_y_dip,
+        params.view_options.render_divider,
+    );
+    started.elapsed().as_micros() as u64
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn paint_horizontal_rules(
     ctx: &ID2D1DeviceContext,
@@ -141,7 +179,16 @@ pub(crate) fn paint_horizontal_rules(
     body_left_dip: f32,
     body_width_dip: f32,
     scroll_y_dip: f32,
+    render_divider: bool,
 ) {
+    // `render_divider` OFF (`[markdown].render_divider = false`) keeps the
+    // literal `---` / `***` / `___` characters visible (the display map
+    // does not hide them) and skips the rule paint entirely. Gating here
+    // covers both the focused-pane and spectator-pane call sites without
+    // an `if` branch at either.
+    if !render_divider {
+        return;
+    }
     const INSET_DIP: f32 = 8.0;
     let left = body_left_dip + INSET_DIP;
     let right = (body_left_dip + body_width_dip - INSET_DIP).max(left);

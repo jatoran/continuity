@@ -18,7 +18,8 @@ use windows::Win32::Graphics::DirectWrite::{
 
 use crate::pane_chrome_border::paint_pane_border;
 use crate::pane_chrome_tabs::{
-    close_button_rect, paint_close_icon, paint_tab_background, TAB_TRAPEZOID_SKEW_DIP,
+    close_button_rect, paint_close_icon, paint_dirty_dot, paint_tab_background,
+    TAB_TRAPEZOID_SKEW_DIP,
 };
 use crate::params::{PaneChromeDraw, PaneStripDraw, Rgba};
 use crate::Error;
@@ -425,12 +426,22 @@ fn paint_one_pane_strip(
                 d2d.PopAxisAlignedClip();
             }
         }
-        // Optional close button at the right edge of the tab. Painted
-        // last so it sits over the label background.
-        if tab.show_close && tw >= TAB_CLOSE_MIN_TAB_WIDTH_DIP {
+        // Close-button cell at the right edge of the tab. Painted last
+        // so it sits over the label background. Precedence in the cell:
+        //   hovered      → `×` close glyph (the click target stays here);
+        //   else dirty   → filled dot marking an unsaved buffer;
+        //   else         → nothing.
+        // The dot reuses the close-cell rect so it lands exactly where
+        // the `×` appears on hover (VS Code-style swap). The hit-test
+        // does not change — the dot is purely visual.
+        if tw >= TAB_CLOSE_MIN_TAB_WIDTH_DIP {
             let close_rect = close_button_rect(cursor_x, tw, tab_y, tab_h);
             let brush = if is_active { active_fg_brush } else { fg_brush };
-            paint_close_icon(d2d, close_rect, brush);
+            if tab.show_close {
+                paint_close_icon(d2d, close_rect, brush);
+            } else if tab.dirty {
+                paint_dirty_dot(d2d, close_rect, brush);
+            }
         }
         cursor_x += tw;
         if cursor_x >= x + w {

@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use continuity_core::{CaseKind, IndentUnit, LineEnding, SelectionEdit, SortKind};
+use continuity_core::{CaseKind, LineEnding, SelectionEdit, SortKind};
 use serde_json::Value;
 
 use crate::{CommandId, ContextPredicate, Error, Registry};
@@ -42,6 +42,11 @@ pub const EDITOR_MOVE_LINE_UP_BLOCK: CommandId = CommandId("editor.move_line_up_
 pub const EDITOR_MOVE_LINE_DOWN_BLOCK: CommandId = CommandId("editor.move_line_down_block");
 /// Join the line below each caret into the current line.
 pub const EDITOR_JOIN_LINES: CommandId = CommandId("editor.join_lines");
+/// Collapse every covered line of the selection into one line, separating
+/// the joined fragments with single spaces (VS Code "Join Lines"). Distinct
+/// from [`EDITOR_JOIN_LINES`], which folds only the single line below each
+/// caret (Vim `J`).
+pub const EDITOR_JOIN_SELECTED_LINES: CommandId = CommandId("editor.join_selected_lines");
 /// Sort covered lines ascending, case-sensitive.
 pub const EDITOR_SORT_LINES_ASC: CommandId = CommandId("editor.sort_lines_asc");
 /// Sort covered lines descending, case-sensitive.
@@ -108,7 +113,6 @@ pub const EDITOR_SURROUND_DOUBLE_QUOTES: CommandId = CommandId("editor.surround_
 /// Wrap each non-empty selection with the JSON `surround.with` argument.
 pub const EDITOR_SURROUND_SELECTION_WITH: CommandId = CommandId("editor.surround_selection_with");
 
-const DEFAULT_TAB_WIDTH: u32 = 4;
 const DEFAULT_WRAP_COLUMN: u32 = 80;
 const DEFAULT_SHUFFLE_SEED: u64 = 0xCAFE_F00D;
 
@@ -195,6 +199,13 @@ pub fn register_rich_editing(registry: &mut Registry) {
         EDITOR_JOIN_LINES,
         handler(|| SelectionEdit::JoinLines),
     );
+    bind(
+        registry,
+        EDITOR_JOIN_SELECTED_LINES,
+        handler(|| SelectionEdit::JoinSelectedLines),
+    );
+    registry.mark_palette_safe(EDITOR_JOIN_SELECTED_LINES);
+    registry.set_description(EDITOR_JOIN_SELECTED_LINES, "Join Selected Lines");
 
     for (id, kind) in [
         (EDITOR_SORT_LINES_ASC, SortKind::Asc),
@@ -272,32 +283,41 @@ pub fn register_rich_editing(registry: &mut Registry) {
         );
     }
 
+    // Indent / outdent and the spaces↔tabs conversions read the live
+    // indent configuration off the dispatch context (set from
+    // `[editor].indent_type` / `indent_width` / `tab_width`) rather than
+    // baking a constant at registration time. See
+    // [`crate::EditConfigContext`].
     bind(
         registry,
         EDITOR_INDENT,
-        handler(|| SelectionEdit::Indent {
-            unit: IndentUnit::Tab,
+        Arc::new(|_, ctx| {
+            let unit = ctx.indent_unit();
+            ctx.apply_selection_edit(SelectionEdit::Indent { unit })
         }),
     );
     bind(
         registry,
         EDITOR_OUTDENT,
-        handler(|| SelectionEdit::Outdent {
-            unit: IndentUnit::Tab,
+        Arc::new(|_, ctx| {
+            let unit = ctx.indent_unit();
+            ctx.apply_selection_edit(SelectionEdit::Outdent { unit })
         }),
     );
     bind(
         registry,
         EDITOR_SPACES_TO_TABS,
-        handler(|| SelectionEdit::SpacesToTabs {
-            tab_width: DEFAULT_TAB_WIDTH,
+        Arc::new(|_, ctx| {
+            let tab_width = ctx.effective_tab_width();
+            ctx.apply_selection_edit(SelectionEdit::SpacesToTabs { tab_width })
         }),
     );
     bind(
         registry,
         EDITOR_TABS_TO_SPACES,
-        handler(|| SelectionEdit::TabsToSpaces {
-            tab_width: DEFAULT_TAB_WIDTH,
+        Arc::new(|_, ctx| {
+            let tab_width = ctx.effective_tab_width();
+            ctx.apply_selection_edit(SelectionEdit::TabsToSpaces { tab_width })
         }),
     );
     bind(
@@ -378,6 +398,7 @@ mod tests {
     }
     impl crate::ViewContext for Captor {}
     impl crate::FindContext for Captor {}
+    impl crate::EditConfigContext for Captor {}
 
     fn registry() -> Registry {
         let mut registry = Registry::new();

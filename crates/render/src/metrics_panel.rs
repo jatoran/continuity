@@ -70,6 +70,14 @@ pub struct MetricsPanelInputs {
     pub colors: MetricsPanelColors,
     /// Buffers ranked by edit count over the trailing 7 days.
     pub top_buffers: Vec<TopBufferEntry>,
+    /// Global text-zoom multiplier (`continuity_layout::ViewState::
+    /// font_size_scale`). The `text_format` the renderer paints this
+    /// panel with is built at `base_font * scale`, so every text-
+    /// bearing geometric quantity (heading / caption / card / row
+    /// heights, paddings, section gaps, bar and heatmap-cell sizing)
+    /// is multiplied by this factor so the dashboard scales coherently
+    /// and no value overflows its cell. `1.0` is no zoom.
+    pub scale: f32,
 }
 
 /// Axis-aligned DIP rectangle.

@@ -22,7 +22,8 @@
 //! thread. The pure helpers are called only from the UI thread through
 //! `apply_settings`.
 
-use continuity_config::{EditorConfig, MarkdownDialect, RevealMode, Settings};
+use continuity_config::{EditorConfig, MarkdownConfig, MarkdownDialect, RevealMode, Settings};
+use continuity_display_map::MarkdownRenderToggles;
 
 /// Default per-level heading scale. Matches
 /// [`continuity_config::MarkdownConfig::default`]. Used when the
@@ -75,6 +76,16 @@ pub(crate) struct SettingsProjections {
     pub(crate) markdown_heading_scale: [f32; 6],
     /// Mirrors `[markdown].dialect`.
     pub(crate) markdown_dialect: MarkdownDialect,
+    /// Mirrors the five `[markdown].render_*` decoration toggles
+    /// (`render_italic` / `render_bold` / `render_highlight` /
+    /// `render_setext_heading` / `render_divider`). Threaded into the
+    /// display-map builder and render paint gates per frame so a
+    /// hot-reload flip takes effect on the next paint. The toggle set is
+    /// also folded into the font-state key (see
+    /// [`crate::Window::current_font_state_id`]) so cached frames /
+    /// segment lists / wrap profiles built against the previous toggles
+    /// are invalidated.
+    pub(crate) markdown_render_toggles: MarkdownRenderToggles,
     /// δ.6 Tier 3 — suppression counter for `settings.toml` writebacks.
     /// Incremented by [`crate::window_settings_persist`] when a toggle
     /// command persists a boolean; the next inbound
@@ -102,6 +113,7 @@ impl Default for SettingsProjections {
             markdown_reveal_mode: RevealMode::Block,
             markdown_heading_scale: DEFAULT_HEADING_SCALE,
             markdown_dialect: MarkdownDialect::Gfm,
+            markdown_render_toggles: markdown_render_toggles_from_config(&MarkdownConfig::default()),
             writeback_in_flight: 0,
         }
     }
@@ -124,6 +136,23 @@ impl SettingsProjections {
         self.markdown_reveal_mode = s.reveal_mode();
         self.markdown_dialect = s.markdown_dialect();
         self.markdown_heading_scale = heading_scale_from_slice(&s.markdown.heading_scale);
+        self.markdown_render_toggles = markdown_render_toggles_from_config(&s.markdown);
+    }
+}
+
+/// Project the five `[markdown].render_*` booleans into the display-map
+/// [`MarkdownRenderToggles`] value threaded through the builder + render
+/// paint gates.
+#[must_use]
+pub(crate) fn markdown_render_toggles_from_config(
+    markdown: &MarkdownConfig,
+) -> MarkdownRenderToggles {
+    MarkdownRenderToggles {
+        italic: markdown.render_italic,
+        bold: markdown.render_bold,
+        highlight: markdown.render_highlight,
+        setext_heading: markdown.render_setext_heading,
+        divider: markdown.render_divider,
     }
 }
 

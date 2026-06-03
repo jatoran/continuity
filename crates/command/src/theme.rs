@@ -181,6 +181,7 @@ mod tests {
         }
     }
     impl crate::FindContext for CapturingCtx {}
+    impl crate::EditConfigContext for CapturingCtx {}
     impl ViewContext for CapturingCtx {
         fn theme_clone_active(&mut self, name: Option<&str>) -> Result<(), Error> {
             self.clone_calls.borrow_mut().push(name.map(str::to_string));

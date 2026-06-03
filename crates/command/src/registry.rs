@@ -225,6 +225,7 @@ mod tests {
     }
     impl crate::ViewContext for EmptyCtx {}
     impl crate::FindContext for EmptyCtx {}
+    impl crate::EditConfigContext for EmptyCtx {}
 
     struct MapCtx(HashMap<&'static str, &'static str>);
     impl Context for MapCtx {
@@ -234,6 +235,7 @@ mod tests {
     }
     impl crate::ViewContext for MapCtx {}
     impl crate::FindContext for MapCtx {}
+    impl crate::EditConfigContext for MapCtx {}
 
     fn map_ctx(pairs: &[(&'static str, &'static str)]) -> MapCtx {
         MapCtx(pairs.iter().copied().collect())

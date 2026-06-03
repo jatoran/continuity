@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use continuity_decorate::Decorations;
-use continuity_display_map::{FoldRange, ImageRowReservation};
+use continuity_display_map::{FoldRange, ImageRowReservation, MarkdownRenderToggles};
 use ropey::Rope;
 
 use crate::pane_tree::PaneId;
@@ -31,6 +31,7 @@ pub(crate) fn build_projection_request(
     folds: &[FoldRange],
     image_reservations: &[ImageRowReservation],
     suppressed_table_blocks: &[std::ops::Range<usize>],
+    markdown_toggles: MarkdownRenderToggles,
     fallback_char_width_dip: f32,
     font_metrics: WorkerFontMetrics,
     plan: ProjectionPlan,
@@ -45,6 +46,7 @@ pub(crate) fn build_projection_request(
         folds: Arc::from(folds.to_vec()),
         image_reservations: Arc::from(image_reservations.to_vec()),
         suppressed_table_blocks: Arc::from(suppressed_table_blocks.to_vec()),
+        markdown_toggles,
         fallback_char_width_dip,
         font_metrics,
         plan,

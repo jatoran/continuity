@@ -311,11 +311,11 @@ impl Window {
         let Some(file) = snap.file.as_ref() else {
             return self.file_save_as_impl();
         };
-        self.enqueue_save(
-            self.buffer_id,
-            file.path.clone(),
-            snap.rope_snapshot().rope().to_string(),
-        )
+        let path = file.path.clone();
+        let base = file.clone();
+        let content = snap.rope_snapshot().rope().to_string();
+        self.mark_saved_clean(self.buffer_id, base, &content);
+        self.enqueue_save(self.buffer_id, path, content)
     }
 
     pub(crate) fn file_save_as_impl(&mut self) -> Result<(), CommandError> {
@@ -327,43 +327,10 @@ impl Window {
         let Some(path) = save_file_dialog(self.hwnd, snap.file.as_ref()) else {
             return Ok(());
         };
-        self.enqueue_save(
-            self.buffer_id,
-            path,
-            snap.rope_snapshot().rope().to_string(),
-        )
-    }
-
-    /// Phase B14: run `SelectionEdit::TrimTrailingWhitespaceAll` as
-    /// part of every save when the setting is enabled. The selection
-    /// edit goes through the regular planning machinery so it lands
-    /// as a single undo group and the snapshot taken afterwards sees
-    /// the trimmed text.
-    fn maybe_trim_trailing_whitespace_for_save(&mut self) {
-        if !self.trim_trailing_whitespace_on_save {
-            return;
-        }
-        let _ = self.editor.apply_selection_edit(
-            self.buffer_id,
-            continuity_core::SelectionEdit::TrimTrailingWhitespaceAll,
-        );
-    }
-
-    fn enqueue_save(
-        &mut self,
-        buffer_id: BufferId,
-        path: PathBuf,
-        content: String,
-    ) -> Result<(), CommandError> {
-        let file_io = self
-            .file_io
-            .as_ref()
-            .ok_or(CommandError::UnsupportedContext("file_save"))?;
-        if file_io.save_buffer(buffer_id, path, content) {
-            Ok(())
-        } else {
-            Err(CommandError::UnsupportedContext("file_save"))
-        }
+        let content = snap.rope_snapshot().rope().to_string();
+        let base = FileAssociation::new(path.clone(), 0, 0);
+        self.mark_saved_clean(self.buffer_id, base, &content);
+        self.enqueue_save(self.buffer_id, path, content)
     }
 
     fn handle_file_io_event(&mut self, event: FileIoEvent) {
@@ -380,6 +347,8 @@ impl Window {
                 truncated,
             } => self.handle_file_tree_directory_list(root, relative, entries, truncated),
             FileIoEvent::Saved { buffer_id, file } => {
+                // Write confirmed — drop the failure-rollback baseline.
+                self.pending_save_baseline.remove(&buffer_id);
                 let _ = self
                     .editor
                     .set_file_association(buffer_id, Some(file.clone()));
@@ -461,10 +430,23 @@ impl Window {
                 )));
             }
             FileIoEvent::Failed {
+                buffer_id,
                 operation,
                 path,
                 reason,
             } => {
+                // A failed write means the on-disk export is stale, so the
+                // optimistic `mark_saved_clean` was wrong: roll the buffer's
+                // content hash back to its pre-save value to re-flag dirty.
+                if let Some(bid) = buffer_id {
+                    if let Some(baseline) = self.pending_save_baseline.remove(&bid) {
+                        if let Some(file) = self.editor.snapshot(bid).and_then(|snap| snap.file) {
+                            let _ = self
+                                .editor
+                                .set_file_association(bid, Some(file.with_content_hash(baseline)));
+                        }
+                    }
+                }
                 let label = path
                     .as_ref()
                     .map(|p| p.display().to_string())

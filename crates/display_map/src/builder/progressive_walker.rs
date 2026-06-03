@@ -57,6 +57,7 @@ use crate::error::Error;
 use crate::fold::FoldRange;
 use crate::id::SourceByte;
 use crate::image_row_reservation_provider::ImageRowReservation;
+use crate::markdown_toggles::MarkdownRenderToggles;
 use crate::wrap::{WidthMeasure, WrapConfig};
 
 use super::row_counts::{row_count_for_source_line, RowCountCacheContext};
@@ -137,6 +138,7 @@ pub(super) fn compute_partial_row_counts_for_viewport_range(
     folds: &[FoldRange],
     image_reservations: &[ImageRowReservation],
     suppressed_table_blocks: &[std::ops::Range<usize>],
+    markdown_toggles: MarkdownRenderToggles,
     wrap: WrapConfig,
     measure: &mut dyn WidthMeasure,
     cache_context: Option<RowCountCacheContext<'_>>,
@@ -187,6 +189,7 @@ pub(super) fn compute_partial_row_counts_for_viewport_range(
             folds,
             image_reservations,
             suppressed_table_blocks,
+            markdown_toggles,
             wrap,
             measure,
             cache_context,

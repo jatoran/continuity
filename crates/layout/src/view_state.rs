@@ -38,6 +38,19 @@ pub struct ViewState {
     pub viewport_width_dip: f32,
     /// Viewport pixel height in DIPs.
     pub viewport_height_dip: f32,
+    /// Extra DIPs the bottom clamp may exceed `(content_h - viewport_h)`
+    /// by, for scroll-past-end overscroll. Default `0.0` (no overscroll).
+    /// UI-thread-owned; recomputed each frame from the `scroll_past_end`
+    /// setting and `effective_line_height()`. The clamp re-caps this to
+    /// `viewport_h - line_height` so the last line can reach the viewport
+    /// top but never scroll above it, and gates it to `0` when the content
+    /// already fits the viewport.
+    pub overscroll_bottom_dip: f32,
+    /// Current (zoom-scaled) row stride in DIPs. Default `0.0`. UI-thread-
+    /// owned; set alongside [`Self::overscroll_bottom_dip`] so the bottom
+    /// clamp can re-cap the overscroll allowance to `viewport_h -
+    /// line_height` independently of the value the UI supplied.
+    pub line_height_dip: f32,
 }
 
 impl Default for ViewState {
@@ -52,6 +65,8 @@ impl Default for ViewState {
             soft_wrap: true,
             viewport_width_dip: 0.0,
             viewport_height_dip: 0.0,
+            overscroll_bottom_dip: 0.0,
+            line_height_dip: 0.0,
         }
     }
 }
@@ -95,6 +110,8 @@ impl ViewState {
             self.scroll_y_dip + delta_dip,
             content_height_dip,
             self.viewport_height_dip,
+            self.overscroll_bottom_dip,
+            self.line_height_dip,
         );
     }
 
@@ -102,7 +119,13 @@ impl ViewState {
     /// line, find, and similar focus-on-target commands).
     pub fn jump_to(&mut self, target_dip: f32, content_height_dip: f32) {
         self.scroll_target_dip = None;
-        self.scroll_y_dip = clamp_scroll(target_dip, content_height_dip, self.viewport_height_dip);
+        self.scroll_y_dip = clamp_scroll(
+            target_dip,
+            content_height_dip,
+            self.viewport_height_dip,
+            self.overscroll_bottom_dip,
+            self.line_height_dip,
+        );
     }
 
     /// Begin an animated easing scroll (Page Up/Down, Ctrl+Home/End).
@@ -122,6 +145,8 @@ impl ViewState {
             target_dip,
             content_height_dip,
             self.viewport_height_dip,
+            self.overscroll_bottom_dip,
+            self.line_height_dip,
         ));
         self.anim_start_ms = now_ms;
         self.anim_duration_ms = duration_ms;
@@ -179,9 +204,34 @@ impl ViewState {
     }
 }
 
-fn clamp_scroll(scroll: f32, content_h: f32, viewport_h: f32) -> f32 {
-    let max = (content_h - viewport_h).max(0.0);
-    scroll.clamp(0.0, max)
+/// Clamp a scroll position to the valid range, allowing an optional
+/// scroll-past-end overscroll allowance below the document bottom.
+///
+/// `base` (`content_h - viewport_h`) is the classic ceiling that lands the
+/// last line at the viewport bottom. The overscroll allowance is added on
+/// top, but bounded two ways so it stays well-behaved:
+///
+/// * It is gated to `0` when the content already fits the viewport
+///   (`base == 0`), so a short buffer never scrolls into blank space.
+/// * It is re-capped to `viewport_h - line_height`, so the last line can
+///   reach the viewport top but never scroll above it — regardless of how
+///   large a value the caller supplied in `overscroll_bottom`.
+fn clamp_scroll(
+    scroll: f32,
+    content_h: f32,
+    viewport_h: f32,
+    overscroll_bottom: f32,
+    line_height: f32,
+) -> f32 {
+    let base = (content_h - viewport_h).max(0.0);
+    let allowance = if base > 0.0 {
+        overscroll_bottom
+            .max(0.0)
+            .min((viewport_h - line_height).max(0.0))
+    } else {
+        0.0
+    };
+    scroll.clamp(0.0, base + allowance)
 }
 
 #[cfg(test)]

@@ -220,6 +220,7 @@ mod tests {
         }
     }
     impl crate::ViewContext for StubContext {}
+    impl crate::EditConfigContext for StubContext {}
     impl crate::FindContext for StubContext {
         fn find_step(&mut self, delta: i32) -> Result<(), crate::Error> {
             self.steps.push(delta);

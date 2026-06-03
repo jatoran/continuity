@@ -260,6 +260,7 @@ pub(crate) fn is_structural_edit(edit: &SelectionEdit) -> bool {
         | SelectionEdit::MoveLineUp
         | SelectionEdit::MoveLineDown
         | SelectionEdit::JoinLines
+        | SelectionEdit::JoinSelectedLines
         | SelectionEdit::SortLines(_)
         | SelectionEdit::ReverseLines
         | SelectionEdit::UniqueLines

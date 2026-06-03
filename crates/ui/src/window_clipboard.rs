@@ -185,12 +185,53 @@ impl Window {
         result
     }
 
-    /// `editor.paste_as_plain_text` — alias of paste (the clipboard
-    /// reader only consumes `CF_UNICODETEXT`, so RTF/HTML formats are
-    /// already dropped before reaching us). Surfaced as a discoverable
-    /// command + Ctrl+Shift+V binding per spec §12.
+    /// Insert the clipboard's `CF_UNICODETEXT` payload verbatim at every
+    /// caret, skipping both the clipboard-image branch and the
+    /// smart-paste URL transform that [`Self::paste_clipboard_impl`] runs.
+    ///
+    /// This is the literal "plain text" path: the only transformation
+    /// applied is [`normalize_line_endings`] (so stray `\r` glyphs never
+    /// reach the rope). When the clipboard holds an image but no text the
+    /// call is a no-op — plain paste never imports images.
+    ///
+    /// Thread ownership: UI thread (HWND owner). The mutation lands as a
+    /// single [`SelectionEdit::InsertText`] via
+    /// [`Self::dispatch_selection_edit`] (one undo group), then arms the
+    /// edit-region pulse exactly as the paste path does.
+    fn insert_plain_clipboard_text(&mut self) -> Result<(), CommandError> {
+        let text_opt = clipboard::read_text(self.hwnd).map_err(|e| {
+            eprintln!("continuity-ui: clipboard read failed: {e}");
+            CommandError::UnsupportedContext("clipboard read failed")
+        })?;
+        let Some(text) = text_opt else {
+            return Err(CommandError::UnsupportedContext("clipboard has no text"));
+        };
+        let normalized = normalize_line_endings(&text);
+        // Same pre-state capture as `paste_clipboard_impl`: `InsertText`
+        // is not in the structural-edit allowlist, so we arm the pulse
+        // manually after the apply lands.
+        let pre = self.editor.snapshot(self.buffer_id);
+        let pre_caret_line = pre
+            .as_ref()
+            .and_then(|s| s.selections().first().map(|sel| sel.head.line));
+        let pre_line_count = pre.as_ref().map(|s| s.rope_snapshot().rope().len_lines());
+        let result = self.dispatch_selection_edit(SelectionEdit::InsertText(normalized));
+        if result.is_ok() {
+            if let (Some(line), Some(lines)) = (pre_caret_line, pre_line_count) {
+                self.pulse_edit_region_after_dispatch(line, lines);
+            }
+        }
+        result
+    }
+
+    /// `editor.paste_as_plain_text` — paste the clipboard's
+    /// `CF_UNICODETEXT` payload raw (Ctrl+Shift+V): skips the image and
+    /// smart-paste branches that `editor.paste` (Ctrl+V) runs, so a
+    /// clipboard image or single-URL payload is inserted as literal text
+    /// (or, for image-only clipboards, nothing). Surfaced as a
+    /// discoverable command + Ctrl+Shift+V binding per spec §12.
     pub(crate) fn paste_as_plain_text_impl(&mut self) -> Result<(), CommandError> {
-        self.paste_clipboard_impl()
+        self.insert_plain_clipboard_text()
     }
 
     /// `editor.paste_from_history` — paste history entry at `index`

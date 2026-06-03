@@ -15,6 +15,84 @@ use crate::edit_planning::{finalize_specs, line_content_end, EditSpec};
 use crate::selection_edit::SelectionEditPlan;
 use crate::Error;
 
+/// Collapse every line break within the lines covered by the selection into a
+/// single space, joining the whole covered block into one line (VS Code
+/// "Join Lines" semantics).
+///
+/// Distinct from [`plan_join_lines`], which only folds the single line below
+/// each caret (Vim `J`). The covered lines are derived via
+/// [`crate::edit_lines::lines_covered`], so multiple or non-contiguous
+/// selections merge into one contiguous `first..=last` block and produce a
+/// single [`EditSpec::replace`] — one undo group.
+///
+/// Whitespace policy mirrors [`plan_join_lines`]: the first covered line is
+/// kept verbatim (its leading indentation is preserved); every subsequent
+/// line is `trim_start`ed and stripped of a trailing `\r`, then joined with a
+/// single space when it has remaining content (blank lines contribute
+/// nothing). A single trailing newline on the block is preserved so the line
+/// after the selection is not pulled into the join. Returns `Ok(None)` for a
+/// single covered line or when the rebuilt block equals the original (no-op,
+/// no undo group). The caret lands at the end of the joined content on line
+/// `first`, honouring "layout shifts preserve caret-line screen y".
+pub(crate) fn plan_join_selected_lines(
+    buffer: &Buffer,
+) -> Result<Option<SelectionEditPlan>, Error> {
+    let rope = buffer.rope();
+    let selections_before = buffer.selections().to_vec();
+    let lines = crate::edit_lines::lines_covered(buffer);
+    if lines.is_empty() {
+        return Ok(None);
+    }
+    let first = *lines.first().expect("lines is non-empty by check");
+    let last = *lines.last().expect("lines is non-empty by check");
+    if first == last {
+        // A single covered line has no interior break to remove. Keep this
+        // distinct from the Vim-J `plan_join_lines` one-below behaviour.
+        return Ok(None);
+    }
+    let block_start = rope.line_to_byte(first);
+    let block_end = if last + 1 < rope.len_lines() {
+        rope.line_to_byte(last + 1)
+    } else {
+        rope.len_bytes()
+    };
+    let block_text = rope.byte_slice(block_start..block_end).to_string();
+    let trailing_newline = block_text.ends_with('\n');
+    let body = if trailing_newline {
+        &block_text[..block_text.len() - 1]
+    } else {
+        &block_text[..]
+    };
+
+    let mut covered = body.split('\n');
+    // Keep the first covered line verbatim so its leading indentation
+    // survives; `body` is non-empty so at least one segment exists.
+    let mut joined = covered.next().unwrap_or("").to_string();
+    for fragment in covered {
+        let trimmed = fragment.trim_start().trim_end_matches('\r');
+        if !trimmed.is_empty() {
+            joined.push(' ');
+            joined.push_str(trimmed);
+        }
+    }
+    if trailing_newline {
+        joined.push('\n');
+    }
+    if joined == block_text {
+        return Ok(None);
+    }
+
+    let joined_first_line = match joined.find('\n') {
+        Some(newline_byte) => &joined[..newline_byte],
+        None => &joined[..],
+    };
+    let caret = Position::new(first as u32, joined_first_line.len() as u32);
+    let selections_after = vec![Selection::caret_at(caret)];
+
+    let specs = vec![EditSpec::replace(rope, block_start, block_end, joined)?];
+    Ok(finalize_specs(specs, selections_before, selections_after))
+}
+
 pub(crate) fn plan_join_lines(buffer: &Buffer) -> Result<Option<SelectionEditPlan>, Error> {
     let rope = buffer.rope();
     let selections_before = buffer.selections().to_vec();

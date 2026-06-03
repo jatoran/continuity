@@ -281,6 +281,7 @@ impl Window {
             // paint epilogue and edit-driven early dispatch work.
             if let Some(worker) = self.projection_worker.as_ref() {
                 let suppressed_table_blocks = self.compute_suppressed_table_blocks();
+                let markdown_toggles = self.markdown_render_toggles();
                 let request = crate::window_projection_worker::build_projection_request(
                     seq,
                     self.tree.focused,
@@ -291,6 +292,7 @@ impl Window {
                     folds_for_projection,
                     image_reservations,
                     &suppressed_table_blocks,
+                    markdown_toggles,
                     projection_char_width,
                     self.projection_font_metrics(),
                     plan,

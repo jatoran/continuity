@@ -58,13 +58,18 @@ pub(super) fn draw_label(
     brush: &ID2D1SolidColorBrush,
     alignment: windows::Win32::Graphics::DirectWrite::DWRITE_TEXT_ALIGNMENT,
 ) -> Result<(), Error> {
+    // The horizontal inset keeps the leading/trailing glyph off the
+    // cell edge. It is a fixed 6 DIP; the cell itself already grew
+    // with zoom in the layout, so a constant inset stays proportionate
+    // enough and never eats the whole (small) cell at low zoom.
     let saved = unsafe { base_format.GetTextAlignment() };
     unsafe {
         let _ = base_format.SetTextAlignment(alignment);
+        let inset = 6.0_f32.min(rect.w * 0.25);
         let body = D2D_RECT_F {
-            left: rect.x + 6.0,
+            left: rect.x + inset,
             top: rect.y,
-            right: rect.x + rect.w - 6.0,
+            right: rect.x + rect.w - inset,
             bottom: rect.y + rect.h,
         };
         let utf16: Vec<u16> = text.encode_utf16().collect();
@@ -95,26 +100,29 @@ pub(super) fn draw_label(
 }
 
 /// Draw a multi-line label by splitting the source on `\n` so each
-/// rope line gets its own 18-DIP row instead of being collapsed to
-/// one DWrite line. Truncates when the rect can't fit more rows.
+/// rope line gets its own row instead of being collapsed to one DWrite
+/// line. The per-line row stride is `18 DIP * scale` so the preview
+/// lines keep pace with the zoom-scaled glyphs instead of overlapping.
+/// Truncates when the rect can't fit more rows.
 pub(super) fn draw_multiline_label(
     renderer: &Renderer,
     base_format: &IDWriteTextFormat,
     rect: &PanelRect,
     text: &str,
     brush: &ID2D1SolidColorBrush,
+    scale: f32,
 ) -> Result<(), Error> {
-    const ROW_H: f32 = 18.0;
-    let max_rows = (rect.h / ROW_H).floor() as usize;
+    let row_h = (18.0 * scale).max(1.0);
+    let max_rows = (rect.h / row_h).floor() as usize;
     if max_rows == 0 {
         return Ok(());
     }
     for (i, line) in text.lines().take(max_rows).enumerate() {
         let row = PanelRect {
             x: rect.x,
-            y: rect.y + (i as f32) * ROW_H,
+            y: rect.y + (i as f32) * row_h,
             w: rect.w,
-            h: ROW_H,
+            h: row_h,
         };
         draw_label(
             renderer,

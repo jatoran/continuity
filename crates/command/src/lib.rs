@@ -8,6 +8,7 @@ pub mod buffer_history;
 pub mod clipboard;
 pub mod context;
 pub mod diagnostics;
+pub mod edit_config_context;
 pub mod editor;
 pub mod editor_extras;
 pub mod error;
@@ -16,6 +17,7 @@ pub mod file_context;
 pub mod find_context;
 pub mod help;
 pub mod id;
+pub mod indent;
 pub mod markdown;
 pub mod markdown_inserters;
 pub mod markdown_links_clipboard;
@@ -43,6 +45,7 @@ pub use clipboard::{
 };
 pub use context::Context;
 pub use diagnostics::{register_diagnostics_commands, DIAGNOSTICS_CAPTURE_LAYOUT};
+pub use edit_config_context::EditConfigContext;
 pub use editor::{
     register_editor_primitives, register_keymap_commands, EDITOR_DELETE_BACK,
     EDITOR_DELETE_FORWARD, EDITOR_INSERT_CHAR, EDITOR_INSERT_NEWLINE, EDITOR_MOVE_CHAR_BACKWARD,
@@ -57,15 +60,15 @@ pub use editor_extras::{
     EDITOR_DELETE_TO_LINE_END, EDITOR_DELETE_TO_LINE_START, EDITOR_DELETE_WORD_BACKWARD,
     EDITOR_DELETE_WORD_FORWARD, EDITOR_DUPLICATE_LINE, EDITOR_DUPLICATE_SELECTION, EDITOR_INDENT,
     EDITOR_INSERT_NEWLINE_ABOVE, EDITOR_INSERT_NEWLINE_BELOW, EDITOR_INSERT_NEWLINE_SMART,
-    EDITOR_JOIN_LINES, EDITOR_MOVE_LINE_DOWN_BLOCK, EDITOR_MOVE_LINE_UP_BLOCK, EDITOR_OUTDENT,
-    EDITOR_REFLOW_PARAGRAPH, EDITOR_REVERSE_LINES, EDITOR_SHUFFLE_LINES, EDITOR_SORT_LINES_ASC,
-    EDITOR_SORT_LINES_ASC_CI, EDITOR_SORT_LINES_ASC_LEN, EDITOR_SORT_LINES_ASC_NUM,
-    EDITOR_SORT_LINES_DESC, EDITOR_SORT_LINES_DESC_CI, EDITOR_SORT_LINES_DESC_LEN,
-    EDITOR_SORT_LINES_DESC_NUM, EDITOR_SPACES_TO_TABS, EDITOR_SURROUND_BRACES,
-    EDITOR_SURROUND_BRACKETS, EDITOR_SURROUND_DOUBLE_QUOTES, EDITOR_SURROUND_PARENS,
-    EDITOR_SURROUND_SELECTION_WITH, EDITOR_TABS_TO_SPACES, EDITOR_TRANSPOSE_CHARS,
-    EDITOR_TRANSPOSE_WORDS, EDITOR_TRIM_TRAILING_WHITESPACE, EDITOR_UNIQUE_LINES,
-    EDITOR_WRAP_AT_COLUMN,
+    EDITOR_JOIN_LINES, EDITOR_JOIN_SELECTED_LINES, EDITOR_MOVE_LINE_DOWN_BLOCK,
+    EDITOR_MOVE_LINE_UP_BLOCK, EDITOR_OUTDENT, EDITOR_REFLOW_PARAGRAPH, EDITOR_REVERSE_LINES,
+    EDITOR_SHUFFLE_LINES, EDITOR_SORT_LINES_ASC, EDITOR_SORT_LINES_ASC_CI,
+    EDITOR_SORT_LINES_ASC_LEN, EDITOR_SORT_LINES_ASC_NUM, EDITOR_SORT_LINES_DESC,
+    EDITOR_SORT_LINES_DESC_CI, EDITOR_SORT_LINES_DESC_LEN, EDITOR_SORT_LINES_DESC_NUM,
+    EDITOR_SPACES_TO_TABS, EDITOR_SURROUND_BRACES, EDITOR_SURROUND_BRACKETS,
+    EDITOR_SURROUND_DOUBLE_QUOTES, EDITOR_SURROUND_PARENS, EDITOR_SURROUND_SELECTION_WITH,
+    EDITOR_TABS_TO_SPACES, EDITOR_TRANSPOSE_CHARS, EDITOR_TRANSPOSE_WORDS,
+    EDITOR_TRIM_TRAILING_WHITESPACE, EDITOR_UNIQUE_LINES, EDITOR_WRAP_AT_COLUMN,
 };
 pub use error::Error;
 pub use file::{
@@ -76,6 +79,11 @@ pub use file_context::FileContext;
 pub use find_context::FindContext;
 pub use help::{register_help_commands, HELP_TUTORIAL, TUTORIAL_MD};
 pub use id::CommandId;
+pub use indent::{
+    register_indent_commands, EDITOR_INDENT_USE_SPACES, EDITOR_INDENT_USE_TABS,
+    EDITOR_INDENT_WIDTH_DECREASE, EDITOR_INDENT_WIDTH_INCREASE, EDITOR_SET_INDENT_WIDTH,
+    EDITOR_SET_TAB_WIDTH, EDITOR_TAB_WIDTH_DECREASE, EDITOR_TAB_WIDTH_INCREASE,
+};
 pub use markdown::{
     register_markdown_commands, MARKDOWN_CYCLE_HEADING_DOWN, MARKDOWN_CYCLE_HEADING_UP,
     MARKDOWN_CYCLE_LIST_MARKER, MARKDOWN_DEMOTE_SECTION, MARKDOWN_INSERT_CODE_FENCE,
@@ -184,6 +192,7 @@ pub fn default_registry() -> Registry {
     register_keymap_commands(&mut registry);
     register_motion_extras(&mut registry);
     register_rich_editing(&mut registry);
+    register_indent_commands(&mut registry);
     register_markdown_commands(&mut registry);
     register_markdown_links_clipboard(&mut registry);
     register_undo_commands(&mut registry);

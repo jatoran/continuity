@@ -361,6 +361,11 @@ impl Window {
             selected_lane,
             hovered_lane,
             scroll_lane_offset,
+            // Global text zoom: the `text_format` handed to the panel
+            // paint is built at `base_font * font_size_scale`, so the
+            // panel scales its row / column / dot geometry by the same
+            // factor to keep glyphs inside their cells.
+            scale: self.view.font_size_scale,
         }
     }
 

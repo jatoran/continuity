@@ -110,8 +110,15 @@ pub struct ViewOptionsDraw<'a> {
     pub trailing_whitespace: bool,
     /// Render the minimap (subsampled glyph-density heatmap).
     pub minimap: bool,
-    /// Indent step in spaces.
+    /// Indent step in spaces (indent-guide column spacing).
     pub indent_size: u32,
+    /// On-screen width of a literal tab character, in columns. Drives
+    /// the DirectWrite incremental tab stop applied to the body text
+    /// format (so a `\t` renders at this width) and the indent-guide /
+    /// whitespace-marker tab advance. `0` falls back to the font's
+    /// default tab stop (the pre-settings behaviour) so test contexts
+    /// constructing a `ViewOptionsDraw::default()` keep working.
+    pub tab_width: u32,
     /// Ruler-column positions in characters.
     pub ruler_columns: &'a [u32],
     /// Active caret shape.
@@ -189,6 +196,20 @@ pub struct ViewOptionsDraw<'a> {
     /// indicator. Empty slice when no decorations are available or the
     /// buffer has no headings — the painter falls back to indent-only.
     pub markdown_headings: &'a [(u32, u8)],
+    /// Paint the `==text==` highlight background fill. Mirrors
+    /// `[markdown].render_highlight`. When `false` the highlight
+    /// rectangles are skipped (and the display map keeps the `==`
+    /// markers visible); independent of `{#hex:}` foreground color,
+    /// which always paints. Default `false` via `derive(Default)` — the
+    /// UI sets it explicitly each frame, so production rendering follows
+    /// the live setting.
+    pub render_highlight_bg: bool,
+    /// Paint `---` / `***` / `___` thematic-break horizontal rules.
+    /// Mirrors `[markdown].render_divider`. When `false`
+    /// `paint_horizontal_rules` is skipped (and the display map keeps
+    /// the literal characters visible). Default `false` via
+    /// `derive(Default)`; the UI sets it explicitly each frame.
+    pub render_divider: bool,
 }
 
 /// One pane's tab-strip layout for Phase 13 chrome painting.

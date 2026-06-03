@@ -58,6 +58,7 @@ mod tests {
     }
 
     impl crate::FindContext for StubCtx {}
+    impl crate::EditConfigContext for StubCtx {}
 
     impl Context for StubCtx {
         fn lookup(&self, key: &str) -> Option<&str> {

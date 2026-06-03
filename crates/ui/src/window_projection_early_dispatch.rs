@@ -376,6 +376,7 @@ impl Window {
 
         let seq = self.next_projection_request_seq();
         let suppressed_table_blocks = self.compute_suppressed_table_blocks();
+        let markdown_toggles = self.markdown_render_toggles();
         let request = {
             let _s = crate::paint_trace::is_trace_enabled()
                 .then(|| crate::paint_trace::EventScope::new("early_dispatch_build_request"));
@@ -389,6 +390,7 @@ impl Window {
                 &folds,
                 &image_reservations,
                 &suppressed_table_blocks,
+                markdown_toggles,
                 projection_metrics.char_width_dip,
                 self.projection_font_metrics(),
                 plan,

@@ -16,6 +16,7 @@ use std::sync::Arc;
 use continuity_display_map::DisplayMap;
 
 mod build;
+mod build_incremental;
 mod build_partial;
 mod lookup;
 mod placeholder;

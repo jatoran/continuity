@@ -384,6 +384,7 @@ mod tests {
     }
 
     impl continuity_command::FindContext for ProbeContext {}
+    impl continuity_command::EditConfigContext for ProbeContext {}
 
     impl Context for ProbeContext {
         fn lookup(&self, _key: &str) -> Option<&str> {

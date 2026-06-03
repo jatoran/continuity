@@ -4,8 +4,8 @@
 //! construction (verified by tests in this module).
 
 use crate::mode::{
-    CaretStyle, FocusMode, MarkdownDialect, PersistenceMode, RevealMode, StatusBarSegment,
-    TabCloseButton, ThemeMode,
+    CaretStyle, FocusMode, IndentType, MarkdownDialect, PersistenceMode, RevealMode,
+    StatusBarSegment, TabCloseButton, ThemeMode,
 };
 use crate::{Error, Settings};
 
@@ -81,12 +81,26 @@ impl Settings {
             "6.0..=72.0",
         )?;
         check_f32_range(
+            "editor.text_scale",
+            self.editor.text_scale,
+            crate::zoom::MIN_ZOOM..=crate::zoom::MAX_ZOOM,
+            "0.5..=4.0",
+        )?;
+        check_f32_range(
             "editor.line_height",
             self.editor.line_height,
             0.8..=3.0,
             "0.8..=3.0",
         )?;
         CaretStyle::parse(&self.editor.caret_style)?;
+        IndentType::parse(&self.editor.indent_type)?;
+        check_range(
+            "editor.indent_width",
+            self.editor.indent_width,
+            1..=16,
+            "1..=16",
+        )?;
+        check_range("editor.tab_width", self.editor.tab_width, 1..=16, "1..=16")?;
         check_range(
             "editor.caret_blink_ms",
             self.editor.caret_blink_ms,
@@ -307,6 +321,53 @@ mod tests {
         let mut s = Settings::default();
         s.editor.ruler_columns = vec![80, 0];
         assert!(s.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_bad_indent_type() {
+        let mut s = Settings::default();
+        s.editor.indent_type = "smart".into();
+        let err = s.validate().unwrap_err();
+        assert!(format!("{err}").contains("editor.indent_type"));
+    }
+
+    #[test]
+    fn accepts_indent_type_spaces_and_tabs() {
+        let mut s = Settings::default();
+        s.editor.indent_type = "tabs".into();
+        s.validate().expect("tabs valid");
+        s.editor.indent_type = "spaces".into();
+        s.validate().expect("spaces valid");
+    }
+
+    #[test]
+    fn rejects_indent_width_out_of_range() {
+        let mut s = Settings::default();
+        s.editor.indent_width = 0;
+        assert!(s.validate().is_err());
+        let mut s = Settings::default();
+        s.editor.indent_width = 17;
+        assert!(s.validate().is_err());
+        let mut s = Settings::default();
+        s.editor.indent_width = 1;
+        s.validate().expect("1 valid");
+        s.editor.indent_width = 16;
+        s.validate().expect("16 valid");
+    }
+
+    #[test]
+    fn rejects_tab_width_out_of_range() {
+        let mut s = Settings::default();
+        s.editor.tab_width = 0;
+        assert!(s.validate().is_err());
+        let mut s = Settings::default();
+        s.editor.tab_width = 17;
+        assert!(s.validate().is_err());
+        let mut s = Settings::default();
+        s.editor.tab_width = 1;
+        s.validate().expect("1 valid");
+        s.editor.tab_width = 16;
+        s.validate().expect("16 valid");
     }
 
     #[test]

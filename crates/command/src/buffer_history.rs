@@ -51,6 +51,7 @@ mod tests {
         }
     }
     impl crate::FindContext for StubCtx {}
+    impl crate::EditConfigContext for StubCtx {}
     impl ViewContext for StubCtx {
         fn show_buffer_history_tab(&mut self) -> Result<(), Error> {
             self.calls.set(self.calls.get() + 1);

@@ -13,6 +13,7 @@ use windows::Win32::Graphics::Direct2D::{
 };
 use windows::Win32::Graphics::DirectWrite::{
     IDWriteFactory, IDWriteTextFormat, IDWriteTextLayout, DWRITE_TEXT_ALIGNMENT_TRAILING,
+    DWRITE_WORD_WRAPPING_NO_WRAP,
 };
 
 use crate::chrome::gutter_width_for_line_count;
@@ -27,13 +28,23 @@ struct GutterLabel {
 }
 
 /// Width passed to `CreateTextLayout` for a gutter label: the column
-/// width minus the fold-icon / breathing-room gap reserved on the right
-/// ([`crate::chrome::gutter_fold_gap_dip`]), floored at 1 DIP so
-/// DirectWrite never sees a non-positive max width when the font is tiny.
-/// Trailing-aligned digits therefore end exactly at the left edge of the
-/// fold-icon gap — the icons sit to their right and never overlap.
+/// width minus the left breathing-room pad
+/// ([`crate::chrome::GUTTER_LEFT_PADDING_DIP`], also applied as the draw
+/// origin in [`draw_gutter_label`]) and the fold-icon / breathing-room gap
+/// reserved on the right ([`crate::chrome::gutter_fold_gap_dip`]), floored
+/// at 1 DIP so DirectWrite never sees a non-positive max width when the
+/// font is tiny. The layout box therefore spans
+/// `[GUTTER_LEFT_PADDING_DIP, gutter_width - fold_gap]`: trailing-aligned
+/// digits end exactly at the left edge of the fold-icon gap — the icons sit
+/// to their right and never overlap — while their left edge starts at the
+/// pad instead of the pane edge. Because the canonical gutter width already
+/// reserves the same pad, the box's effective digit width is unchanged, so
+/// no clipping is introduced.
 fn label_layout_width(gutter_width: f32, font_size_dip: f32) -> f32 {
-    (gutter_width - crate::chrome::gutter_fold_gap_dip(font_size_dip)).max(1.0)
+    (gutter_width
+        - crate::chrome::gutter_fold_gap_dip(font_size_dip)
+        - crate::chrome::GUTTER_LEFT_PADDING_DIP)
+        .max(1.0)
 }
 
 /// Apply `TRAILING` alignment to a freshly-built gutter layout so the
@@ -126,14 +137,13 @@ fn draw_gutter_label(
     source_line: usize,
     display_row: u32,
     active_line: Option<usize>,
-    fold_body_count: Option<u32>,
     relative: bool,
     gutter_width: f32,
     line_height: f32,
     scroll_y: f32,
     brush: &ID2D1SolidColorBrush,
 ) -> Result<(), Error> {
-    let label = build_label(source_line, active_line, fold_body_count, relative);
+    let label = build_label(source_line, active_line, relative);
     let wide: Vec<u16> = label.encode_utf16().collect();
     let font_size_dip = unsafe { format.GetFontSize() };
     let layout = unsafe {
@@ -145,10 +155,19 @@ fn draw_gutter_label(
         )?
     };
     align_trailing(&layout);
+    // Gutter labels are always a single short number; never let one wrap
+    // onto a second visual line (which would spill into the row below).
+    let _ = unsafe { layout.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP) };
     let y = display_row as f32 * line_height - scroll_y;
     unsafe {
         ctx.DrawTextLayout(
-            D2D_POINT_2F { x: 0.0, y },
+            // Offset by the left breathing-room pad so the trailing-aligned
+            // digit box spans [pad, gutter_width - fold_gap]: digits gain
+            // space on the left without their right edge moving.
+            D2D_POINT_2F {
+                x: crate::chrome::GUTTER_LEFT_PADDING_DIP,
+                y,
+            },
             &layout,
             brush,
             D2D1_DRAW_TEXT_OPTIONS_NONE,
@@ -222,17 +241,11 @@ pub(crate) fn paint_line_number_gutter(
 
     let total_lines = rope.len_lines();
     let active_line = selections.first().map(|s| s.head.line as usize);
-    // §H3: pre-compute helpers so the gutter loop is O(visible_rows).
-    // `body_count_for_header`: if `line_idx` is a fold header, returns
-    // the body line count for the "▸ N" indicator.
-    // `is_in_fold_body`: true when `line_idx` is hidden inside any
-    // active fold; the gutter skips its number entirely.
-    let body_count_for_header = |line_idx: u32| -> Option<u32> {
-        fold_headers
-            .iter()
-            .find(|h| h.header_line == line_idx)
-            .map(|h| h.body_line_count)
-    };
+    // §H3: pre-compute the fold-body test so the gutter loop stays
+    // O(visible_rows). `is_in_fold_body` is true when `line_idx` is
+    // hidden inside any active fold; the gutter then skips its number
+    // entirely. Collapsing a section only hides the body rows' numbers —
+    // it adds no other gutter decoration.
     let is_in_fold_body = |line_idx: u32| -> bool {
         fold_headers
             .iter()
@@ -256,7 +269,6 @@ pub(crate) fn paint_line_number_gutter(
             active_brush,
             caret_only,
             relative,
-            &body_count_for_header,
             &is_in_fold_body,
             gutter_width,
         );
@@ -290,7 +302,6 @@ pub(crate) fn paint_line_number_gutter(
             }
         }
         for label in labels {
-            let line_u32 = u32::try_from(label.source_line).unwrap_or(0);
             let brush = if label.is_active {
                 active_brush
             } else {
@@ -303,7 +314,6 @@ pub(crate) fn paint_line_number_gutter(
                 label.source_line,
                 label.display_row,
                 active_line,
-                body_count_for_header(line_u32),
                 relative,
                 gutter_width,
                 line_height,
@@ -334,7 +344,6 @@ pub(crate) fn paint_line_number_gutter(
             line_idx,
             line_u32,
             active_line,
-            body_count_for_header(line_u32),
             relative,
             gutter_width,
             line_height,
@@ -345,24 +354,17 @@ pub(crate) fn paint_line_number_gutter(
     Ok(())
 }
 
-/// Render a per-row gutter label using the full 1-based line number.
-/// The optional `fold_body_count` appends a `▸N`
-/// indicator — same suffix the focused-pane fold path emits.
-fn build_label(
-    line_idx: usize,
-    active_line: Option<usize>,
-    fold_body_count: Option<u32>,
-    relative: bool,
-) -> String {
-    let number = if relative && active_line.is_some_and(|active| active != line_idx) {
-        active_line.map_or(line_idx + 1, |active| active.abs_diff(line_idx))
+/// Render a per-row gutter label as the 1-based source line number, or
+/// the distance from the active line when `relative` is set. Folding a
+/// section never decorates the header label — it only hides the body
+/// rows' numbers (see `is_in_fold_body`).
+fn build_label(line_idx: usize, active_line: Option<usize>, relative: bool) -> String {
+    if relative && active_line.is_some_and(|active| active != line_idx) {
+        active_line
+            .map_or(line_idx + 1, |active| active.abs_diff(line_idx))
+            .to_string()
     } else {
-        line_idx + 1
-    };
-    if let Some(n) = fold_body_count {
-        format!("{number} ▸{n}")
-    } else {
-        number.to_string()
+        (line_idx + 1).to_string()
     }
 }
 
@@ -380,7 +382,6 @@ fn paint_gutter_display_rows(
     active_brush: &ID2D1SolidColorBrush,
     caret_only: bool,
     relative: bool,
-    body_count_for_header: &dyn Fn(u32) -> Option<u32>,
     is_in_fold_body: &dyn Fn(u32) -> bool,
     gutter_width: f32,
 ) -> Result<(), Error> {
@@ -426,7 +427,6 @@ fn paint_gutter_display_rows(
             }
         }
         for label in labels {
-            let line_u32 = u32::try_from(label.source_line).unwrap_or(0);
             let brush = if label.is_active {
                 active_brush
             } else {
@@ -439,7 +439,6 @@ fn paint_gutter_display_rows(
                 label.source_line,
                 label.display_row,
                 active_line,
-                body_count_for_header(line_u32),
                 relative,
                 gutter_width,
                 line_height,
@@ -474,7 +473,6 @@ fn paint_gutter_display_rows(
             source_line,
             dl_idx as u32,
             active_line,
-            body_count_for_header(line_u32),
             relative,
             gutter_width,
             line_height,

@@ -19,12 +19,30 @@ const CARD_HEIGHT_DIP: f32 = 64.0;
 const ACTIVITY_HEIGHT_DIP: f32 = 78.0;
 const TOP_BUFFER_ROW_HEIGHT_DIP: f32 = 24.0;
 
+/// Clamp a raw zoom factor to a sane range so a degenerate input never
+/// collapses or explodes the layout. Mirrors the buffer-history panel's
+/// guard.
+fn resolve_scale(raw: f32) -> f32 {
+    if raw.is_finite() {
+        raw.clamp(0.25, 8.0)
+    } else {
+        1.0
+    }
+}
+
 /// Compute every rectangle + label the renderer needs to paint the
 /// metrics panel this frame.
+///
+/// All vertical / horizontal geometry is multiplied by
+/// [`MetricsPanelInputs::scale`] so the dashboard grows together with
+/// the zoom-scaled glyphs the renderer paints into each cell.
 #[must_use]
 pub fn compute_metrics_panel_layout(inputs: &MetricsPanelInputs) -> MetricsPanelLayout {
     let rect = inputs.viewport;
-    let pad = PANEL_PAD_DIP.min(rect.width() * 0.08).max(8.0);
+    let scale = resolve_scale(inputs.scale);
+    let pad = (PANEL_PAD_DIP * scale)
+        .min(rect.width() * 0.08)
+        .max(8.0 * scale);
     let inner_left = rect.left + pad;
     let inner_right = (rect.right - pad).max(inner_left);
     let inner_width = (inner_right - inner_left).max(0.0);
@@ -36,32 +54,33 @@ pub fn compute_metrics_panel_layout(inputs: &MetricsPanelInputs) -> MetricsPanel
             left: inner_left,
             top: cursor_y,
             right: inner_right,
-            bottom: cursor_y + 28.0,
+            bottom: cursor_y + 28.0 * scale,
         },
         text: "Metrics - local writing activity".into(),
     };
-    cursor_y = header.rect.bottom + 14.0;
+    cursor_y = header.rect.bottom + 14.0 * scale;
 
     let summary_cards = layout_summary_cards(
         PanelRect {
             left: inner_left,
             top: cursor_y,
             right: inner_right,
-            bottom: cursor_y + summary_card_block_height(inner_width),
+            bottom: cursor_y + summary_card_block_height(inner_width, scale),
         },
         &totals,
+        scale,
     );
     cursor_y = summary_cards
         .iter()
         .map(|card| card.rect.bottom)
         .fold(cursor_y, f32::max)
-        + SECTION_GAP_DIP;
+        + SECTION_GAP_DIP * scale;
 
     let activity_heading = label(
         inner_left,
         cursor_y,
         inner_right,
-        HEADING_HEIGHT_DIP,
+        HEADING_HEIGHT_DIP * scale,
         "Recent writing",
     );
     cursor_y = activity_heading.rect.bottom;
@@ -69,36 +88,41 @@ pub fn compute_metrics_panel_layout(inputs: &MetricsPanelInputs) -> MetricsPanel
         inner_left,
         cursor_y,
         inner_right,
-        CAPTION_HEIGHT_DIP,
+        CAPTION_HEIGHT_DIP * scale,
         format!("{} in the last 14 days", plural_words(totals.words_last_14)),
     );
-    cursor_y = activity_caption.rect.bottom + 6.0;
+    cursor_y = activity_caption.rect.bottom + 6.0 * scale;
     let activity_rect = PanelRect {
         left: inner_left,
         top: cursor_y,
         right: inner_right,
-        bottom: cursor_y + ACTIVITY_HEIGHT_DIP,
+        bottom: cursor_y + ACTIVITY_HEIGHT_DIP * scale,
     };
-    let (activity_bars, activity_axis_labels) = layout_activity(activity_rect, &inputs.days);
-    cursor_y = activity_rect.bottom + SECTION_GAP_DIP;
+    let (activity_bars, activity_axis_labels) = layout_activity(activity_rect, &inputs.days, scale);
+    cursor_y = activity_rect.bottom + SECTION_GAP_DIP * scale;
 
     let top_buffers_heading = label(
         inner_left,
         cursor_y,
         inner_right,
-        HEADING_HEIGHT_DIP,
+        HEADING_HEIGHT_DIP * scale,
         "Most edited this week",
     );
-    cursor_y = top_buffers_heading.rect.bottom + 6.0;
-    let (top_buffers_rows, top_buffers_empty, top_bottom) =
-        layout_top_buffers(inner_left, inner_right, cursor_y, &inputs.top_buffers);
-    cursor_y = top_bottom + SECTION_GAP_DIP;
+    cursor_y = top_buffers_heading.rect.bottom + 6.0 * scale;
+    let (top_buffers_rows, top_buffers_empty, top_bottom) = layout_top_buffers(
+        inner_left,
+        inner_right,
+        cursor_y,
+        &inputs.top_buffers,
+        scale,
+    );
+    cursor_y = top_bottom + SECTION_GAP_DIP * scale;
 
     let heatmap_heading = label(
         inner_left,
         cursor_y,
         inner_right,
-        HEADING_HEIGHT_DIP,
+        HEADING_HEIGHT_DIP * scale,
         "90-day activity",
     );
     cursor_y = heatmap_heading.rect.bottom;
@@ -106,14 +130,14 @@ pub fn compute_metrics_panel_layout(inputs: &MetricsPanelInputs) -> MetricsPanel
         inner_left,
         cursor_y,
         inner_right,
-        CAPTION_HEIGHT_DIP,
+        CAPTION_HEIGHT_DIP * scale,
         format!("{} total", plural_keystrokes(totals.keystrokes_last_90)),
     );
-    cursor_y = heatmap_caption.rect.bottom + 4.0;
+    cursor_y = heatmap_caption.rect.bottom + 4.0 * scale;
 
-    let dow_height = 14.0;
+    let dow_height = 14.0 * scale;
     let dow_labels = layout_dow_axis(inner_left, inner_right, cursor_y, dow_height);
-    let grid_top = cursor_y + dow_height + 4.0;
+    let grid_top = cursor_y + dow_height + 4.0 * scale;
     let grid_bottom = (rect.bottom - pad).max(grid_top);
     let heatmap = layout_heatmap(
         PanelRect {
@@ -129,9 +153,9 @@ pub fn compute_metrics_panel_layout(inputs: &MetricsPanelInputs) -> MetricsPanel
     let empty_state = if totals.keystrokes_last_90 == 0 && inputs.top_buffers.is_empty() {
         Some(label(
             inner_left,
-            header.rect.bottom + 2.0,
+            header.rect.bottom + 2.0 * scale,
             inner_right,
-            18.0,
+            18.0 * scale,
             "No writing metrics recorded yet.",
         ))
     } else {
@@ -162,18 +186,18 @@ pub fn sort_days_ascending(days: &mut [MetricsDay]) {
     days.sort_by(|a, b| a.day_iso.cmp(&b.day_iso).then(Ordering::Equal));
 }
 
-fn summary_card_block_height(width: f32) -> f32 {
-    if width >= 540.0 {
-        CARD_HEIGHT_DIP
+fn summary_card_block_height(width: f32, scale: f32) -> f32 {
+    if width >= 540.0 * scale {
+        CARD_HEIGHT_DIP * scale
     } else {
-        CARD_HEIGHT_DIP * 2.0 + 8.0
+        CARD_HEIGHT_DIP * 2.0 * scale + 8.0 * scale
     }
 }
 
-fn layout_summary_cards(rect: PanelRect, totals: &Totals) -> Vec<MetricCardDraw> {
-    let columns = if rect.width() >= 540.0 { 4 } else { 2 };
+fn layout_summary_cards(rect: PanelRect, totals: &Totals, scale: f32) -> Vec<MetricCardDraw> {
+    let columns = if rect.width() >= 540.0 * scale { 4 } else { 2 };
     let rows = 4_usize.div_ceil(columns);
-    let gap = 8.0;
+    let gap = 8.0 * scale;
     let card_width = (rect.width() - gap * (columns.saturating_sub(1) as f32)) / columns as f32;
     let card_height = (rect.height() - gap * (rows.saturating_sub(1) as f32)) / rows as f32;
     let values = [
@@ -212,27 +236,28 @@ fn layout_summary_cards(rect: PanelRect, totals: &Totals) -> Vec<MetricCardDraw>
                 right: left + card_width,
                 bottom: top + card_height,
             };
+            let inset = 10.0 * scale;
             MetricCardDraw {
                 rect: card,
                 label: label(
-                    card.left + 10.0,
-                    card.top + 6.0,
-                    card.right - 10.0,
-                    16.0,
+                    card.left + inset,
+                    card.top + 6.0 * scale,
+                    card.right - inset,
+                    16.0 * scale,
                     *name,
                 ),
                 value: label(
-                    card.left + 10.0,
-                    card.top + 24.0,
-                    card.right - 10.0,
-                    22.0,
+                    card.left + inset,
+                    card.top + 24.0 * scale,
+                    card.right - inset,
+                    22.0 * scale,
                     value.clone(),
                 ),
                 detail: label(
-                    card.left + 10.0,
-                    card.bottom - 20.0,
-                    card.right - 10.0,
-                    16.0,
+                    card.left + inset,
+                    card.bottom - 20.0 * scale,
+                    card.right - inset,
+                    16.0 * scale,
                     detail.clone(),
                 ),
             }
@@ -240,7 +265,11 @@ fn layout_summary_cards(rect: PanelRect, totals: &Totals) -> Vec<MetricCardDraw>
         .collect()
 }
 
-fn layout_activity(rect: PanelRect, days: &[MetricsDay]) -> (Vec<ActivityBar>, Vec<LabelDraw>) {
+fn layout_activity(
+    rect: PanelRect,
+    days: &[MetricsDay],
+    scale: f32,
+) -> (Vec<ActivityBar>, Vec<LabelDraw>) {
     let recent: Vec<&MetricsDay> = days
         .iter()
         .rev()
@@ -252,14 +281,14 @@ fn layout_activity(rect: PanelRect, days: &[MetricsDay]) -> (Vec<ActivityBar>, V
     if recent.is_empty() {
         return (Vec::new(), Vec::new());
     }
-    let label_height = 16.0;
+    let label_height = 16.0 * scale;
     let chart = PanelRect {
         left: rect.left,
         top: rect.top,
         right: rect.right,
         bottom: (rect.bottom - label_height).max(rect.top),
     };
-    let gap = 4.0;
+    let gap = 4.0 * scale;
     let count = recent.len();
     let bar_width =
         ((chart.width() - gap * count.saturating_sub(1) as f32) / count as f32).max(2.0);
@@ -299,19 +328,20 @@ fn layout_activity(rect: PanelRect, days: &[MetricsDay]) -> (Vec<ActivityBar>, V
             }
         })
         .collect();
+    let axis_label_w = 120.0 * scale;
     let mut axis = Vec::new();
     if let Some(first) = recent.first() {
         axis.push(label(
             rect.left,
             rect.bottom - label_height,
-            rect.left + 120.0,
+            rect.left + axis_label_w,
             label_height,
             short_month_day(&first.day_iso),
         ));
     }
     if let Some(last) = recent.last() {
         axis.push(label(
-            (rect.right - 120.0).max(rect.left),
+            (rect.right - axis_label_w).max(rect.left),
             rect.bottom - label_height,
             rect.right,
             label_height,
@@ -326,16 +356,12 @@ fn layout_top_buffers(
     right: f32,
     top: f32,
     top_buffers: &[super::TopBufferEntry],
+    scale: f32,
 ) -> (Vec<TopBufferRowDraw>, Option<LabelDraw>, f32) {
+    let row_height = TOP_BUFFER_ROW_HEIGHT_DIP * scale;
     if top_buffers.is_empty() {
-        let empty = label(
-            left,
-            top,
-            right,
-            TOP_BUFFER_ROW_HEIGHT_DIP,
-            "No edits this week yet.",
-        );
-        return (Vec::new(), Some(empty), top + TOP_BUFFER_ROW_HEIGHT_DIP);
+        let empty = label(left, top, right, row_height, "No edits this week yet.");
+        return (Vec::new(), Some(empty), top + row_height);
     }
     let max_edits = top_buffers
         .iter()
@@ -343,23 +369,25 @@ fn layout_top_buffers(
         .max()
         .unwrap_or(1)
         .max(1);
+    let label_height = 18.0 * scale;
+    let count_gap = 8.0 * scale;
     let rows: Vec<TopBufferRowDraw> = top_buffers
         .iter()
         .enumerate()
         .map(|(idx, entry)| {
-            let row_top = top + idx as f32 * TOP_BUFFER_ROW_HEIGHT_DIP;
+            let row_top = top + idx as f32 * row_height;
             let row_rect = PanelRect {
                 left,
                 top: row_top,
                 right,
-                bottom: row_top + TOP_BUFFER_ROW_HEIGHT_DIP,
+                bottom: row_top + row_height,
             };
-            let count_width = 92.0_f32.min(row_rect.width() * 0.35);
+            let count_width = (92.0 * scale).min(row_rect.width() * 0.35);
             let track = PanelRect {
                 left,
-                top: row_rect.bottom - 5.0,
+                top: row_rect.bottom - 5.0 * scale,
                 right,
-                bottom: row_rect.bottom - 3.0,
+                bottom: row_rect.bottom - 3.0 * scale,
             };
             let ratio = (entry.edit_count as f32 / max_edits as f32).clamp(0.0, 1.0);
             TopBufferRowDraw {
@@ -367,15 +395,15 @@ fn layout_top_buffers(
                 title: label(
                     left,
                     row_top,
-                    (right - count_width - 8.0).max(left),
-                    18.0,
+                    (right - count_width - count_gap).max(left),
+                    label_height,
                     entry.title.clone(),
                 ),
                 count: label(
                     (right - count_width).max(left),
                     row_top,
                     right,
-                    18.0,
+                    label_height,
                     format!("{} edits", entry.edit_count),
                 ),
                 bar_track: track,
@@ -386,7 +414,7 @@ fn layout_top_buffers(
             }
         })
         .collect();
-    let bottom = top + rows.len() as f32 * TOP_BUFFER_ROW_HEIGHT_DIP;
+    let bottom = top + rows.len() as f32 * row_height;
     (rows, None, bottom)
 }
 

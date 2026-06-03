@@ -40,6 +40,7 @@ use continuity_decorate::Decorations;
 
 use crate::fold::FoldRange;
 use crate::id::SourceByte;
+use crate::markdown_toggles::MarkdownRenderToggles;
 use crate::segment::DisplaySegment;
 use relative_stamp::{
     hash_block_relative, hash_color_relative, hash_highlight_relative, hash_inline_relative,
@@ -103,17 +104,25 @@ impl BucketKey {
 
 /// Compute the content stamp used by [`SegmentCacheKey`] for one
 /// projected source line.
+#[allow(clippy::too_many_arguments)]
 #[must_use]
 pub fn compute_line_projection_stamp(
     decorations: &Decorations,
     caret_bytes: &[SourceByte],
     folds: &[FoldRange],
     suppressed_table_blocks: &[std::ops::Range<usize>],
+    markdown_toggles: MarkdownRenderToggles,
     line_start: usize,
     line_end: usize,
     line_text: &str,
 ) -> u64 {
     let mut hasher = AHasher::default();
+    // The render toggle set changes the projected segment list (emphasis
+    // styling, marker hiding, highlight / divider rendering), so it is
+    // part of the cache key: a hot-reload toggle flip must miss every
+    // cached segment list and wrap profile built against the previous
+    // toggles.
+    markdown_toggles.hash(&mut hasher);
     line_text.hash(&mut hasher);
     // The line's absolute start byte is deliberately NOT hashed. The stamp
     // must be offset-independent so a byte-identical line keeps the same key

@@ -37,9 +37,17 @@ impl Window {
 
     /// Initialize the focused scalar mirror for a pane that has no
     /// saved state yet. Right-edge chrome flags are loaded for `buffer_id`.
+    ///
+    /// The fresh `ViewState` inherits the current global text scale (zoom)
+    /// rather than resetting to 1.0, so opening a tab or split in an
+    /// already-zoomed window keeps the zoom. Zoom is global, sourced from
+    /// `[editor].text_scale`; a per-pane reset would visibly diverge.
     pub(crate) fn apply_new_pane_state(&mut self, buffer_id: BufferId) {
+        let scale = self.view.font_size_scale;
         self.buffer_id = buffer_id;
-        self.view = continuity_layout::ViewState::new();
+        let mut view = continuity_layout::ViewState::new();
+        view.font_size_scale = scale;
+        self.view = view;
         self.language = Self::default_language();
         self.language_revision = None;
         self.last_submitted_decoration_revision = None;

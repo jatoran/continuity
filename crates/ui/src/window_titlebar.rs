@@ -6,6 +6,9 @@
 //! must run on the thread that owns the window, which is where both the
 //! window-creation path and the paint path run.
 
+use windows::Win32::Foundation::{LPARAM, WPARAM};
+use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, ICON_BIG, ICON_SMALL, WM_SETICON};
+
 use crate::Window;
 
 impl Window {
@@ -39,5 +42,50 @@ impl Window {
         // to set and retrying every paint would be pure waste.
         let _ = continuity_win::set_titlebar_dark_mode(self.hwnd, dark);
         self.titlebar_dark_applied = Some(dark);
+    }
+
+    /// Attach the embedded application icon to this window's caption and
+    /// Alt-Tab entry.
+    ///
+    /// Sets both the big icon (`ICON_BIG`: Alt-Tab and the large caption
+    /// metric) and the small icon (`ICON_SMALL`: the top-left caption
+    /// glyph) via per-window `WM_SETICON`. This is surgical — it touches
+    /// only this HWND and leaves the shared window class (and therefore the
+    /// tab-drag ghost and hidden smoke window) icon-less.
+    ///
+    /// Thread ownership: UI thread (HWND owner). Called once at window
+    /// creation, before the window is shown, so the first frame already
+    /// carries the caption icon with no default-icon flash.
+    ///
+    /// The icons come from [`continuity_win::load_app_icon`], which loads
+    /// with `LR_SHARED`, so the OS owns the handle lifetime and there is no
+    /// `DestroyIcon` to call. On hosts whose binary has no embedded id-1
+    /// icon resource (e.g. test harnesses) the load fails and this method
+    /// no-ops — the same tolerance `sync_titlebar_theme` applies to
+    /// unsupported caption attributes.
+    pub(crate) fn apply_window_icon(&self) {
+        if self.hwnd.is_invalid() {
+            return;
+        }
+        if let Ok(icon_big) = continuity_win::load_app_icon(true) {
+            unsafe {
+                SendMessageW(
+                    self.hwnd,
+                    WM_SETICON,
+                    Some(WPARAM(ICON_BIG as usize)),
+                    Some(LPARAM(icon_big.0 as isize)),
+                );
+            }
+        }
+        if let Ok(icon_small) = continuity_win::load_app_icon(false) {
+            unsafe {
+                SendMessageW(
+                    self.hwnd,
+                    WM_SETICON,
+                    Some(WPARAM(ICON_SMALL as usize)),
+                    Some(LPARAM(icon_small.0 as isize)),
+                );
+            }
+        }
     }
 }

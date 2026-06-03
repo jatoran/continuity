@@ -181,6 +181,26 @@ impl continuity_command::ViewContext for Window {
         self.cycle_caret_style_impl()
             .map_err(map_ui_to_command_error)
     }
+    fn set_indent_type(&mut self, use_spaces: bool) -> Result<(), continuity_command::Error> {
+        self.set_indent_type_impl(use_spaces);
+        Ok(())
+    }
+    fn set_indent_width(&mut self, width: u32) -> Result<(), continuity_command::Error> {
+        self.set_indent_width_impl(width);
+        Ok(())
+    }
+    fn adjust_indent_width(&mut self, delta: i32) -> Result<(), continuity_command::Error> {
+        self.adjust_indent_width_impl(delta);
+        Ok(())
+    }
+    fn set_tab_width(&mut self, width: u32) -> Result<(), continuity_command::Error> {
+        self.set_tab_width_impl(width);
+        Ok(())
+    }
+    fn adjust_tab_width(&mut self, delta: i32) -> Result<(), continuity_command::Error> {
+        self.adjust_tab_width_impl(delta);
+        Ok(())
+    }
     fn toggle_ligatures(&mut self) -> Result<(), continuity_command::Error> {
         self.toggle_ligatures_impl()
             .map_err(map_ui_to_command_error)

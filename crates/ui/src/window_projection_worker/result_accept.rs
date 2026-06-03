@@ -155,7 +155,7 @@ mod tests {
     use super::*;
 
     use continuity_buffer::BufferId;
-    use continuity_display_map::{FoldRange, ImageRowReservation};
+    use continuity_display_map::{FoldRange, ImageRowReservation, MarkdownRenderToggles};
 
     use super::super::request_build::build_projection_request;
     use super::super::stamp::{current_projection_stamp, test_inputs};
@@ -282,6 +282,7 @@ mod tests {
             &folds,
             &reservations,
             &[],
+            MarkdownRenderToggles::default(),
             8.0,
             WorkerFontMetrics::fallback(8.0),
             ProjectionPlan::Cold,
@@ -330,6 +331,7 @@ mod tests {
             &folds,
             &reservations,
             &[],
+            MarkdownRenderToggles::default(),
             8.0,
             WorkerFontMetrics::fallback(8.0),
             ProjectionPlan::Cold,

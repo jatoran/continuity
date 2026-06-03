@@ -194,6 +194,7 @@ _Auto-extracted from `crates/keymap/assets/default.toml`, grouped by command pre
 | `alt+enter` | `editor.insert_newline_smart` |
 | `enter` | `editor.insert_newline_smart` |
 | `ctrl+j` | `editor.join_lines` |
+| `ctrl+shift+j` | `editor.join_selected_lines` |
 | `left` | `editor.move_char_backward` |
 | `right` | `editor.move_char_forward` |
 | `ctrl+end` | `editor.move_doc_end` |
@@ -502,12 +503,17 @@ _Every command registered by `continuity_command::default_registry`, grouped by 
 | `editor.goto_last_edit` | `ctrl+k → ctrl+q` |  |  |
 | `editor.goto_line` | `ctrl+g` |  |  |
 | `editor.indent` | `tab` |  |  |
+| `editor.indent_use_spaces` |  | yes | Use spaces for indentation |
+| `editor.indent_use_tabs` |  | yes | Use tabs for indentation |
+| `editor.indent_width_decrease` |  | yes | Decrease indent width |
+| `editor.indent_width_increase` |  | yes | Increase indent width |
 | `editor.insert_char` |  |  |  |
 | `editor.insert_newline` | `shift+enter` |  |  |
 | `editor.insert_newline_above` | `ctrl+shift+enter` |  |  |
 | `editor.insert_newline_below` | `ctrl+enter` |  |  |
 | `editor.insert_newline_smart` | `alt+enter, enter` |  |  |
 | `editor.join_lines` | `ctrl+j` |  |  |
+| `editor.join_selected_lines` | `ctrl+shift+j` | yes | Join Selected Lines |
 | `editor.move_char_backward` | `left` |  |  |
 | `editor.move_char_forward` | `right` |  |  |
 | `editor.move_doc_end` | `ctrl+end` |  |  |
@@ -536,6 +542,8 @@ _Every command registered by `continuity_command::default_registry`, grouped by 
 | `editor.select_line` | `ctrl+l` |  |  |
 | `editor.select_paragraph` | `ctrl+shift+l` |  |  |
 | `editor.select_word` | `alt+w` |  |  |
+| `editor.set_indent_width` |  |  |  |
+| `editor.set_tab_width` |  |  |  |
 | `editor.shrink_selection_smart` | `ctrl+alt+space` |  |  |
 | `editor.shuffle_lines` |  |  |  |
 | `editor.skip_current_match` | `ctrl+k → ctrl+d` |  |  |
@@ -554,6 +562,8 @@ _Every command registered by `continuity_command::default_registry`, grouped by 
 | `editor.surround_double_quotes` | `ctrl+shift+'` |  |  |
 | `editor.surround_parens` | `ctrl+shift+9` |  |  |
 | `editor.surround_selection_with` |  |  |  |
+| `editor.tab_width_decrease` |  | yes | Decrease tab width |
+| `editor.tab_width_increase` |  | yes | Increase tab width |
 | `editor.tabs_to_spaces` |  |  |  |
 | `editor.toggle_bullet_at_line_start` | `ctrl+r` |  |  |
 | `editor.transpose_chars` | `ctrl+shift+alt+t` |  |  |
@@ -832,15 +842,6 @@ _Auto-extracted from rustdoc `///` comments on the `Settings` struct and the per
 | `snapshot_every_bytes` | `u32` | Take a snapshot every N changed bytes. |
 | `trash_retention_days` | `u32` | Trash retention in days. |
 
-### `[backup]`
-
-| Field | Type | Description |
-|---|---|---|
-| `interval_minutes` | `u32` | Backup interval in minutes. |
-| `hourly_retention` | `u32` | Hourly retention count. |
-| `daily_retention` | `u32` | Daily retention count. |
-| `location` | `String` | Backup directory (path string; %ENV% is expanded by the consumer). |
-
 ### `[editor]`
 
 | Field | Type | Description |
@@ -848,10 +849,14 @@ _Auto-extracted from rustdoc `///` comments on the `Settings` struct and the per
 | `font_family_prose` | `String` | Prose font family. |
 | `font_family_mono` | `String` | Monospace font family. |
 | `font_size` | `f32` | Base font size in points. |
+| `text_scale` | `f32` | Global text-scale (zoom) multiplier applied on top of [`Self::font_size`] in every window. This is the single durable home for editor zoom: the `view.zoom_in`/`zoom_out`/`zoom_reset` commands and Ctrl+wheel write it back (contract C), so the zoom level survives relaunch and applies across every open window via the settings fan-out. Validated to [`crate::zoom::MIN_ZOOM`]`..=`[`crate::zoom::MAX_ZOOM`] — the same range the runtime view-state clamp uses. Default `1.0`. |
 | `line_height` | `f32` | Line height multiplier. |
 | `word_wrap` | `bool` | Word wrap on/off. |
 | `ruler_columns` | `Vec<u32>` | Ruler column positions (e.g., `[80, 120]`). |
 | `caret_style` | `String` | `"bar" \| "block" \| "underline"`. |
+| `indent_type` | `String` | `"spaces" \| "tabs"` — what `editor.indent` / `editor.outdent` insert and remove per level. `"spaces"` emits [`Self::indent_width`] spaces; `"tabs"` emits one tab character. Default `"spaces"`. Switching at runtime does not retroactively convert existing indentation — use `editor.spaces_to_tabs` / `editor.tabs_to_spaces` for that. |
+| `indent_width` | `u32` | Spaces emitted per indent level when `indent_type = "spaces"`. Also drives the indent-guide column spacing. Validated `1..=16`. Default `4`. |
+| `tab_width` | `u32` | On-screen width of a literal tab character, in columns. Drives the rendered tab-stop (via DirectWrite incremental tab stops), the indent-guide geometry for tab-indented lines, and the spaces↔tabs conversion commands. Validated `1..=16`. Default `4`. |
 | `caret_blink_ms` | `u32` | Caret blink interval in ms. `0` disables blinking. |
 | `caret_width_px` | `u32` | Phase B4: bar-mode caret width in DIPs. Ignored for block / underline styles. |
 | `caret_blink_on_typing_pause` | `bool` | Phase B5: keep caret solid while actively typing; blink resumes after `caret_typing_pause_ms` idle. |
@@ -869,6 +874,7 @@ _Auto-extracted from rustdoc `///` comments on the `Settings` struct and the per
 | `caret_tween_threshold_rows` | `u32` | Phase B7: minimum display-row jump (`> N`) for tween to fire. |
 | `caret_tween_duration_ms` | `u32` | Phase B7: tween duration in milliseconds. |
 | `smooth_scroll` | `bool` | Smooth-scrolling enabled. |
+| `scroll_past_end` | `bool` | Allow scrolling below the last line until it can sit at the viewport top (VS Code-style overscroll). A wheel/keyboard-only affordance — the scrollbar still pins to the true content bottom and Ctrl+End still lands the last line at the viewport bottom. Default `true`. |
 | `mouse_wheel_scroll_speed` | `f32` | Mouse-wheel scroll speed multiplier. Default `2.0` doubles the base line-step distance. |
 | `zoom_step_pct` | `u32` | Ctrl-scroll zoom step in percent. |
 | `ligatures` | `bool` | Font ligatures enabled. |
@@ -882,16 +888,6 @@ _Auto-extracted from rustdoc `///` comments on the `Settings` struct and the per
 | `auto_pair_underscore` | `bool` | `_` → `__`. Off by default. |
 | `slash_commands_enabled` | `bool` | Phase H5 — enable the typed-`/` slash-command palette trigger. When `true`, typing `/` as the first non-whitespace character of a line opens the transient slash-command palette docked at the caret. Default `true`. |
 | `slash_commands_palette` | `Option<Vec<String>>` | Phase H5 — user-overridable safelist for the slash-command palette. `None` (the default) populates the palette from every command flagged `palette_safe` in the command registry; `Some(list)` restricts the palette to exactly those command ids, in the order given. Unknown ids are silently skipped at build time so a stale `settings.toml` does not break the palette outright. |
-
-### `[markdown]`
-
-| Field | Type | Description |
-|---|---|---|
-| `reveal_mode` | `String` | `"block" \| "line"`. |
-| `heading_scale` | `Vec<f32>` | Per-level heading scale multipliers. |
-| `inline_images` | `bool` | Phase F5: paint inline preview thumbnails for `![](url)` images. Default on per spec-delta §L#3 — image-paste is a primary path. |
-| `images_dir` | `String` | Phase F5: shared image-store directory. Pasted / dropped images are hash-deduped into this directory; the reference in the buffer becomes `images/<hash>.<ext>` resolved against it. `%ENV%` expansion is the consumer's responsibility (matches `BackupConfig::location`). |
-| `dialect` | `String` | Phase F7 — markdown dialect. `"gfm"` (default) enables GFM features (tables, task lists, strikethrough, autolinks) plus continuity extensions (inline color, inline table formulas). `"commonmark"` is reserved for a future strict opt-in; the renderer treats both identically until that follow-up lands. |
 
 ### `[ui]`
 
@@ -917,12 +913,6 @@ _Auto-extracted from rustdoc `///` comments on the `Settings` struct and the per
 | Field | Type | Description |
 |---|---|---|
 | `segments` | `Vec<String>` | Ordered list of segment ids painted left-to-right. |
-
-### `[window]`
-
-| Field | Type | Description |
-|---|---|---|
-| `restore_to_virtual_desktops` | `bool` | Restore each window to its remembered virtual desktop on launch. |
 
 ### `[find]`
 

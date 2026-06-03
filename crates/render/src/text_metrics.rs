@@ -352,20 +352,36 @@ fn style_font_scale(style: SpanStyle, heading_scale: [f32; 6]) -> Option<f32> {
     Some(style.font_scale.as_f32())
 }
 
-/// Measure the rendered advance of a single tab glyph under `format`
-/// (DIPs). DirectWrite resolves `\t` to the format's default tab stop,
-/// which depends on the font's design metrics — typically wider than
-/// `indent_size * space_advance`. Returning the real tab advance lets
-/// indent guides land under the actual first character of each line's
-/// parent, even when the user mixes tabs and spaces.
+/// Resolve the rendered advance of a single tab glyph under `format`
+/// (DIPs) and pin the format's incremental tab stop so a literal `\t`
+/// renders at the configured width.
 ///
-/// Falls back to `4 * space_advance` on DirectWrite failure, matching
-/// the editor's default `indent_size`.
+/// When `tab_width >= 1` the function sets
+/// [`IDWriteTextFormat::SetIncrementalTabStop`] to
+/// `tab_width * space_advance` and returns that value, so every layout
+/// subsequently built from `format` lays out tabs at the user-configured
+/// width. The window invalidates its layout cache (via the
+/// `tab_width`-folded font state) on a tab-width change, so cached
+/// layouts are rebuilt against the new stop rather than reused stale.
+///
+/// When `tab_width == 0` (no configured value, e.g. a test context that
+/// built a `ViewOptionsDraw::default()`), it falls back to measuring the
+/// font's default tab stop via a throwaway layout — the pre-settings
+/// behaviour. The measurement path falls back to `4 * space_advance` on
+/// DirectWrite failure.
 pub(crate) fn measure_tab_advance_dip(
     factory: &IDWriteFactory,
     format: &IDWriteTextFormat,
     space_advance_dip: f32,
+    tab_width: u32,
 ) -> f32 {
+    if tab_width >= 1 {
+        let advance = space_advance_dip * tab_width as f32;
+        // Idempotent: re-applying the same stop every frame is cheap and
+        // guarantees any layout created this frame uses the right stop.
+        let _ = unsafe { format.SetIncrementalTabStop(advance) };
+        return advance;
+    }
     let wide: [u16; 1] = [0x09];
     let layout = unsafe { factory.CreateTextLayout(&wide, format, f32::INFINITY, f32::INFINITY) };
     let Ok(layout) = layout else {

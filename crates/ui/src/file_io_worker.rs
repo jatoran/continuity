@@ -35,6 +35,7 @@ pub(crate) fn worker_loop(rx: Receiver<FileIoRequest>, event_tx: Sender<FileIoEv
         Ok(w) => Some(w),
         Err(e) => {
             let _ = event_tx.send(FileIoEvent::Failed {
+                buffer_id: None,
                 operation: "watch",
                 path: None,
                 reason: e.to_string(),
@@ -95,7 +96,7 @@ fn handle_request(
                             file,
                         });
                     }
-                    Err(e) => send_failed(output, "open", Some(path), e),
+                    Err(e) => send_failed(output, "open", None, Some(path), e),
                 }
             }
             false
@@ -120,6 +121,7 @@ fn handle_request(
                         truncated: false,
                     });
                     let _ = event_tx.send(FileIoEvent::Failed {
+                        buffer_id: None,
                         operation: "list folder",
                         path: Some(path),
                         reason,
@@ -145,7 +147,7 @@ fn handle_request(
                     );
                     let _ = event_tx.send(FileIoEvent::Saved { buffer_id, file });
                 }
-                Err(e) => send_failed(event_tx, "save", Some(path), e),
+                Err(e) => send_failed(event_tx, "save", Some(buffer_id), Some(path), e),
             }
             false
         }
@@ -177,7 +179,7 @@ fn handle_request(
                         file,
                     });
                 }
-                Err(e) => send_failed(event_tx, "reload", Some(path), e),
+                Err(e) => send_failed(event_tx, "reload", Some(buffer_id), Some(path), e),
             }
             false
         }

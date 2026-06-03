@@ -275,6 +275,11 @@ pub struct Window {
     pub(crate) spell_state: crate::window_spell::SpellState,
     /// Phase-16.5 auto-pair config — mirrors `[editor].auto_pair_*`, refreshed via [`Self::apply_settings`].
     pub(crate) auto_pair: continuity_core::AutoPairConfig,
+    /// Per-window indent config — mirrors `[editor].indent_type` /
+    /// `indent_width` / `tab_width`, refreshed via
+    /// [`Self::apply_indent_settings`] and mutated by the indent
+    /// command family. Owned by this window's UI thread.
+    pub(crate) indent: crate::window_indent::IndentConfig,
     pub(crate) intended_columns: Vec<u32>,
     /// Sticky display-byte offset within the head's wrapped display row.
     /// Parallel to [`Self::intended_columns`] — used by the soft-wrap
@@ -533,6 +538,12 @@ pub struct Window {
     /// the hash over the full rope used to be O(bytes) per tab per paint.
     /// UI-thread-owned via `RefCell`.
     pub(crate) tab_dirty_cache: RefCell<HashMap<BufferId, (u64, u64)>>,
+    /// Pre-save content hash per buffer that has an in-flight optimistic
+    /// clean mark. [`Window::mark_saved_clean`] records the previous hash
+    /// here so a failed disk write (`FileIoEvent::Failed`) can roll the
+    /// buffer back to dirty instead of leaving it falsely clean; the entry
+    /// is removed on a successful `FileIoEvent::Saved`. UI-thread-owned.
+    pub(crate) pending_save_baseline: HashMap<BufferId, u64>,
     /// Single-slot cache for the focused-pane heading-line list used by
     /// fold computation. Computing the list does a full `rope.to_string()`
     /// — caching by `(buffer, rope_revision, decoration_revision)` makes

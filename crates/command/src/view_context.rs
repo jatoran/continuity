@@ -229,6 +229,41 @@ pub trait ViewContext {
         Err(Error::UnsupportedContext("cycle_caret_style"))
     }
 
+    /// Set `[editor].indent_type` at runtime and persist it.
+    /// `use_spaces == true` selects spaces, `false` selects tabs.
+    /// Returns `UnsupportedContext` when unsupported.
+    fn set_indent_type(&mut self, _use_spaces: bool) -> Result<(), Error> {
+        Err(Error::UnsupportedContext("set_indent_type"))
+    }
+
+    /// Set `[editor].indent_width` to an explicit value (clamped to
+    /// `1..=16`) and persist it. Returns `UnsupportedContext` when
+    /// unsupported.
+    fn set_indent_width(&mut self, _width: u32) -> Result<(), Error> {
+        Err(Error::UnsupportedContext("set_indent_width"))
+    }
+
+    /// Adjust `[editor].indent_width` by `delta` columns (result clamped
+    /// to `1..=16`) and persist it. Returns `UnsupportedContext` when
+    /// unsupported.
+    fn adjust_indent_width(&mut self, _delta: i32) -> Result<(), Error> {
+        Err(Error::UnsupportedContext("adjust_indent_width"))
+    }
+
+    /// Set `[editor].tab_width` to an explicit value (clamped to
+    /// `1..=16`) and persist it. Returns `UnsupportedContext` when
+    /// unsupported.
+    fn set_tab_width(&mut self, _width: u32) -> Result<(), Error> {
+        Err(Error::UnsupportedContext("set_tab_width"))
+    }
+
+    /// Adjust `[editor].tab_width` by `delta` columns (result clamped to
+    /// `1..=16`) and persist it. Returns `UnsupportedContext` when
+    /// unsupported.
+    fn adjust_tab_width(&mut self, _delta: i32) -> Result<(), Error> {
+        Err(Error::UnsupportedContext("adjust_tab_width"))
+    }
+
     /// Toggle DirectWrite typography ligatures. Returns
     /// `UnsupportedContext` when unsupported.
     fn toggle_ligatures(&mut self) -> Result<(), Error> {
@@ -362,9 +397,10 @@ pub trait ViewContext {
         Err(Error::UnsupportedContext("paste_clipboard"))
     }
 
-    /// Paste the OS clipboard, deliberately consuming only plain text
-    /// (the editor only ever consumes `CF_UNICODETEXT`; this command
-    /// makes the discoverable `Ctrl+Shift+V` semantics explicit).
+    /// Paste the OS clipboard as plain text (Ctrl+Shift+V): explicitly
+    /// skips the smart-paste URL transform and the clipboard-image
+    /// import that `paste_clipboard` (Ctrl+V) performs, inserting the
+    /// raw `CF_UNICODETEXT` payload verbatim.
     fn paste_as_plain_text(&mut self) -> Result<(), Error> {
         Err(Error::UnsupportedContext("paste_as_plain_text"))
     }

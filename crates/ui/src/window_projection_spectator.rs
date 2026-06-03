@@ -182,6 +182,7 @@ impl Window {
                 continue;
             }
             let seq = self.next_projection_request_seq();
+            let markdown_toggles = self.markdown_render_toggles();
             let request = crate::window_projection_worker::build_projection_request(
                 seq,
                 pane.pane_id,
@@ -192,6 +193,7 @@ impl Window {
                 &context.folds,
                 &context.image_reservations,
                 &context.suppressed_table_blocks,
+                markdown_toggles,
                 projection_char_width.max(1.0),
                 self.projection_font_metrics(),
                 ProjectionPlan::Cold,

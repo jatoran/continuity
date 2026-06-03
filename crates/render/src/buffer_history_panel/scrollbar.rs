@@ -4,16 +4,20 @@ use windows::Win32::Graphics::Direct2D::{
     ID2D1DeviceContext, ID2D1SolidColorBrush, D2D1_ANTIALIAS_MODE_ALIASED,
 };
 
+use super::metrics::BufferHistoryMetrics;
 use super::paint_helpers::panel_rect_to_d2d;
-use super::{BufferHistoryPanelLayout, BufferHistoryScrollbarLayout, PanelRect, PANEL_PAD_DIP};
+use super::{BufferHistoryPanelLayout, BufferHistoryScrollbarLayout, PanelRect};
 
-/// Width reserved at the panel's right edge when the lane list overflows.
+/// Width reserved at the panel's right edge when the lane list overflows
+/// (at zoom 1.0; scaled via [`BufferHistoryMetrics::scrollbar_gutter`]).
 pub(super) const SCROLLBAR_GUTTER_DIP: f32 = 12.0;
 const TRACK_WIDTH_DIP: f32 = 4.0;
 const TRACK_VERTICAL_PAD_DIP: f32 = 6.0;
 const MIN_THUMB_HEIGHT_DIP: f32 = 24.0;
 
 /// Compute a proportional lane-list scrollbar when not every lane fits.
+/// `metrics` carries the zoom-scaled geometry so the track width,
+/// padding, and minimum thumb height grow with the global text zoom.
 #[must_use]
 pub(super) fn compute_scrollbar_layout(
     panel_rect: PanelRect,
@@ -22,23 +26,27 @@ pub(super) fn compute_scrollbar_layout(
     total_lanes: usize,
     visible_lane_capacity: usize,
     scroll_lane_offset: usize,
+    metrics: &BufferHistoryMetrics,
 ) -> Option<BufferHistoryScrollbarLayout> {
     if total_lanes <= visible_lane_capacity || visible_lane_capacity == 0 {
         return None;
     }
-    let track_h = (lanes_bottom - lanes_origin_y - 2.0 * TRACK_VERTICAL_PAD_DIP).max(0.0);
+    let track_width = TRACK_WIDTH_DIP * metrics.scale;
+    let track_vertical_pad = TRACK_VERTICAL_PAD_DIP * metrics.scale;
+    let min_thumb_height = MIN_THUMB_HEIGHT_DIP * metrics.scale;
+    let track_h = (lanes_bottom - lanes_origin_y - 2.0 * track_vertical_pad).max(0.0);
     if track_h <= 0.0 {
         return None;
     }
     let track_rect = PanelRect {
-        x: panel_rect.x + panel_rect.w - PANEL_PAD_DIP - TRACK_WIDTH_DIP,
-        y: lanes_origin_y + TRACK_VERTICAL_PAD_DIP,
-        w: TRACK_WIDTH_DIP,
+        x: panel_rect.x + panel_rect.w - metrics.panel_pad - track_width,
+        y: lanes_origin_y + track_vertical_pad,
+        w: track_width,
         h: track_h,
     };
     let visible_fraction = visible_lane_capacity as f32 / total_lanes.max(1) as f32;
     let thumb_h = (track_h * visible_fraction)
-        .max(MIN_THUMB_HEIGHT_DIP.min(track_h))
+        .max(min_thumb_height.min(track_h))
         .min(track_h);
     let max_scroll = total_lanes.saturating_sub(visible_lane_capacity).max(1);
     let scroll = scroll_lane_offset.min(max_scroll) as f32;

@@ -157,6 +157,45 @@ impl CaretStyle {
     }
 }
 
+/// `[editor].indent_type` — what `editor.indent` / `editor.outdent`
+/// inserts and removes per indent level.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub enum IndentType {
+    /// Insert `[editor].indent_width` spaces per level. Default.
+    #[default]
+    Spaces,
+    /// Insert one tab character per level.
+    Tabs,
+}
+
+impl IndentType {
+    /// Parse the string form used in `settings.toml`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Invalid`] for unknown values.
+    pub fn parse(s: &str) -> Result<Self, Error> {
+        match s {
+            "spaces" => Ok(Self::Spaces),
+            "tabs" => Ok(Self::Tabs),
+            other => Err(Error::invalid_enum(
+                "editor.indent_type",
+                other,
+                "spaces | tabs",
+            )),
+        }
+    }
+
+    /// String form used in `settings.toml`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Spaces => "spaces",
+            Self::Tabs => "tabs",
+        }
+    }
+}
+
 /// `[ui].tab_close_button`.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub enum TabCloseButton {
@@ -392,6 +431,22 @@ mod tests {
         ));
         assert!(matches!(
             ThemeMode::parse("paper"),
+            Err(Error::Invalid { .. })
+        ));
+    }
+
+    #[test]
+    fn indent_type_round_trip() {
+        for s in ["spaces", "tabs"] {
+            assert_eq!(IndentType::parse(s).unwrap().as_str(), s);
+        }
+        assert_eq!(IndentType::default(), IndentType::Spaces);
+    }
+
+    #[test]
+    fn indent_type_rejects_unknown() {
+        assert!(matches!(
+            IndentType::parse("smart"),
             Err(Error::Invalid { .. })
         ));
     }

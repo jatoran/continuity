@@ -171,6 +171,23 @@ impl Window {
         if total_dl == 0 {
             return Some(Position::new(0, 0));
         }
+
+        // Below-last-row guard: a click whose floored row is past the last
+        // existing display row resolves to the END of the last source line,
+        // regardless of click x (matching common editors). Only fires when
+        // the document tail is realized in the resolved frame — otherwise
+        // (a partially-realized large buffer scrolled away from its tail)
+        // fall through to the existing clamp + x-hit-test path so there is
+        // no regression. A click *within* the last row's band yields
+        // `target_display_row == total_dl - 1` and is unaffected. Placed
+        // after the spec count is known but before the table-cell branch:
+        // continuation/empty-band rows are never table-cell rows, so the
+        // cell hit-test cannot apply to a below-content click anyway.
+        let tail_realized = frame_display.realized_row_range().end == total_dl;
+        if target_display_row >= total_dl && tail_realized {
+            return Some(compute_end_of_last_source_line_position(rope));
+        }
+
         let dl_idx = target_display_row.min(total_dl.saturating_sub(1));
         let spec = frame_display.display_line_by_index(dl_idx)?;
         let source_line = spec.source_line.raw() as usize;
@@ -181,7 +198,11 @@ impl Window {
         // wrap_paint.rs). Subtract the same offset so the hit-test
         // happens in the row's display-text coordinates.
         let leading_dip = if spec.is_wrap_continuation {
-            let tab_advance = column_advance * self.view_options.indent_size.max(1) as f32;
+            // A literal tab advances by `tab_width` columns (the same
+            // width the renderer paints it at). Spaces advance by one
+            // column each. Keep this in lock-step with `tab_width` so
+            // the hanging-indent hit-test lands where the glyph is.
+            let tab_advance = column_advance * self.view_options.tab_width.max(1) as f32;
             continuity_render::FrameDisplay::leading_whitespace_advance_dip(
                 rope,
                 source_line,
@@ -284,6 +305,30 @@ impl Window {
             snap_source_byte_to_line_char_boundary(rope, source_line, line_start, abs_src);
         Some(u32::try_from(snapped_abs_src.saturating_sub(line_start)).unwrap_or(0))
     }
+}
+
+/// Position at the end of the last source line of `rope`, mirroring the
+/// trailing-newline handling of the display-map builder's
+/// `source_line_range`. Used by the below-last-row click guard so a click
+/// in the empty band beneath the document lands the caret at the document
+/// tail regardless of click x.
+///
+/// An empty buffer (`len_bytes() == 0`) yields [`Position::ZERO`]. A buffer
+/// ending in `\n` has a synthetic final empty source line, so the end of
+/// that line is its start byte. Built from the rope-end byte via
+/// [`Position::from_byte_offset`] to avoid duplicating boundary math; falls
+/// back to [`Position::ZERO`] on error rather than panicking.
+fn compute_end_of_last_source_line_position(rope: &ropey::Rope) -> Position {
+    // The last source line spans `line_to_byte(last_line)..len_bytes()`. A
+    // buffer ending in `\n`/`\r\n` carries the trailing newline on the
+    // *previous* line, so the final source line is the synthetic empty line
+    // whose start == end == len_bytes(); mapping the rope-end byte back to a
+    // Position therefore lands on that empty line's start (byte_in_line 0),
+    // matching source_line_range's trailing-newline handling. For an
+    // unwrapped trailing line it lands at end-of-line, and for the empty
+    // buffer (len_bytes() == 0) it yields Position::ZERO.
+    let end_byte = rope.len_bytes();
+    Position::from_byte_offset(rope, end_byte).unwrap_or(Position::ZERO)
 }
 
 fn snap_source_byte_to_line_char_boundary(

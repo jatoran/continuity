@@ -13,8 +13,8 @@ use continuity_buffer::{Revision, RopeSnapshot};
 use continuity_decorate::Decorations;
 use continuity_display_map::wrap::WidthMeasure;
 use continuity_display_map::{
-    DisplayMapBuilder, DisplayRowIndex, FoldRange, ImageRowReservation, SegmentCache, SourceByte,
-    WalkerCallReason, WalkerStats, WrapCache, WrapConfig,
+    DisplayMapBuilder, DisplayRowIndex, FoldRange, ImageRowReservation, MarkdownRenderToggles,
+    SegmentCache, SourceByte, WalkerCallReason, WalkerStats, WrapCache, WrapConfig,
 };
 use continuity_text::RopeEditDelta;
 use ropey::Rope;
@@ -50,6 +50,7 @@ impl FrameDisplay {
         caret_bytes: &[usize],
         folds: &[FoldRange],
         image_reservations: &[ImageRowReservation],
+        markdown_toggles: MarkdownRenderToggles,
         wrap_width_dip: u32,
         measure: &mut dyn WidthMeasure,
         font_state: u64,
@@ -75,6 +76,7 @@ impl FrameDisplay {
         let mut stats = WalkerStats::default();
         let row_index = DisplayMapBuilder::new(&snap, decos, &carets, folds, wrap)
             .with_image_reservations(image_reservations)
+            .with_markdown_toggles(markdown_toggles)
             .with_row_count_caches(font_state, locale, wrap_cache, segment_cache)
             .with_walker_reason(walker_reason)
             .compute_partial_row_index_for_viewport_with_stats(
@@ -109,6 +111,7 @@ impl FrameDisplay {
         caret_bytes: &[usize],
         folds: &[FoldRange],
         image_reservations: &[ImageRowReservation],
+        markdown_toggles: MarkdownRenderToggles,
         wrap_width_dip: u32,
         measure: &mut dyn WidthMeasure,
         font_state: u64,
@@ -136,6 +139,7 @@ impl FrameDisplay {
         let mut stats = WalkerStats::default();
         let row_index = DisplayMapBuilder::new(&snap, decos, &carets, folds, wrap)
             .with_image_reservations(image_reservations)
+            .with_markdown_toggles(markdown_toggles)
             .with_row_count_caches(font_state, locale, wrap_cache, segment_cache)
             .with_walker_reason(walker_reason)
             .compute_partial_dirty_row_index_for_viewport_with_stats(
@@ -160,6 +164,7 @@ impl FrameDisplay {
         caret_bytes: &[usize],
         folds: &[FoldRange],
         image_reservations: &[ImageRowReservation],
+        markdown_toggles: MarkdownRenderToggles,
         wrap_width_dip: u32,
         measure: &mut dyn WidthMeasure,
         font_state: u64,
@@ -187,6 +192,7 @@ impl FrameDisplay {
         let mut stats = WalkerStats::default();
         let row_index = DisplayMapBuilder::new(&snap, decos, &carets, folds, wrap)
             .with_image_reservations(image_reservations)
+            .with_markdown_toggles(markdown_toggles)
             .with_row_count_caches(font_state, locale, wrap_cache, segment_cache)
             .with_walker_reason(walker_reason)
             .compute_partial_splice_row_index_for_viewport_with_stats(

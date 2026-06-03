@@ -70,6 +70,12 @@ impl Window {
         if geometry_unchanged {
             view.viewport_width_dip = new_body_rect.w;
             view.viewport_height_dip = new_body_rect.h;
+            view.line_height_dip = line_height;
+            view.overscroll_bottom_dip = crate::window_font_picker::compute_overscroll_bottom_dip(
+                self.view_options.scroll_past_end,
+                new_body_rect.h,
+                line_height,
+            );
         }
         // Approximate scroll using the caret's *source* line. This lets
         // the caret land near the top of the new pane without paying

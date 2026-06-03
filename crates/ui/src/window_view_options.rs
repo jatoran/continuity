@@ -47,6 +47,12 @@ pub(crate) struct ViewOptions {
     pub minimap_layout: Option<continuity_render::MinimapLayout>,
     /// Indent step in spaces; used to position indent guides + tab markers.
     pub indent_size: u32,
+    /// On-screen width of a literal tab character, in columns. Sourced
+    /// from `[editor].tab_width`; drives the DirectWrite incremental tab
+    /// stop (rendered tab glyph width) and the indent-guide / whitespace
+    /// tab advance. Mutated at runtime by the `editor.tab_width_*` /
+    /// `editor.set_tab_width` commands.
+    pub tab_width: u32,
     /// Ruler-column positions in characters (one vertical rule per column).
     pub ruler_columns: Vec<u32>,
     /// Active caret shape.
@@ -79,6 +85,12 @@ pub(crate) struct ViewOptions {
     /// Smooth scroll on page/doc navigation. Reduced-motion overrides
     /// this to instant.
     pub smooth_scroll: bool,
+    /// Allow scrolling below the last line until it can sit at the
+    /// viewport top (VS Code-style overscroll). Wheel/keyboard-only —
+    /// the scrollbar pins to the true content bottom and Ctrl+End still
+    /// lands the last line at the viewport bottom. Sourced from
+    /// `[editor].scroll_past_end`.
+    pub scroll_past_end: bool,
     /// Multiplier applied to mouse-wheel line distance.
     pub mouse_wheel_scroll_speed: f32,
     /// Paint the bottom status bar (caret position + buffer dirty marker).
@@ -206,6 +218,7 @@ impl Default for ViewOptions {
             minimap: false,
             minimap_layout: None,
             indent_size: 4,
+            tab_width: 4,
             ruler_columns: Vec::new(),
             caret_style: CaretStyle::Bar,
             caret_blink_ms: 530,
@@ -220,6 +233,7 @@ impl Default for ViewOptions {
             caret_tween_duration_ms: 160,
             ligatures: false,
             smooth_scroll: true,
+            scroll_past_end: true,
             mouse_wheel_scroll_speed: 2.0,
             show_status_bar: true,
             show_sticky_breadcrumb: true,
@@ -312,6 +326,7 @@ mod tests {
         assert!(!v.ligatures);
         assert_eq!(v.mouse_wheel_scroll_speed, 2.0);
         assert_eq!(v.indent_size, 4);
+        assert_eq!(v.tab_width, 4);
         assert_eq!(v.caret_style, CaretStyle::Bar);
         assert_eq!(v.caret_blink_ms, 530);
         assert_eq!(v.caret_width_px, 2);
@@ -324,6 +339,7 @@ mod tests {
         assert_eq!(v.caret_tween_threshold_rows, 5);
         assert_eq!(v.caret_tween_duration_ms, 160);
         assert!(v.smooth_scroll);
+        assert!(v.scroll_past_end);
         assert!(v.ruler_columns.is_empty());
     }
 

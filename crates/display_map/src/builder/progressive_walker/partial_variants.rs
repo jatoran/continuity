@@ -11,6 +11,7 @@ use crate::error::Error;
 use crate::fold::FoldRange;
 use crate::id::{SourceByte, SourceLine};
 use crate::image_row_reservation_provider::ImageRowReservation;
+use crate::markdown_toggles::MarkdownRenderToggles;
 use crate::row_index::dirty::RowDirty;
 use crate::row_index::DisplayRowIndex;
 use crate::wrap::{WidthMeasure, WrapConfig};
@@ -34,6 +35,7 @@ pub(in crate::builder) fn compute_partial_dirty_row_counts_for_viewport_range(
     folds: &[FoldRange],
     image_reservations: &[ImageRowReservation],
     suppressed_table_blocks: &[std::ops::Range<usize>],
+    markdown_toggles: MarkdownRenderToggles,
     wrap: WrapConfig,
     measure: &mut dyn WidthMeasure,
     cache_context: Option<RowCountCacheContext<'_>>,
@@ -68,6 +70,7 @@ pub(in crate::builder) fn compute_partial_dirty_row_counts_for_viewport_range(
                 folds,
                 image_reservations,
                 suppressed_table_blocks,
+                markdown_toggles,
                 wrap,
                 measure,
                 cache_context,
@@ -110,6 +113,7 @@ pub(in crate::builder) fn compute_partial_splice_row_counts_for_viewport_range(
     folds: &[FoldRange],
     image_reservations: &[ImageRowReservation],
     suppressed_table_blocks: &[std::ops::Range<usize>],
+    markdown_toggles: MarkdownRenderToggles,
     wrap: WrapConfig,
     measure: &mut dyn WidthMeasure,
     cache_context: Option<RowCountCacheContext<'_>>,
@@ -142,6 +146,7 @@ pub(in crate::builder) fn compute_partial_splice_row_counts_for_viewport_range(
                 folds,
                 image_reservations,
                 suppressed_table_blocks,
+                markdown_toggles,
                 wrap,
                 measure,
                 cache_context,
@@ -274,6 +279,7 @@ fn measure_source_line(
     folds: &[FoldRange],
     image_reservations: &[ImageRowReservation],
     suppressed_table_blocks: &[std::ops::Range<usize>],
+    markdown_toggles: MarkdownRenderToggles,
     wrap: WrapConfig,
     measure: &mut dyn WidthMeasure,
     cache_context: Option<RowCountCacheContext<'_>>,
@@ -291,6 +297,7 @@ fn measure_source_line(
         folds,
         image_reservations,
         suppressed_table_blocks,
+        markdown_toggles,
         wrap,
         measure,
         cache_context,
@@ -424,6 +431,7 @@ mod tests {
                 &[],
                 &[],
                 &[],
+                MarkdownRenderToggles::default(),
                 wrap(wrap_width),
                 &mut measure,
                 None,
@@ -478,6 +486,7 @@ mod tests {
                 &[],
                 &[],
                 &[],
+                MarkdownRenderToggles::default(),
                 wrap(wrap_width),
                 &mut measure,
                 None,
@@ -519,6 +528,7 @@ mod tests {
             &[],
             &[],
             &[],
+            MarkdownRenderToggles::default(),
             WrapConfig::new(80),
             &mut measure,
             None,

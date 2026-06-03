@@ -46,6 +46,11 @@ impl Window {
                 }
             }
             self.focus_overlay_input();
+            // Re-pressing the chord while the bar is open selects the whole
+            // focused field so the next typed character overtypes it.
+            if let Some(fb) = self.overlays.find_bar_mut() {
+                fb.select_all_focused_field();
+            }
             self.ensure_find_matches_current_for_focused_pane();
             self.save_find_memento();
             return Ok(());

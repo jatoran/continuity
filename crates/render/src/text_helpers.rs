@@ -395,6 +395,46 @@ pub fn hit_test_x_to_byte(
     hit_test_layout_to_byte(&layout, text, x)
 }
 
+/// Like [`hit_test_x_to_byte`], but applies `SetFontSize(font_size_dip)` to
+/// the layout before hit-testing so the inversion exactly mirrors a painter
+/// that draws at an overridden size (e.g. the overlay fields, which paint at
+/// the *unzoomed* base size regardless of the format's built size).
+///
+/// Pass `font_size_dip <= 0.0` to skip the override (identical to
+/// [`hit_test_x_to_byte`]). This is the exact inverse of `caret_offset_in_field`
+/// in the overlay painter, which builds a plain layout and calls
+/// `SetFontSize(font_size_dip)` the same way. Returns `None` on a DirectWrite
+/// failure; empty input maps to byte `0`.
+#[must_use]
+pub fn hit_test_x_to_byte_sized(
+    factory: &IDWriteFactory,
+    format: &IDWriteTextFormat,
+    text: &str,
+    x: f32,
+    max_width: f32,
+    font_size_dip: f32,
+) -> Option<usize> {
+    let wide: Vec<u16> = text.encode_utf16().collect();
+    if wide.is_empty() {
+        return Some(0);
+    }
+    let layout: IDWriteTextLayout = unsafe {
+        factory
+            .CreateTextLayout(&wide, format, max_width.max(1.0), f32::INFINITY)
+            .ok()?
+    };
+    if font_size_dip > 0.0 {
+        let range = DWRITE_TEXT_RANGE {
+            startPosition: 0,
+            length: wide.len() as u32,
+        };
+        unsafe {
+            let _ = layout.SetFontSize(font_size_dip, range);
+        }
+    }
+    hit_test_layout_to_byte(&layout, text, x)
+}
+
 /// Map a horizontal position in a rendered [`DisplayLineSpec`] to a display
 /// UTF-8 byte using the same style runs the painter baked into its layout.
 #[must_use]

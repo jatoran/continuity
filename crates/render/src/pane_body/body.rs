@@ -220,6 +220,7 @@ pub(super) unsafe fn paint_pane_body(
             margins.left,
             body_width_dip,
             scroll_y,
+            view_options.render_divider,
         );
     }
     for display_row in first_visible..last_visible {

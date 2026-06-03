@@ -7,9 +7,12 @@ use serde::Deserialize;
 
 use crate::focus::FocusConfig;
 use crate::mode::{
-    CaretStyle, MarkdownDialect, PersistenceMode, RevealMode, StatusBarSegment, TabCloseButton,
-    ThemeMode,
+    CaretStyle, IndentType, MarkdownDialect, PersistenceMode, RevealMode, StatusBarSegment,
+    TabCloseButton, ThemeMode,
 };
+use crate::settings_backup::BackupConfig;
+use crate::settings_markdown::MarkdownConfig;
+use crate::settings_window::WindowConfig;
 use crate::workers::WorkerConfig;
 use crate::Error;
 
@@ -92,6 +95,13 @@ impl Settings {
             .expect("invariant: validate() ensures editor.caret_style is a known value")
     }
 
+    /// Typed view of `[editor].indent_type`.
+    #[must_use]
+    pub fn indent_type(&self) -> IndentType {
+        IndentType::parse(&self.editor.indent_type)
+            .expect("invariant: validate() ensures editor.indent_type is a known value")
+    }
+
     /// Typed view of `[ui].theme`.
     #[must_use]
     pub fn theme_mode(&self) -> ThemeMode {
@@ -149,31 +159,6 @@ impl Default for PersistenceConfig {
     }
 }
 
-/// `[backup]` section.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct BackupConfig {
-    /// Backup interval in minutes.
-    pub interval_minutes: u32,
-    /// Hourly retention count.
-    pub hourly_retention: u32,
-    /// Daily retention count.
-    pub daily_retention: u32,
-    /// Backup directory (path string; %ENV% is expanded by the consumer).
-    pub location: String,
-}
-
-impl Default for BackupConfig {
-    fn default() -> Self {
-        Self {
-            interval_minutes: 15,
-            hourly_retention: 24,
-            daily_retention: 30,
-            location: "%LOCALAPPDATA%\\continuity\\backups".into(),
-        }
-    }
-}
-
 /// `[editor]` section.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
@@ -184,6 +169,15 @@ pub struct EditorConfig {
     pub font_family_mono: String,
     /// Base font size in points.
     pub font_size: f32,
+    /// Global text-scale (zoom) multiplier applied on top of
+    /// [`Self::font_size`] in every window. This is the single durable
+    /// home for editor zoom: the `view.zoom_in`/`zoom_out`/`zoom_reset`
+    /// commands and Ctrl+wheel write it back (contract C), so the zoom
+    /// level survives relaunch and applies across every open window via
+    /// the settings fan-out. Validated to
+    /// [`crate::zoom::MIN_ZOOM`]`..=`[`crate::zoom::MAX_ZOOM`] — the same
+    /// range the runtime view-state clamp uses. Default `1.0`.
+    pub text_scale: f32,
     /// Line height multiplier.
     pub line_height: f32,
     /// Word wrap on/off.
@@ -192,6 +186,22 @@ pub struct EditorConfig {
     pub ruler_columns: Vec<u32>,
     /// `"bar" | "block" | "underline"`.
     pub caret_style: String,
+    /// `"spaces" | "tabs"` — what `editor.indent` / `editor.outdent`
+    /// insert and remove per level. `"spaces"` emits
+    /// [`Self::indent_width`] spaces; `"tabs"` emits one tab character.
+    /// Default `"spaces"`. Switching at runtime does not retroactively
+    /// convert existing indentation — use `editor.spaces_to_tabs` /
+    /// `editor.tabs_to_spaces` for that.
+    pub indent_type: String,
+    /// Spaces emitted per indent level when `indent_type = "spaces"`.
+    /// Also drives the indent-guide column spacing. Validated `1..=16`.
+    /// Default `4`.
+    pub indent_width: u32,
+    /// On-screen width of a literal tab character, in columns. Drives
+    /// the rendered tab-stop (via DirectWrite incremental tab stops),
+    /// the indent-guide geometry for tab-indented lines, and the
+    /// spaces↔tabs conversion commands. Validated `1..=16`. Default `4`.
+    pub tab_width: u32,
     /// Caret blink interval in ms. `0` disables blinking.
     pub caret_blink_ms: u32,
     /// Phase B4: bar-mode caret width in DIPs. Ignored for block /
@@ -241,6 +251,12 @@ pub struct EditorConfig {
     pub caret_tween_duration_ms: u32,
     /// Smooth-scrolling enabled.
     pub smooth_scroll: bool,
+    /// Allow scrolling below the last line until it can sit at the
+    /// viewport top (VS Code-style overscroll). A wheel/keyboard-only
+    /// affordance — the scrollbar still pins to the true content bottom
+    /// and Ctrl+End still lands the last line at the viewport bottom.
+    /// Default `true`.
+    pub scroll_past_end: bool,
     /// Mouse-wheel scroll speed multiplier. Default `2.0` doubles the
     /// base line-step distance.
     pub mouse_wheel_scroll_speed: f32,
@@ -293,10 +309,14 @@ impl Default for EditorConfig {
             font_family_prose: "Segoe UI Variable".into(),
             font_family_mono: "Cascadia Mono".into(),
             font_size: 14.0,
+            text_scale: 1.0,
             line_height: 1.35,
             word_wrap: true,
             ruler_columns: Vec::new(),
             caret_style: "bar".into(),
+            indent_type: "spaces".into(),
+            indent_width: 4,
+            tab_width: 4,
             caret_blink_ms: 530,
             caret_width_px: 2,
             caret_blink_on_typing_pause: true,
@@ -314,6 +334,7 @@ impl Default for EditorConfig {
             autocorrect_enabled: false,
             smart_typography_enabled: true,
             smooth_scroll: true,
+            scroll_past_end: true,
             mouse_wheel_scroll_speed: 2.0,
             zoom_step_pct: 10,
             ligatures: false,
@@ -348,44 +369,6 @@ impl Default for FindConfig {
     fn default() -> Self {
         Self {
             persist_per_buffer: true,
-        }
-    }
-}
-
-/// `[markdown]` section.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct MarkdownConfig {
-    /// `"block" | "line"`.
-    pub reveal_mode: String,
-    /// Per-level heading scale multipliers.
-    pub heading_scale: Vec<f32>,
-    /// Phase F5: paint inline preview thumbnails for `![](url)`
-    /// images. Default on per spec-delta §L#3 — image-paste is a
-    /// primary path.
-    pub inline_images: bool,
-    /// Phase F5: shared image-store directory. Pasted / dropped
-    /// images are hash-deduped into this directory; the reference in
-    /// the buffer becomes `images/<hash>.<ext>` resolved against it.
-    /// `%ENV%` expansion is the consumer's responsibility (matches
-    /// `BackupConfig::location`).
-    pub images_dir: String,
-    /// Phase F7 — markdown dialect. `"gfm"` (default) enables GFM
-    /// features (tables, task lists, strikethrough, autolinks) plus
-    /// continuity extensions (inline color, inline table formulas).
-    /// `"commonmark"` is reserved for a future strict opt-in; the
-    /// renderer treats both identically until that follow-up lands.
-    pub dialect: String,
-}
-
-impl Default for MarkdownConfig {
-    fn default() -> Self {
-        Self {
-            reveal_mode: "block".into(),
-            heading_scale: vec![2.0, 1.6, 1.35, 1.2, 1.1, 1.05],
-            inline_images: true,
-            images_dir: "%APPDATA%\\continuity\\images".into(),
-            dialect: "gfm".into(),
         }
     }
 }
@@ -493,22 +476,6 @@ impl Default for StatusBarConfig {
     }
 }
 
-/// `[window]` section.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct WindowConfig {
-    /// Restore each window to its remembered virtual desktop on launch.
-    pub restore_to_virtual_desktops: bool,
-}
-
-impl Default for WindowConfig {
-    fn default() -> Self {
-        Self {
-            restore_to_virtual_desktops: true,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,6 +530,30 @@ mouse_wheel_scroll_speed = 1.25
     #[test]
     fn rejects_malformed_toml() {
         assert!(Settings::from_toml("editor = ").is_err());
+    }
+
+    #[test]
+    fn indent_defaults_and_overrides_parse() {
+        let s = Settings::from_toml("").unwrap();
+        assert_eq!(s.editor.indent_type, "spaces");
+        assert_eq!(s.editor.indent_width, 4);
+        assert_eq!(s.editor.tab_width, 4);
+        assert_eq!(s.indent_type(), crate::IndentType::Spaces);
+
+        let s = Settings::from_toml(
+            r#"[editor]
+indent_type = "tabs"
+indent_width = 2
+tab_width = 8
+"#,
+        )
+        .unwrap();
+        assert_eq!(s.editor.indent_type, "tabs");
+        assert_eq!(s.editor.indent_width, 2);
+        assert_eq!(s.editor.tab_width, 8);
+        assert_eq!(s.indent_type(), crate::IndentType::Tabs);
+        // Unspecified fields keep defaults.
+        assert_eq!(s.editor.font_size, 14.0);
     }
 
     // Smart-typography tests live in

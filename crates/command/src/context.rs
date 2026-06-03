@@ -8,6 +8,7 @@
 use continuity_buffer::BufferId;
 use continuity_core::SelectionEdit;
 
+use crate::edit_config_context::EditConfigContext;
 use crate::file_context::FileContext;
 use crate::find_context::FindContext;
 use crate::view_context::ViewContext;
@@ -16,9 +17,10 @@ use crate::Error;
 /// A read-only view of the current editor state, queried by predicates,
 /// plus the mutation surface invoked by command handlers.
 ///
-/// Inherits [`ViewContext`] (view/theme/font) and [`FindContext`].
+/// Inherits [`ViewContext`] (view/theme/font), [`FindContext`], and
+/// [`EditConfigContext`] (auto-pair + live indent configuration).
 /// File commands opt in through [`Self::file_context`].
-pub trait Context: ViewContext + FindContext {
+pub trait Context: ViewContext + FindContext + EditConfigContext {
     /// Look up the string value of an attribute (e.g., `"language"` →
     /// `Some("markdown")`). Return `None` when unset.
     fn lookup(&self, key: &str) -> Option<&str>;
@@ -585,14 +587,8 @@ pub trait Context: ViewContext + FindContext {
         Err(Error::UnsupportedContext("tear_off_focused_tab"))
     }
 
-    /// Phase-16.5 auto-pair lookup. `None` ⇒ plain insert.
-    fn auto_pair_for(&self, _c: char) -> Option<(char, char)> {
-        None
-    }
-    /// Phase-16.5 backspace-aware delete-pair. `Ok(true)` ⇒ pair
-    /// deleted; `Ok(false)` ⇒ fall through to delete_back. Errors
-    /// propagate from the underlying pair-delete plan.
-    fn try_delete_back_pair(&mut self) -> Result<bool, Error> {
-        Ok(false)
-    }
+    // Auto-pair lookups and the live indent configuration
+    // (`auto_pair_for`, `try_delete_back_pair`, `indent_unit`,
+    // `effective_tab_width`) live on [`EditConfigContext`], a
+    // supertrait — see `crate::edit_config_context`.
 }

@@ -3,12 +3,9 @@
 //! (no Direct2D / DirectWrite), so the UI hit-test path consumes it
 //! without owning a renderer.
 
+use super::metrics::resolved_metrics;
 use super::scrollbar;
-use super::{
-    BufferHistoryLaneLayout, BufferHistoryPanelDraw, BufferHistoryPanelLayout, PanelRect,
-    LANE_HEIGHT_DIP, PANEL_PAD_DIP, PREVIEW_BAND_HEIGHT_DIP, RULER_HEIGHT_DIP,
-    TITLE_COLUMN_WIDTH_DIP,
-};
+use super::{BufferHistoryLaneLayout, BufferHistoryPanelDraw, BufferHistoryPanelLayout, PanelRect};
 
 impl BufferHistoryPanelDraw {
     /// Compute the projected pixel-x for `ts_ms` inside `strip_rect`.
@@ -30,25 +27,26 @@ impl BufferHistoryPanelDraw {
 pub fn compute_buffer_history_panel_layout(
     draw: &BufferHistoryPanelDraw,
 ) -> BufferHistoryPanelLayout {
+    let metrics = resolved_metrics(draw.scale);
     let bg = draw.rect;
     let ruler_rect = PanelRect {
         x: bg.x,
         y: bg.y,
         w: bg.w,
-        h: RULER_HEIGHT_DIP.min(bg.h),
+        h: metrics.ruler_height.min(bg.h),
     };
     let lanes_origin_y = ruler_rect.y + ruler_rect.h;
 
     // Reserve the preview band along the bottom when there is at
     // least one lane and the panel can spare the vertical room (need
     // space for the ruler + at least one lane + the band itself).
-    let min_required_for_band = ruler_rect.h + LANE_HEIGHT_DIP + PREVIEW_BAND_HEIGHT_DIP;
+    let min_required_for_band = ruler_rect.h + metrics.lane_height + metrics.preview_band_height;
     let preview_rect = if !draw.rows.is_empty() && bg.h >= min_required_for_band {
         Some(PanelRect {
             x: bg.x,
-            y: bg.y + bg.h - PREVIEW_BAND_HEIGHT_DIP,
+            y: bg.y + bg.h - metrics.preview_band_height,
             w: bg.w,
-            h: PREVIEW_BAND_HEIGHT_DIP,
+            h: metrics.preview_band_height,
         })
     } else {
         None
@@ -58,7 +56,7 @@ pub fn compute_buffer_history_panel_layout(
         None => bg.y + bg.h,
     };
     let lane_span_h = (lanes_bottom - lanes_origin_y).max(0.0);
-    let visible_lane_capacity = (lane_span_h / LANE_HEIGHT_DIP).floor().max(0.0) as usize;
+    let visible_lane_capacity = (lane_span_h / metrics.lane_height).floor().max(0.0) as usize;
     let scrollbar_layout = scrollbar::compute_scrollbar_layout(
         bg,
         lanes_origin_y,
@@ -66,45 +64,46 @@ pub fn compute_buffer_history_panel_layout(
         draw.rows.len(),
         visible_lane_capacity,
         draw.scroll_lane_offset,
+        &metrics,
     );
 
-    let inner_x = bg.x + PANEL_PAD_DIP;
+    let inner_x = bg.x + metrics.panel_pad;
     let scrollbar_gutter = scrollbar_layout
         .as_ref()
-        .map(|_| scrollbar::SCROLLBAR_GUTTER_DIP)
+        .map(|_| metrics.scrollbar_gutter)
         .unwrap_or(0.0);
-    let inner_w = (bg.w - 2.0 * PANEL_PAD_DIP - scrollbar_gutter).max(0.0);
-    let title_w = TITLE_COLUMN_WIDTH_DIP.min(inner_w * 0.5);
-    let strip_x = inner_x + title_w + PANEL_PAD_DIP;
-    let strip_w = (inner_w - title_w - PANEL_PAD_DIP).max(0.0);
+    let inner_w = (bg.w - 2.0 * metrics.panel_pad - scrollbar_gutter).max(0.0);
+    let title_w = metrics.title_column_width.min(inner_w * 0.5);
+    let strip_x = inner_x + title_w + metrics.panel_pad;
+    let strip_w = (inner_w - title_w - metrics.panel_pad).max(0.0);
     let row_w = scrollbar_layout
         .as_ref()
-        .map(|s| (s.track_rect.x - bg.x - 4.0).max(0.0))
+        .map(|s| (s.track_rect.x - bg.x - 4.0 * draw.scale.max(1.0)).max(0.0))
         .unwrap_or(bg.w);
 
     let scroll = draw.scroll_lane_offset.min(draw.rows.len());
     let mut lanes = Vec::with_capacity(draw.rows.len().saturating_sub(scroll));
     for (visible_idx, (lane_idx, row)) in draw.rows.iter().enumerate().skip(scroll).enumerate() {
-        let row_y = lanes_origin_y + (visible_idx as f32) * LANE_HEIGHT_DIP;
-        if row_y + LANE_HEIGHT_DIP > lanes_bottom {
+        let row_y = lanes_origin_y + (visible_idx as f32) * metrics.lane_height;
+        if row_y + metrics.lane_height > lanes_bottom {
             break;
         }
         let row_rect = PanelRect {
             x: bg.x,
             y: row_y,
             w: row_w,
-            h: LANE_HEIGHT_DIP,
+            h: metrics.lane_height,
         };
         // Strip stays vertically centered inside the row so the
         // snapshot dots line up across lanes and read as a continuous
         // horizontal timeline rather than dancing up-and-down with
         // each row's title block.
-        const STRIP_H_DIP: f32 = 24.0;
+        let strip_h = metrics.strip_height;
         let strip_rect = PanelRect {
             x: strip_x,
-            y: row_y + (LANE_HEIGHT_DIP - STRIP_H_DIP) / 2.0,
+            y: row_y + (metrics.lane_height - strip_h) / 2.0,
             w: strip_w,
-            h: STRIP_H_DIP,
+            h: strip_h,
         };
         let dot_centers_x = row
             .snapshot_times_ms

@@ -126,9 +126,16 @@ impl Window {
             self.refresh_focused_viewport_unanchored();
             return;
         }
+        let overscroll_bottom = crate::window_font_picker::compute_overscroll_bottom_dip(
+            self.view_options.scroll_past_end,
+            r.h,
+            line_height,
+        );
         self.with_caret_line_anchored(|w| {
             w.view.viewport_width_dip = r.w;
             w.view.viewport_height_dip = r.h;
+            w.view.overscroll_bottom_dip = overscroll_bottom;
+            w.view.line_height_dip = line_height;
         });
     }
 
@@ -141,8 +148,11 @@ impl Window {
     /// against the final projection.
     pub(crate) fn refresh_focused_viewport_unanchored(&mut self) {
         let r = self.focused_body_rect();
+        let line_height = self.effective_line_height();
         self.view.viewport_width_dip = r.w;
         self.view.viewport_height_dip = r.h;
+        self.view.line_height_dip = line_height;
+        self.view.overscroll_bottom_dip = self.overscroll_bottom_dip();
     }
 
     /// Save the focused pane's mirrored scalars into `panes[old]`, then

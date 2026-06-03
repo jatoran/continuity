@@ -201,9 +201,34 @@ impl Window {
                 scaled_size,
                 FONT_LOCALE,
             )?);
+            self.apply_tab_stop_to_text_format();
             self.font_state = self.current_font_state_id();
         }
         Ok(())
+    }
+
+    /// Pin the body text format's DirectWrite incremental tab stop to
+    /// `[editor].tab_width` columns so a literal `\t` renders at the
+    /// configured width — for both the renderer (`params.format`) and
+    /// the projection worker, which share this one COM handle. Applied
+    /// at every format (re)build so the worker's wrap measurement and
+    /// the painted glyph agree from the first frame after a font / tab
+    /// change. A `tab_width` of `0` leaves the font's default tab stop
+    /// in effect (pre-settings behaviour). No-op when no format exists.
+    pub(crate) fn apply_tab_stop_to_text_format(&self) {
+        let tab_width = self.view_options.tab_width;
+        if tab_width == 0 {
+            return;
+        }
+        let Some(format) = self.text_format.as_ref() else {
+            return;
+        };
+        let space_advance = continuity_render::text_metrics::measure_space_advance_dip(
+            self.dwrite.raw(),
+            format,
+            self.scaled_font_size(),
+        );
+        let _ = unsafe { format.SetIncrementalTabStop(space_advance * tab_width as f32) };
     }
 
     pub(crate) fn apply_deferred_renderer_resize(&mut self, hwnd: HWND) -> Result<(), Error> {

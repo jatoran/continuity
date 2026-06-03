@@ -3,135 +3,51 @@
 //! Extracted from `crates/display_map/src/builder.rs` to keep the
 //! parent file under the 600-line conventions cap.
 
-use continuity_decorate::{BlockKind, BlockSpan, Decorations, InlineKind, MarkerKind};
+use continuity_decorate::{Decorations, InlineColorKind, InlineKind, MarkerKind};
 use std::ops::Range;
 
 use super::segment_coalescing::{
     coalesce_segments, dedup_overlapping_actions, snap_to_line_char_boundary, Action, ActionRange,
 };
+use super::segments_helpers::{
+    caret_near_checkbox, collect_toggle_off_emphasis_ranges, compute_block_style, line_revealed,
+    range_touches_kept, superscript_label,
+};
 use crate::fold::FoldRange;
 use crate::id::SourceByte;
+use crate::markdown_toggles::MarkdownRenderToggles;
 use crate::segment::{DisplaySegment, SegmentHit};
-use crate::style::{SpanRole, SpanStyle};
-
-// ---------------------------------------------------------------------------
-// Reveal logic
-// ---------------------------------------------------------------------------
-
-fn block_revealed(block: &BlockSpan, caret_bytes: &[SourceByte]) -> bool {
-    caret_bytes.iter().any(|c| {
-        let b = c.as_usize();
-        b >= block.start_byte && b <= block.end_byte
-    })
-}
-
-fn line_revealed(
-    decorations: &Decorations,
-    caret_bytes: &[SourceByte],
-    line_start: usize,
-    line_end: usize,
-) -> bool {
-    // **Reveal is line-local.** A line shows raw markdown when a
-    // caret sits on the same source line — nothing else. The
-    // previous implementation used byte-range containment against
-    // `decorations.blocks`, which had two problems on large
-    // documents:
-    //
-    // 1. **Block flicker.** Block byte ranges shift by exactly the
-    //    number of bytes typed when the decoration worker is behind
-    //    the rope (a 500 KiB markdown buffer can be several
-    //    revisions stale at any instant). A caret near a block
-    //    boundary would then flip in-vs-out of the containing block
-    //    between consecutive paints — every line in that block
-    //    would toggle reveal state, the lines' wrap row counts
-    //    would change, and the entire viewport would shift on every
-    //    keystroke. The user-visible symptom was "as I type, all of
-    //    the markdown rendering across the document toggles live
-    //    and not live".
-    // 2. **Containment-too-broad.** Even with fresh decorations, the
-    //    rule revealed every line in the smallest containing block;
-    //    a long paragraph or pipe-table block would still light up
-    //    its entire row count when the caret was at a different
-    //    offset inside it.
-    //
-    // The fix avoids both: the check uses *only* rope-derived line
-    // bounds and caret bytes, so it's invariant under stale
-    // decorations and tight to the single source line the caret is
-    // on. Multi-line code blocks remain the one exception — those
-    // reveal as a unit so the fence markers and indented body show
-    // when the caret is inside, which is essential UX for editing
-    // code in-place. Code-block boundaries are whole-line so
-    // off-by-N-byte staleness can't flip individual lines in or out
-    // of the block.
-    if caret_bytes
-        .iter()
-        .any(|c| c.as_usize() >= line_start && c.as_usize() <= line_end)
-    {
-        return true;
-    }
-    for block in &decorations.blocks {
-        if block.start_byte >= line_end || block.end_byte <= line_start {
-            continue;
-        }
-        let reveals_as_unit = matches!(
-            block.kind,
-            BlockKind::FencedCodeBlock | BlockKind::IndentedCodeBlock
-        );
-        if reveals_as_unit && block_revealed(block, caret_bytes) {
-            return true;
-        }
-    }
-    false
-}
-
-/// Bytes of slack on either side of a checkbox span within which a caret
-/// reveals the raw `[ ]` brackets.
-const CHECKBOX_REVEAL_SLACK_BYTES: usize = 2;
-
-/// Unlike the rest of a markdown line, a task checkbox reveals its raw
-/// brackets only when a caret sits *on or beside the checkbox itself*,
-/// not merely somewhere on the line. This lets the writer keep editing
-/// the line's text with the checkbox glyph still showing, yet still edit
-/// (or delete) the brackets when the caret is near them.
-///
-/// `span_start..span_end` is the checkbox span clamped to the line; the
-/// reveal window extends [`CHECKBOX_REVEAL_SLACK_BYTES`] past each edge,
-/// clamped to the line so an off-line caret never reveals it.
-fn caret_near_checkbox(
-    caret_bytes: &[SourceByte],
-    span_start: usize,
-    span_end: usize,
-    line_start: usize,
-    line_end: usize,
-) -> bool {
-    let lo = span_start
-        .saturating_sub(CHECKBOX_REVEAL_SLACK_BYTES)
-        .max(line_start);
-    let hi = span_end
-        .saturating_add(CHECKBOX_REVEAL_SLACK_BYTES)
-        .min(line_end);
-    caret_bytes.iter().any(|c| {
-        let pos = c.as_usize();
-        pos >= lo && pos <= hi
-    })
-}
+use crate::style::SpanStyle;
 
 // ---------------------------------------------------------------------------
 // Segment construction
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_line_segments(
     decorations: &Decorations,
     caret_bytes: &[SourceByte],
     folds: &[FoldRange],
     suppressed_table_blocks: &[Range<usize>],
+    toggles: MarkdownRenderToggles,
     line_start: usize,
     line_end: usize,
     line_text: &str,
 ) -> Vec<DisplaySegment> {
     let revealed = line_revealed(decorations, caret_bytes, line_start, line_end);
 
-    let block_style = compute_block_style(decorations, line_start, line_end, revealed);
+    let block_style = compute_block_style(decorations, line_start, line_end, revealed, toggles);
+
+    // Pre-pass: collect the clamped body byte ranges of emphasis / strong
+    // spans whose render toggle is OFF. Their `*` / `**` delimiters must
+    // stay visible (raw markdown) even when the line is not caret-
+    // revealed, so the `EmphasisDelim` hide arm below skips any delimiter
+    // adjacent to one of these ranges. `EmphasisDelim` markers are shared
+    // between italic and bold (same `MarkerKind`), so on a mixed
+    // `*i* **b**` line with italic-off / bold-on the `*` reveals while
+    // the `**` still hides.
+    let keep_visible_emphasis_delims =
+        collect_toggle_off_emphasis_ranges(decorations, toggles, line_start, line_end);
 
     let mut actions: Vec<ActionRange> = Vec::new();
     let mut style_overlays: Vec<(Range<usize>, SpanStyle)> = Vec::new();
@@ -172,11 +88,41 @@ pub(super) fn build_line_segments(
                 MarkerKind::HeadingHash
                 | MarkerKind::FenceTick
                 | MarkerKind::BlockquoteCaret
-                | MarkerKind::EmphasisDelim
                 | MarkerKind::StrikeDelim
-                | MarkerKind::CodeDelim
-                | MarkerKind::ThematicBreak => {
+                | MarkerKind::CodeDelim => {
                     if !revealed {
+                        actions.push(ActionRange {
+                            start: s,
+                            end: e,
+                            action: Action::Hide,
+                        });
+                    } else {
+                        style_overlays.push((s..e, SpanStyle::marker()));
+                    }
+                }
+                MarkerKind::EmphasisDelim => {
+                    // Keep the `*` / `**` delimiter visible (raw markdown)
+                    // when its emphasis kind is toggled off, mirroring the
+                    // caret-reveal path. Otherwise hide it off-line and
+                    // style it when revealed.
+                    let force_visible = range_touches_kept(&keep_visible_emphasis_delims, s, e);
+                    if revealed || force_visible {
+                        style_overlays.push((s..e, SpanStyle::marker()));
+                    } else {
+                        actions.push(ActionRange {
+                            start: s,
+                            end: e,
+                            action: Action::Hide,
+                        });
+                    }
+                }
+                MarkerKind::ThematicBreak => {
+                    // `render_divider` OFF leaves the literal `---` / `***`
+                    // / `___` chars visible (no hide, no marker style); the
+                    // render side likewise skips `paint_horizontal_rules`.
+                    if !toggles.divider {
+                        // Raw markdown: do nothing — bytes render as body.
+                    } else if !revealed {
                         actions.push(ActionRange {
                             start: s,
                             end: e,
@@ -207,8 +153,21 @@ pub(super) fn build_line_segments(
                     style_overlays.push((s..e, SpanStyle::marker()));
                 }
             },
-            InlineKind::Strong => style_overlays.push((s..e, SpanStyle::strong())),
-            InlineKind::Emphasis => style_overlays.push((s..e, SpanStyle::emphasis())),
+            InlineKind::Strong => {
+                // `render_bold` OFF: no strong styling overlay, so the
+                // body renders unstyled and the kept-visible `**`
+                // delimiters above show as literal markup.
+                if toggles.bold {
+                    style_overlays.push((s..e, SpanStyle::strong()));
+                }
+            }
+            InlineKind::Emphasis => {
+                // `render_italic` OFF (the shipped default): no emphasis
+                // styling overlay, literal `*` markers stay visible.
+                if toggles.italic {
+                    style_overlays.push((s..e, SpanStyle::emphasis()));
+                }
+            }
             InlineKind::Strikethrough => style_overlays.push((s..e, SpanStyle::strike())),
             InlineKind::Code => style_overlays.push((s..e, SpanStyle::code())),
             InlineKind::Link {
@@ -379,6 +338,12 @@ pub(super) fn build_line_segments(
     // reveal rule). The painted `inner` text is left intact so the
     // renderer paints over it with the resolved color.
     for ics in &decorations.inline_color_spans {
+        // `render_highlight` OFF leaves `==text==` delimiters visible
+        // (raw markdown). Gate ONLY the `Highlight` kind: `{#hex:}` color
+        // shares this pass but is a separate feature and stays working.
+        if matches!(ics.kind, InlineColorKind::Highlight) && !toggles.highlight {
+            continue;
+        }
         let o_s = ics.outer.start;
         let o_e = ics.outer.end;
         if o_e <= line_start || o_s >= line_end {
@@ -498,61 +463,4 @@ pub(super) fn build_line_segments(
         &hit_overlays,
         &actions,
     )
-}
-
-fn superscript_label(label: &str) -> String {
-    let mut out = String::new();
-    for ch in label.chars() {
-        out.push(match ch {
-            '0' => '⁰',
-            '1' => '¹',
-            '2' => '²',
-            '3' => '³',
-            '4' => '⁴',
-            '5' => '⁵',
-            '6' => '⁶',
-            '7' => '⁷',
-            '8' => '⁸',
-            '9' => '⁹',
-            other => other,
-        });
-    }
-    out
-}
-
-fn compute_block_style(
-    decorations: &Decorations,
-    line_start: usize,
-    line_end: usize,
-    is_line_revealed: bool,
-) -> SpanStyle {
-    let mut style = SpanStyle::body();
-    for b in &decorations.blocks {
-        if b.start_byte >= line_end || b.end_byte <= line_start {
-            continue;
-        }
-        match b.kind {
-            BlockKind::Heading { level } | BlockKind::SetextHeading { level } => {
-                let lvl = level.clamp(1, 6);
-                let heading_style = if is_line_revealed {
-                    SpanStyle::heading_revealed(lvl)
-                } else {
-                    SpanStyle::heading(lvl)
-                };
-                style = style.merge(heading_style);
-            }
-            BlockKind::FencedCodeBlock => {
-                style = style.merge(SpanStyle {
-                    role: SpanRole::Code,
-                    ..SpanStyle::body()
-                });
-            }
-            // IndentedCodeBlock is CommonMark's implicit "4-space-prefix
-            // is code" rule — too aggressive for a notes editor where
-            // indented prose is just prose. Leave the text style at body.
-            BlockKind::IndentedCodeBlock => {}
-            _ => {}
-        }
-    }
-    style
 }

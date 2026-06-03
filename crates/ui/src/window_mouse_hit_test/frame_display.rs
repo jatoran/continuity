@@ -59,7 +59,14 @@ impl Window {
         );
         if let Some((cached_query, fd)) = self.last_painted_frame_display.as_ref() {
             if cached_query.is_compatible_for_hit_test(&hit_test_query) {
-                if fd.realized_row_range().contains(&target_display_row) {
+                // Clamp the probe to this candidate frame's own last display
+                // row so a below-content click (target_display_row >=
+                // display_line_count) still reuses the painted *wrapped*
+                // frame instead of falling through to the wrap-off
+                // source-floor rebuild. The below-last-row guard in
+                // client_to_buffer_position then resolves to end-of-line.
+                let probe_row = clamp_probe_row_to_frame(fd, target_display_row);
+                if fd.realized_row_range().contains(&probe_row) {
                     if crate::paint_trace::is_trace_enabled() {
                         crate::paint_trace::log_event(
                             "click_hit_test_frame_source",
@@ -94,7 +101,8 @@ impl Window {
             .lookup_for_hit_test_with_reason(focused_pane, &hit_test_query)
         {
             Ok(fd) => {
-                if fd.realized_row_range().contains(&target_display_row) {
+                let probe_row = clamp_probe_row_to_frame(&fd, target_display_row);
+                if fd.realized_row_range().contains(&probe_row) {
                     if crate::paint_trace::is_trace_enabled() {
                         crate::paint_trace::log_event(
                             "click_hit_test_frame_source",
@@ -125,7 +133,8 @@ impl Window {
             .borrow()
             .lookup_same_document(focused_pane, &hit_test_query)
         {
-            if fd.realized_row_range().contains(&target_display_row) {
+            let probe_row = clamp_probe_row_to_frame(&fd, target_display_row);
+            if fd.realized_row_range().contains(&probe_row) {
                 if crate::paint_trace::is_trace_enabled() {
                     crate::paint_trace::log_event(
                         "click_hit_test_frame_source",
@@ -148,11 +157,12 @@ impl Window {
         }
 
         if let Some(entry) = self.mouse_hit_test_frame_cache.borrow().as_ref() {
+            let probe_row = clamp_probe_row_to_frame(entry.frame_display(), target_display_row);
             if entry.query().is_compatible_for_hit_test(&hit_test_query)
                 && entry
                     .frame_display()
                     .realized_row_range()
-                    .contains(&target_display_row)
+                    .contains(&probe_row)
             {
                 if crate::paint_trace::is_trace_enabled() {
                     crate::paint_trace::log_event(
@@ -254,6 +264,7 @@ impl Window {
             caret_bytes,
             folds,
             &[],
+            self.markdown_render_toggles(),
             0,
             &mut measure,
             visible_rows,
@@ -261,4 +272,18 @@ impl Window {
             row_index,
         )
     }
+}
+
+/// Clamp `target_display_row` to a candidate frame's own last display row so
+/// a below-content click (`target_display_row >= display_line_count`) probes
+/// the frame's realized range against its final row rather than an
+/// out-of-range index. This keeps the painted *wrapped* frame eligible for
+/// reuse on below-content clicks (it realizes the document tail) instead of
+/// dropping to the wrap-off source-floor rebuild, so the row chosen and the
+/// x-hit-test run against the same projection the user saw. Frames whose tail
+/// is genuinely unrealized still miss the `realized_row_range().contains`
+/// check because their realized range stops short of the clamped last row.
+fn clamp_probe_row_to_frame(frame_display: &FrameDisplay, target_display_row: u32) -> u32 {
+    let last_row = frame_display.display_line_count().saturating_sub(1);
+    target_display_row.min(last_row)
 }

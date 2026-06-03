@@ -64,6 +64,7 @@ mod tests {
         }
     }
     impl crate::FindContext for StubCtx {}
+    impl crate::EditConfigContext for StubCtx {}
     impl crate::ViewContext for StubCtx {
         fn show_tutorial_buffer(&mut self) -> Result<(), Error> {
             self.tutorial_calls.set(self.tutorial_calls.get() + 1);

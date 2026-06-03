@@ -114,7 +114,8 @@ impl Window {
             target_size_dip * self.view.font_size_scale,
             crate::window::FONT_LOCALE,
             self.dpi_scale(),
-        );
+        )
+        .with_tab_width(self.view_options.tab_width);
         // Idempotency: silently drop a request that resolves to the
         // already-active font_state. Caller is then free to invoke
         // this on every keystroke / settings reload without churning

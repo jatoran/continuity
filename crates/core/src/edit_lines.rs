@@ -303,7 +303,7 @@ pub(crate) fn plan_duplicate_selection(
 // Line-block movement + join extracted to `edit_lines_movement.rs`; re-export so
 // existing callers (selection_edit.rs) keep their import paths.
 pub(crate) use crate::edit_lines_movement::{
-    plan_join_lines, plan_move_line_down, plan_move_line_up,
+    plan_join_lines, plan_join_selected_lines, plan_move_line_down, plan_move_line_up,
 };
 
 /// Rewrite the contiguous block of lines covered by selections by mapping

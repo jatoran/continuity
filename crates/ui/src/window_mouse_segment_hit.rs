@@ -126,6 +126,7 @@ impl Window {
             &caret_source_bytes,
             &folds,
             &suppressed_table_blocks,
+            self.markdown_render_toggles(),
             line_start_byte,
             line_end_byte,
             &line_text,

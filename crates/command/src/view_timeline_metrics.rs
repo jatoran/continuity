@@ -111,6 +111,7 @@ mod tests {
         }
     }
     impl crate::FindContext for StubCtx {}
+    impl crate::EditConfigContext for StubCtx {}
     impl crate::ViewContext for StubCtx {
         fn open_buffer_timeline(&mut self) -> Result<(), Error> {
             self.timeline_calls.set(self.timeline_calls.get() + 1);

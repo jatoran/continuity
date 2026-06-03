@@ -4,6 +4,7 @@
 //! file-length convention. All methods run on the owning UI thread.
 
 use continuity_core::EditorSnapshot;
+use continuity_layout::{MAX_ZOOM, MIN_ZOOM};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::SystemInformation::GetTickCount64;
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer, WHEEL_DELTA};
@@ -174,13 +175,14 @@ impl Window {
         if (key_state & MK_CONTROL) != 0 {
             let factor =
                 compute_ctrl_wheel_zoom_factor(notches, self.settings_projections.zoom_step_pct);
-            // δ.3 — anchor across the zoom so the caret line stays at
-            // the same screen y (relevant under soft wrap, where char
-            // advance changes wrap-row count).
-            self.with_caret_line_anchored(|w| {
-                w.view.adjust_zoom(factor);
-                w.invalidate_font_state();
-            });
+            // Funnel through the global text-scale mutator so wheel zoom
+            // is global + persisted just like the zoom commands: it
+            // applies to every pane (anchored on the focused caret line)
+            // and writes `[editor].text_scale` back, fanning out to all
+            // windows. The settings write-back is idempotent, so a notch
+            // that lands on the clamp boundary does not thrash the file.
+            let new_scale = (self.view.font_size_scale * factor).clamp(MIN_ZOOM, MAX_ZOOM);
+            self.apply_global_text_scale(new_scale);
             return true;
         }
         let Some(target_pane) = self.wheel_scroll_target_at(client_x, client_y) else {

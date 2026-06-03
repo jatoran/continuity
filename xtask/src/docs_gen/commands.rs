@@ -208,6 +208,7 @@ impl continuity_command::Context for ProbeContext {
 
 impl continuity_command::FindContext for ProbeContext {}
 impl continuity_command::ViewContext for ProbeContext {}
+impl continuity_command::EditConfigContext for ProbeContext {}
 
 #[cfg(test)]
 mod tests {

@@ -123,6 +123,9 @@ pub enum FileIoEvent {
     },
     /// A request failed.
     Failed {
+        /// Buffer the failed request targeted, if any. Set for `save` /
+        /// `reload` so the UI can roll back an optimistic state change.
+        buffer_id: Option<BufferId>,
         /// Human-readable operation name.
         operation: &'static str,
         /// Path involved, if any.

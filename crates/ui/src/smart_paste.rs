@@ -10,7 +10,9 @@
 //!
 //! Anything that isn't a single URL pastes as plain text. The plain
 //! fallback (`Ctrl+Shift+V`) bypasses this transform entirely — it
-//! routes to `paste_as_plain_text_impl` directly.
+//! routes through `insert_plain_clipboard_text`, which skips both this
+//! URL transform and the clipboard-image branch and inserts the raw
+//! `CF_UNICODETEXT` payload.
 //!
 //! The indent-normalisation variant of "smart paste" (original
 //! decisions item 27) is **dropped** — see §K in

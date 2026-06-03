@@ -29,6 +29,7 @@ use crate::error::Error;
 use crate::fold::FoldRange;
 use crate::id::SourceByte;
 use crate::image_row_reservation_provider::ImageRowReservation;
+use crate::markdown_toggles::MarkdownRenderToggles;
 use crate::segment::DisplaySegment;
 use crate::style::SpanStyle;
 use crate::wrap::{WidthMeasure, WrapConfig};
@@ -127,6 +128,7 @@ pub(super) fn compute_row_counts(
     folds: &[FoldRange],
     image_reservations: &[ImageRowReservation],
     suppressed_table_blocks: &[std::ops::Range<usize>],
+    markdown_toggles: MarkdownRenderToggles,
     wrap: WrapConfig,
     measure: &mut dyn WidthMeasure,
     cache_context: Option<RowCountCacheContext<'_>>,
@@ -157,6 +159,7 @@ pub(super) fn compute_row_counts(
             folds,
             image_reservations,
             suppressed_table_blocks,
+            markdown_toggles,
             wrap,
             measure,
             cache_context,
@@ -204,6 +207,7 @@ pub(super) fn row_count_for_source_line(
     folds: &[FoldRange],
     image_reservations: &[ImageRowReservation],
     suppressed_table_blocks: &[std::ops::Range<usize>],
+    markdown_toggles: MarkdownRenderToggles,
     wrap: WrapConfig,
     measure: &mut dyn WidthMeasure,
     cache_context: Option<RowCountCacheContext<'_>>,
@@ -240,6 +244,7 @@ pub(super) fn row_count_for_source_line(
                 caret_bytes,
                 folds,
                 suppressed_table_blocks,
+                markdown_toggles,
                 line_start,
                 line_end,
                 &line_text,
@@ -276,6 +281,7 @@ pub(super) fn row_count_for_source_line(
                         caret_bytes,
                         folds,
                         suppressed_table_blocks,
+                        markdown_toggles,
                         line_start,
                         line_end,
                         &line_text,
@@ -290,6 +296,7 @@ pub(super) fn row_count_for_source_line(
                     caret_bytes,
                     folds,
                     suppressed_table_blocks,
+                    markdown_toggles,
                     line_start,
                     line_end,
                     &line_text,

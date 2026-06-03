@@ -207,6 +207,7 @@ impl Window {
         self.view_options.caret_tween_threshold_rows = s.editor.caret_tween_threshold_rows;
         self.view_options.caret_tween_duration_ms = s.editor.caret_tween_duration_ms;
         self.view_options.smooth_scroll = s.editor.smooth_scroll;
+        self.view_options.scroll_past_end = s.editor.scroll_past_end;
         self.view_options.mouse_wheel_scroll_speed = s.editor.mouse_wheel_scroll_speed;
         self.view_options.ligatures = s.editor.ligatures;
         self.trim_trailing_whitespace_on_save = s.editor.trim_trailing_whitespace_on_save;
@@ -302,6 +303,34 @@ impl Window {
                 w.invalidate_font_state();
             });
         }
+        // Global text scale (zoom). Zoom is a single durable multiplier
+        // sourced from `[editor].text_scale`, not a per-pane runtime
+        // tweak: project it onto the focused mirror *and* every entry in
+        // `self.panes` so an unfocused pane does not pop to a stale scale
+        // on the next focus switch. `with_caret_line_anchored` anchors
+        // this window's focused pane across the reflow; spectator panes
+        // have no tracked caret-y to preserve. validate() guarantees the
+        // value sits in `MIN_ZOOM..=MAX_ZOOM`, the same range the runtime
+        // clamp uses, so the clamp here is a defensive no-op rather than a
+        // re-clamp that could drift a valid file value.
+        let new_scale = s
+            .editor
+            .text_scale
+            .clamp(continuity_layout::MIN_ZOOM, continuity_layout::MAX_ZOOM);
+        if (self.view.font_size_scale - new_scale).abs() > f32::EPSILON
+            || self
+                .panes
+                .values()
+                .any(|p| (p.view.font_size_scale - new_scale).abs() > f32::EPSILON)
+        {
+            self.with_caret_line_anchored(|w| {
+                w.view.font_size_scale = new_scale;
+                for pane in w.panes.values_mut() {
+                    pane.view.font_size_scale = new_scale;
+                }
+                w.invalidate_font_state();
+            });
+        }
 
         // -- soft wrap -------------------------------------------------
         if self.view.soft_wrap != s.editor.word_wrap {
@@ -316,6 +345,13 @@ impl Window {
 
         // -- auto-pair toggles (Phase 16.5) ----------------------------
         self.apply_auto_pair_settings(s);
+
+        // -- indentation (type / width / tab width) --------------------
+        // Mirrors `[editor].indent_type` / `indent_width` / `tab_width`
+        // onto the runtime indent config + `view_options.indent_size` /
+        // `tab_width`. A tab-width change reflows anchored on the caret
+        // line (the rendered tab stop is part of the font state).
+        self.apply_indent_settings(s);
 
         // -- §H1 focus-mode dim alpha ----------------------------------
         // `dim_alpha` is propagated on every reload so users can tune
@@ -333,6 +369,25 @@ impl Window {
         let max_w = s.focus.max_column_width.max(1);
         if self.view_options.pane_modes.distraction_free_max_width != max_w {
             self.view_options.pane_modes.distraction_free_max_width = max_w;
+        }
+
+        // -- markdown render toggles -----------------------------------
+        // `[markdown].render_*` flip the projected segment list (emphasis
+        // styling, marker hiding, highlight / divider / setext
+        // rendering) AND the soft-wrap row counts (toggling italic off
+        // makes the `*` markers visible, widening lines). The toggle set
+        // is folded into `current_font_state_id`, so a change shifts the
+        // font state; invalidating it here drops every cached layout /
+        // frame / segment list / wrap profile built against the previous
+        // toggles. Wrapped in `with_caret_line_anchored` because a wrap
+        // reflow under the change can move the caret by many wrap rows.
+        let new_markdown_toggles =
+            crate::window_settings_projections::markdown_render_toggles_from_config(&s.markdown);
+        if new_markdown_toggles != self.settings_projections.markdown_render_toggles {
+            self.with_caret_line_anchored(|w| {
+                w.settings_projections.markdown_render_toggles = new_markdown_toggles;
+                w.invalidate_font_state();
+            });
         }
 
         // -- δ.6 Tier 2 markdown + edit-behaviour projections ----------

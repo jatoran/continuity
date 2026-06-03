@@ -270,6 +270,7 @@ mod tests {
     }
     impl crate::ViewContext for StubCtx {}
     impl crate::FindContext for StubCtx {}
+    impl crate::EditConfigContext for StubCtx {}
 
     pub(super) fn registry() -> Registry {
         let mut registry = Registry::new();

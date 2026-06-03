@@ -176,6 +176,7 @@ impl Window {
             ime_state: crate::window_ime::ImeState::default(),
             spell_state: crate::window_spell::SpellState::default(),
             auto_pair: continuity_core::AutoPairConfig::default(),
+            indent: crate::window_indent::IndentConfig::default(),
             intended_columns: Vec::new(),
             intended_display_columns: Vec::new(),
             intended_columns_for: Vec::new(),
@@ -236,6 +237,7 @@ impl Window {
             projection_request_seq: 0,
             last_early_dispatch_stamp: None,
             tab_dirty_cache: RefCell::new(HashMap::new()),
+            pending_save_baseline: HashMap::new(),
             heading_lines_cache: RefCell::new(None),
             outline_entries_cache: RefCell::new(
                 crate::window_outline_entries_cache::OutlineEntriesCache::default(),
@@ -329,6 +331,10 @@ impl Window {
         // shown (in `apply_initial_placement` below), so the first frame
         // has no light/dark caption flash.
         window.sync_titlebar_theme();
+        // Attach the embedded app icon to the caption / Alt-Tab entry
+        // before the window is shown, mirroring the titlebar-theme call
+        // above so the first frame carries the icon with no flash.
+        window.apply_window_icon();
         window.window_dpi = continuity_win::dpi_for_window(hwnd);
         window.font_state = window.current_font_state_id();
         crate::window_registry::register(hwnd);

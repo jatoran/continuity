@@ -172,6 +172,7 @@ mod tests {
         }
     }
     impl crate::FindContext for StubCtx {}
+    impl crate::EditConfigContext for StubCtx {}
     impl crate::ViewContext for StubCtx {
         fn set_focus_mode(&mut self, mode: &str) -> Result<(), Error> {
             self.focus_calls.set(self.focus_calls.get() + 1);

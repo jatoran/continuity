@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 
-use crate::settings::MarkdownConfig;
+use crate::settings_markdown::MarkdownConfig;
 use crate::Error;
 
 const APPDATA_PREFIX: &str = "%APPDATA%";

@@ -186,6 +186,7 @@ mod tests {
     }
 
     impl crate::FindContext for Ctx {}
+    impl crate::EditConfigContext for Ctx {}
     impl Context for Ctx {
         fn lookup(&self, key: &str) -> Option<&str> {
             (key == "editor.focused").then_some("true")

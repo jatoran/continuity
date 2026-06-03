@@ -292,6 +292,10 @@ fn line_indent_columns(rope: &Rope, line: usize) -> u32 {
 /// sentinel in the set indicates "fold all top-level"; for the painter's
 /// purpose it is interpreted as "every column-0 line is folded".
 ///
+/// `brush` paints the expanded `▾` glyph (muted, matching the gutter
+/// numbers); `folded_brush` paints the collapsed `▸` glyph so a folded
+/// section's caret stands out a little from the rest of the gutter.
+///
 /// # Errors
 ///
 /// Returns [`Error::Graphics`] when DirectWrite text-layout allocation
@@ -309,6 +313,7 @@ pub(crate) fn paint_fold_triangles(
     first_visible: usize,
     last_visible: usize,
     brush: &ID2D1SolidColorBrush,
+    folded_brush: &ID2D1SolidColorBrush,
 ) -> Result<(), Error> {
     let total_lines = rope.len_lines();
     let fold_all = folded_lines.contains(&u32::MAX);
@@ -335,10 +340,13 @@ pub(crate) fn paint_fold_triangles(
         };
         let is_folded = folded_lines.contains(&line_u32)
             || (fold_all && line_indent_columns(rope, line_idx) == 0);
-        let glyph = if is_folded {
-            GLYPH_FOLDED
+        let (glyph, glyph_brush) = if is_folded {
+            // A collapsed section's caret is tinted with the brighter
+            // active-line gutter color so it stands out from the muted
+            // expanded carets around it.
+            (GLYPH_FOLDED, folded_brush)
         } else {
-            GLYPH_EXPANDED
+            (GLYPH_EXPANDED, brush)
         };
         let y = line_idx as f32 * line_height - scroll_y;
         let wide: Vec<u16> = std::iter::once(glyph as u16).collect();
@@ -353,7 +361,7 @@ pub(crate) fn paint_fold_triangles(
             ctx.DrawTextLayout(
                 D2D_POINT_2F { x: triangle_x, y },
                 &layout,
-                brush,
+                glyph_brush,
                 D2D1_DRAW_TEXT_OPTIONS_NONE,
             );
         }

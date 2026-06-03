@@ -114,6 +114,14 @@ pub struct BufferHistoryPanelDraw {
     /// the swimlane list vertically when there are more buffers
     /// than the panel can show in one screen.
     pub scroll_lane_offset: usize,
+    /// Global text-zoom multiplier (`continuity_layout::ViewState::
+    /// font_size_scale`). The `text_format` the renderer hands this
+    /// panel is built at `base_font * scale`, so every text-bearing
+    /// geometry quantity (row heights, paddings, column widths, dot
+    /// radius, scrollbar metrics) is multiplied by this factor so the
+    /// cells grow together with the glyphs and nothing overflows.
+    /// `1.0` is no zoom.
+    pub scale: f32,
 }
 
 /// Height of the bottom preview band when populated.
@@ -188,6 +196,19 @@ pub const TITLE_COLUMN_WIDTH_DIP: f32 = 220.0;
 pub const PANEL_PAD_DIP: f32 = 12.0;
 /// Radius (DIPs) of the snapshot dot.
 pub const SNAPSHOT_DOT_RADIUS_DIP: f32 = 3.5;
+/// Height of the timeline strip (centered band carrying the snapshot
+/// dots) inside a lane row, at zoom 1.0.
+pub const STRIP_HEIGHT_DIP: f32 = 24.0;
+/// Sub-band inside the title column reserved for the lane title at
+/// zoom 1.0.
+pub const TITLE_ROW_HEIGHT_DIP: f32 = 22.0;
+/// Sub-band inside the title column reserved for the age subtitle at
+/// zoom 1.0.
+pub const SUBTITLE_ROW_HEIGHT_DIP: f32 = 18.0;
+/// Top padding above the lane title inside a row at zoom 1.0.
+pub const TITLE_TOP_PAD_DIP: f32 = 8.0;
+/// Vertical gap between the title and subtitle rows at zoom 1.0.
+pub const TITLE_SUBTITLE_GAP_DIP: f32 = 2.0;
 
 /// Paint the buffer-history panel and present.
 ///
@@ -222,6 +243,7 @@ pub fn paint_buffer_history_panel_no_present(
     text_format: &IDWriteTextFormat,
 ) -> Result<(), Error> {
     let layout = compute_buffer_history_panel_layout(draw);
+    let metrics = resolved_metrics(draw.scale);
     let bg = rgba_to_d2d(colors.background);
     let fg = rgba_to_d2d(colors.foreground);
     let muted = rgba_to_d2d(colors.muted_foreground);
@@ -267,7 +289,7 @@ pub fn paint_buffer_history_panel_no_present(
             x: layout.ruler_rect.x,
             y: layout.ruler_rect.y,
             w: layout.ruler_rect.w,
-            h: HEADER_ROW_HEIGHT_DIP.min(layout.ruler_rect.h),
+            h: metrics.header_row_height.min(layout.ruler_rect.h),
         };
         draw_label(
             renderer,
@@ -295,17 +317,17 @@ pub fn paint_buffer_history_panel_no_present(
             .lanes
             .first()
             .map(|l| l.strip_rect.x)
-            .unwrap_or(layout.ruler_rect.x + PANEL_PAD_DIP);
+            .unwrap_or(layout.ruler_rect.x + metrics.panel_pad);
         let strip_w_for_ticks = layout
             .lanes
             .first()
             .map(|l| l.strip_rect.w)
-            .unwrap_or((layout.ruler_rect.w - 2.0 * PANEL_PAD_DIP).max(0.0));
+            .unwrap_or((layout.ruler_rect.w - 2.0 * metrics.panel_pad).max(0.0));
         let tick_band_rect = PanelRect {
             x: strip_x_for_ticks,
-            y: layout.ruler_rect.y + HEADER_ROW_HEIGHT_DIP,
+            y: layout.ruler_rect.y + metrics.header_row_height,
             w: strip_w_for_ticks,
-            h: (layout.ruler_rect.h - HEADER_ROW_HEIGHT_DIP).max(0.0),
+            h: (layout.ruler_rect.h - metrics.header_row_height).max(0.0),
         };
         let guides_bottom = match layout.preview_rect {
             Some(p) => p.y,
@@ -315,6 +337,7 @@ pub fn paint_buffer_history_panel_no_present(
             draw.viewport_start_ms,
             draw.viewport_end_ms,
             strip_w_for_ticks,
+            metrics.scale,
         ) {
             let frac = ((tick.ts_ms - draw.viewport_start_ms) as f64
                 / (draw.viewport_end_ms - draw.viewport_start_ms).max(1) as f64)
@@ -332,11 +355,13 @@ pub fn paint_buffer_history_panel_no_present(
             };
             renderer.d2d_context.FillRectangle(&guide, &rule_brush);
             // Tick label centered above the guide. We render with a
-            // ~80 DIP label box so adjacent labels don't crowd.
+            // ~100 DIP label box (scaled with zoom) so adjacent labels
+            // don't crowd and the bigger glyphs still fit.
+            let label_half_w = 50.0 * metrics.scale;
             let label_rect = PanelRect {
-                x: x - 50.0,
+                x: x - label_half_w,
                 y: tick_band_rect.y,
-                w: 100.0,
+                w: 2.0 * label_half_w,
                 h: tick_band_rect.h,
             };
             draw_label(
@@ -352,8 +377,8 @@ pub fn paint_buffer_history_panel_no_present(
         // Empty-state placeholder.
         if draw.rows.is_empty() {
             let mut placeholder = layout.background_rect;
-            placeholder.y = layout.ruler_rect.y + layout.ruler_rect.h + 24.0;
-            placeholder.h = 28.0;
+            placeholder.y = layout.ruler_rect.y + layout.ruler_rect.h + 24.0 * metrics.scale;
+            placeholder.h = 28.0 * metrics.scale;
             draw_label(
                 renderer,
                 text_format,
@@ -415,10 +440,10 @@ pub fn paint_buffer_history_panel_no_present(
                 &fg_brush
             };
             let title_rect = PanelRect {
-                x: lane.row_rect.x + PANEL_PAD_DIP,
-                y: lane.row_rect.y + 8.0,
-                w: (TITLE_COLUMN_WIDTH_DIP - PANEL_PAD_DIP).max(0.0),
-                h: 22.0,
+                x: lane.row_rect.x + metrics.panel_pad,
+                y: lane.row_rect.y + metrics.title_top_pad,
+                w: (metrics.title_column_width - metrics.panel_pad).max(0.0),
+                h: metrics.title_row_height,
             };
             let displayed_title = if row.is_trashed {
                 format!("[trash] {}", row.title)
@@ -434,12 +459,12 @@ pub fn paint_buffer_history_panel_no_present(
                 DWRITE_TEXT_ALIGNMENT_LEADING,
             )?;
 
-            // Subtitle row, anchored below the title with a 2-DIP gap.
+            // Subtitle row, anchored below the title with a scaled gap.
             let sub_rect = PanelRect {
                 x: title_rect.x,
-                y: title_rect.y + title_rect.h + 2.0,
+                y: title_rect.y + title_rect.h + metrics.title_subtitle_gap,
                 w: title_rect.w,
-                h: 18.0,
+                h: metrics.subtitle_row_height,
             };
             draw_label(
                 renderer,
@@ -469,8 +494,8 @@ pub fn paint_buffer_history_panel_no_present(
                         x: cx,
                         y: mid_y,
                     },
-                    radiusX: SNAPSHOT_DOT_RADIUS_DIP,
-                    radiusY: SNAPSHOT_DOT_RADIUS_DIP,
+                    radiusX: metrics.dot_radius,
+                    radiusY: metrics.dot_radius,
                 };
                 renderer.d2d_context.FillEllipse(&ellipse, &dot_brush);
             }
@@ -490,7 +515,7 @@ pub fn paint_buffer_history_panel_no_present(
                 left: band.x,
                 right: band.x + band.w,
                 top: band.y,
-                bottom: band.y + 2.0,
+                bottom: band.y + 2.0 * metrics.scale,
             };
             renderer
                 .d2d_context
@@ -498,10 +523,10 @@ pub fn paint_buffer_history_panel_no_present(
             let target = draw.hovered_lane.or(draw.selected_lane);
             if let Some(idx) = target.and_then(|i| draw.rows.get(i)) {
                 let title_rect = PanelRect {
-                    x: band.x + PANEL_PAD_DIP,
-                    y: band.y + 8.0,
-                    w: (band.w - 2.0 * PANEL_PAD_DIP).max(0.0),
-                    h: 20.0,
+                    x: band.x + metrics.panel_pad,
+                    y: band.y + 8.0 * metrics.scale,
+                    w: (band.w - 2.0 * metrics.panel_pad).max(0.0),
+                    h: 20.0 * metrics.scale,
                 };
                 draw_label(
                     renderer,
@@ -517,9 +542,9 @@ pub fn paint_buffer_history_panel_no_present(
                     .unwrap_or("(no persisted content preview)");
                 let preview_rect = PanelRect {
                     x: title_rect.x,
-                    y: title_rect.y + title_rect.h + 4.0,
+                    y: title_rect.y + title_rect.h + 4.0 * metrics.scale,
                     w: title_rect.w,
-                    h: (band.h - (title_rect.h + 16.0)).max(0.0),
+                    h: (band.h - (title_rect.h + 16.0 * metrics.scale)).max(0.0),
                 };
                 draw_multiline_label(
                     renderer,
@@ -527,13 +552,14 @@ pub fn paint_buffer_history_panel_no_present(
                     &preview_rect,
                     preview_text,
                     &muted_brush,
+                    metrics.scale,
                 )?;
             } else {
                 let hint_rect = PanelRect {
-                    x: band.x + PANEL_PAD_DIP,
-                    y: band.y + 12.0,
-                    w: (band.w - 2.0 * PANEL_PAD_DIP).max(0.0),
-                    h: band.h - 24.0,
+                    x: band.x + metrics.panel_pad,
+                    y: band.y + 12.0 * metrics.scale,
+                    w: (band.w - 2.0 * metrics.panel_pad).max(0.0),
+                    h: band.h - 24.0 * metrics.scale,
                 };
                 draw_label(
                     renderer,
@@ -552,6 +578,7 @@ pub fn paint_buffer_history_panel_no_present(
 }
 
 pub mod layout;
+mod metrics;
 mod paint_helpers;
 mod scrollbar;
 mod time_axis;
@@ -560,6 +587,7 @@ mod time_axis;
 mod tests;
 
 use layout::compute_buffer_history_panel_layout;
+use metrics::resolved_metrics;
 use paint_helpers::{
     draw_label, draw_multiline_label, panel_rect_to_d2d, rgba_to_d2d, ruler_bucket_hint,
 };

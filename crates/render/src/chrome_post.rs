@@ -14,8 +14,9 @@ use windows::Foundation::Numerics::Matrix3x2;
 use windows::Win32::Graphics::Direct2D::{ID2D1DeviceContext, ID2D1SolidColorBrush};
 use windows::Win32::Graphics::DirectWrite::{IDWriteFactory, IDWriteTextFormat};
 
-use crate::chrome::{paint_indent_guides, paint_whitespace_markers, ContentMargins};
+use crate::chrome::{paint_whitespace_markers, ContentMargins};
 use crate::chrome_fold::{compute_fold_headers, paint_fold_triangles};
+use crate::chrome_indent_guides::paint_indent_guides;
 use crate::chrome_line_numbers::paint_line_number_gutter;
 use crate::params::DrawParams;
 use crate::Error;
@@ -122,9 +123,9 @@ pub(crate) unsafe fn paint_post_text_chrome(
     let gutter_started = Instant::now();
     if params.view_options.line_numbers {
         // §H3 — compute fold-header info once per frame so the gutter
-        // can skip folded body-line numbers and stamp "▸ N" indicators
-        // on header rows. Empty `folded_lines` short-circuits to an
-        // empty vec, costing nothing in the common case.
+        // can skip the line numbers of folded body rows. Empty
+        // `folded_lines` short-circuits to an empty vec, costing nothing
+        // in the common case.
         let fold_headers = compute_fold_headers(
             rope,
             params.view_options.folded_lines,
@@ -170,6 +171,7 @@ pub(crate) unsafe fn paint_post_text_chrome(
             first_visible,
             last_visible,
             brushes.line_number,
+            brushes.line_number_active,
         );
     }
     timings.line_numbers_us = elapsed_us(gutter_started);

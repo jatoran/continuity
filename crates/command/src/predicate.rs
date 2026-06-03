@@ -110,6 +110,7 @@ mod tests {
     }
     impl crate::ViewContext for MapCtx {}
     impl crate::FindContext for MapCtx {}
+    impl crate::EditConfigContext for MapCtx {}
 
     fn ctx(pairs: &[(&'static str, &'static str)]) -> MapCtx {
         MapCtx(pairs.iter().copied().collect())

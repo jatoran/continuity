@@ -12,6 +12,7 @@ use crate::pane_layout::{metrics, pane_at_point, Rect};
 use crate::pane_state::PerPaneState;
 use crate::pane_tree::{PaneId, PaneTree};
 use crate::window::{Window, WHEEL_LINES_PER_NOTCH};
+use crate::window_font_picker::compute_overscroll_bottom_dip;
 
 /// Exponential decay time constant for wheel inertia. At 60 ms, velocity
 /// reaches 10% in about 138 ms, so wheel flicks still feel continuous but
@@ -303,12 +304,19 @@ impl Window {
         let content_height_dip = self.estimated_content_height_for_pane(target_pane);
         let wheel_speed = self.view_options.mouse_wheel_scroll_speed;
         let line_height = self.effective_line_height();
+        let overscroll_bottom = compute_overscroll_bottom_dip(
+            self.view_options.scroll_past_end,
+            body_rect.h,
+            line_height,
+        );
         if self.motion_policy().is_reduced_motion() || !self.view_options.smooth_scroll {
             self.cancel_scroll_inertia();
             let moved = self
                 .with_scroll_target_view_mut(target_pane, |view| {
                     view.viewport_width_dip = body_rect.w;
                     view.viewport_height_dip = body_rect.h;
+                    view.overscroll_bottom_dip = overscroll_bottom;
+                    view.line_height_dip = line_height;
                     let before = view.scroll_y_dip;
                     view.scroll_instant(
                         reduced_motion_wheel_delta_dip(notches, wheel_speed, line_height),
@@ -326,6 +334,8 @@ impl Window {
         let Some(()) = self.with_scroll_target_view_mut(target_pane, |view| {
             view.viewport_width_dip = body_rect.w;
             view.viewport_height_dip = body_rect.h;
+            view.overscroll_bottom_dip = overscroll_bottom;
+            view.line_height_dip = line_height;
             view.cancel_scroll_animation();
         }) else {
             return false;
@@ -405,10 +415,18 @@ impl Window {
             return ScrollInertiaTick::default();
         };
         let content_height_dip = self.estimated_content_height_for_pane(step.target_pane);
+        let line_height = self.effective_line_height();
+        let overscroll_bottom = compute_overscroll_bottom_dip(
+            self.view_options.scroll_past_end,
+            body_rect.h,
+            line_height,
+        );
         let moved = self
             .with_scroll_target_view_mut(step.target_pane, |view| {
                 view.viewport_width_dip = body_rect.w;
                 view.viewport_height_dip = body_rect.h;
+                view.overscroll_bottom_dip = overscroll_bottom;
+                view.line_height_dip = line_height;
                 let before = view.scroll_y_dip;
                 view.scroll_instant(step.delta_dip, content_height_dip);
                 (view.scroll_y_dip - before).abs() > f32::EPSILON

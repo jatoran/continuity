@@ -37,6 +37,45 @@ impl FontStateId {
         dpi_scale.to_bits().hash(&mut h);
         Self(h.finish())
     }
+
+    /// Fold the configured tab width into the id. A literal tab's
+    /// rendered advance is pinned per-format by the renderer's
+    /// `SetIncrementalTabStop`, so two layouts that differ only in
+    /// `tab_width` are genuinely different glyph runs and must not
+    /// collide in the layout cache. Callers chain this onto
+    /// [`Self::from_parts`] so a `tab_width` change evicts the stale
+    /// layouts (the cache key changes) and the worker rebuilds them
+    /// against the new stop. `tab_width == 0` is a no-op (the font's
+    /// default tab stop is in effect — pre-settings behaviour).
+    #[must_use]
+    pub fn with_tab_width(self, tab_width: u32) -> Self {
+        if tab_width == 0 {
+            return self;
+        }
+        let mut h = AHasher::default();
+        self.0.hash(&mut h);
+        tab_width.hash(&mut h);
+        Self(h.finish())
+    }
+
+    /// Fold a markdown render-toggle discriminator (an opaque
+    /// 64-bit hash from `MarkdownRenderToggles::hash_key`) into the id.
+    /// Flipping any markdown render toggle changes the projected
+    /// segment list and soft-wrap row counts, so every layout / frame /
+    /// segment / wrap cache keyed on this id must be invalidated.
+    /// Callers chain this after [`Self::with_tab_width`]. A `0`
+    /// discriminator is a no-op, preserving the pre-toggle id for
+    /// callers that do not gate markdown rendering.
+    #[must_use]
+    pub fn with_markdown_toggles(self, toggles_hash: u64) -> Self {
+        if toggles_hash == 0 {
+            return self;
+        }
+        let mut h = AHasher::default();
+        self.0.hash(&mut h);
+        toggles_hash.hash(&mut h);
+        Self(h.finish())
+    }
 }
 
 /// Compute the content stamp for one line. Defined here so the cache and the

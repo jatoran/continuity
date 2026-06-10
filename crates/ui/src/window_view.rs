@@ -547,7 +547,8 @@ impl Window {
 #[cfg(test)]
 mod tests {
     use super::{compute_eof_append_minimum_reveal, is_beyond_eof_reveal_inset};
-    use crate::window::{END_OF_BUFFER_BOTTOM_PADDING_DIP, LINE_HEIGHT_DIP};
+    use crate::window::END_OF_BUFFER_BOTTOM_PADDING_DIP;
+    use crate::window_constants::LINE_HEIGHT_DIP;
 
     #[test]
     fn eof_append_minimum_reveal_scrolls_one_new_display_row() {

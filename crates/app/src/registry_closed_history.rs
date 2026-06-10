@@ -262,6 +262,9 @@ fn try_spawn_from_closed_entry(
                 placement_blob: None,
             },
         )),
+        // Ctrl+Shift+T is user-initiated: the reopened window should
+        // take focus like any other deliberate spawn.
+        activate_on_restore: true,
         explicit_origin: None,
         cascade_from,
         recovery_notices: Vec::new(),

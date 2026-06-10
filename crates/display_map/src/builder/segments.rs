@@ -135,7 +135,19 @@ pub(super) fn build_line_segments(
                 MarkerKind::ListMarker => {
                     // List marker spans the leading `- ` / `* ` / `1. `.
                     if !revealed {
-                        let display = "• ".to_string();
+                        // Unordered markers collapse to the bullet glyph;
+                        // ordered markers keep their literal number —
+                        // rendering `1.` / `2)` as `•` destroys the
+                        // sequence the writer typed.
+                        let marker_text = &line_text[s - line_start..e - line_start];
+                        let is_ordered = marker_text
+                            .trim_start()
+                            .starts_with(|c: char| c.is_ascii_digit());
+                        let display = if is_ordered {
+                            marker_text.to_string()
+                        } else {
+                            "• ".to_string()
+                        };
                         actions.push(ActionRange {
                             start: s,
                             end: e,

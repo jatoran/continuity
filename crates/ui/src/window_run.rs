@@ -8,7 +8,7 @@
 use windows::Win32::Graphics::Gdi::UpdateWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, DispatchMessageW, GetMessageW, SetForegroundWindow, ShowWindow,
-    TranslateMessage, MSG, SW_SHOW,
+    TranslateMessage, MSG, SW_SHOW, SW_SHOWNOACTIVATE,
 };
 
 use crate::window::Window;
@@ -31,16 +31,26 @@ impl Window {
 
     fn run_inner(self: Box<Self>, show: bool) -> Result<(), Error> {
         let hwnd = self.hwnd();
+        let activate = self.activate_on_show;
         // Leak the box for the lifetime of the message pump; we
         // rely on the self-pointer stored via WM_NCCREATE for
         // re-entry. We reclaim it at the end via `Box::from_raw`.
         let raw: *mut Window = Box::into_raw(self);
         unsafe {
             if show {
-                let _ = ShowWindow(hwnd, SW_SHOW);
-                // Cascaded new/tear-off windows must come up above the source.
-                let _ = BringWindowToTop(hwnd);
-                let _ = SetForegroundWindow(hwnd);
+                if activate {
+                    let _ = ShowWindow(hwnd, SW_SHOW);
+                    // Cascaded new/tear-off windows must come up above the source.
+                    let _ = BringWindowToTop(hwnd);
+                    let _ = SetForegroundWindow(hwnd);
+                } else {
+                    // Session-restored secondary window (or one parked on
+                    // another virtual desktop): show it without stealing
+                    // foreground — a multi-window restore must neither
+                    // flash focus across every window nor switch the
+                    // user's desktop.
+                    let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+                }
                 let _ = UpdateWindow(hwnd);
             }
             let mut msg = MSG::default();

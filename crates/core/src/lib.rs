@@ -17,6 +17,7 @@ pub(crate) mod edit_lines_movement;
 pub(crate) mod edit_list;
 pub(crate) mod edit_markdown;
 pub(crate) mod edit_markdown_blocks;
+pub(crate) mod edit_markdown_strip;
 pub(crate) mod edit_normalize;
 pub(crate) mod edit_pairs;
 pub(crate) mod edit_planning;

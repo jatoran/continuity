@@ -42,6 +42,9 @@ impl Window {
         // a theme flip that lands on a throttled frame still recolors the
         // caption.
         self.sync_titlebar_theme();
+        // Keep the caption text matched to the active tab — same
+        // cheap-and-guarded contract as the theme sync above.
+        self.sync_window_title();
         if self.should_skip_background_paint() {
             return Ok(());
         }

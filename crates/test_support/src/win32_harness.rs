@@ -69,6 +69,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
 ///                                       by `window_commanding`'s
 ///                                       `code < 0x20` guard.)
 /// F5  → pane.layout_single
+/// backspace → editor.delete_back   (stress test drives deletion
+///                                    through the production dispatch
+///                                    path; modifier-free so
+///                                    `SendMessageW` keystrokes work)
+/// delete    → editor.delete_forward
 const TEST_KEYMAP_TOML: &str = "\
 [[binding]]
 keys = [\"F1\"]
@@ -89,6 +94,14 @@ command = \"editor.insert_newline_smart\"
 [[binding]]
 keys = [\"F5\"]
 command = \"pane.layout_single\"
+
+[[binding]]
+keys = [\"backspace\"]
+command = \"editor.delete_back\"
+
+[[binding]]
+keys = [\"delete\"]
+command = \"editor.delete_forward\"
 ";
 
 /// Wall-clock implementation for the harness's editor thread.
@@ -198,6 +211,7 @@ impl Win32Harness {
                         // Off-screen so the never-shown window can't
                         // briefly flash if anything calls ShowWindow.
                         initial_origin: Some((-32_000, -32_000)),
+                        activate_on_show: false,
                     },
                     editor_for_worker,
                     buffer_id,
@@ -275,6 +289,7 @@ impl Win32Harness {
                         width: 1200,
                         height: 800,
                         initial_origin: Some((-32_000, -32_000)),
+                        activate_on_show: false,
                     },
                     editor_for_worker,
                     buffer_id,

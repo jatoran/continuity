@@ -32,8 +32,8 @@ pub(crate) fn kind_of(edit: &SelectionEdit) -> &'static str {
         JoinSelectedLines, MarkdownCycleHeading, MarkdownCycleListMarker, MarkdownDemoteSection,
         MarkdownInsertCodeFence, MarkdownInsertImageRef, MarkdownInsertLink,
         MarkdownMoveSectionDown, MarkdownMoveSectionUp, MarkdownPromoteSection,
-        MarkdownRenumberList, MarkdownSetHeading, MarkdownToggleBullet, MarkdownToggleCheckbox,
-        MarkdownToggleEmphasis, MarkdownToggleNumbered, MarkdownToggleTask,
+        MarkdownRenumberList, MarkdownSetHeading, MarkdownStripFormatting, MarkdownToggleBullet,
+        MarkdownToggleCheckbox, MarkdownToggleEmphasis, MarkdownToggleNumbered, MarkdownToggleTask,
         MarkdownWrapInBlockquote, MoveLineDown, MoveLineUp, Outdent, ReflowParagraph, ReverseLines,
         ShuffleLines, SortLines, SpacesToTabs, SurroundSelection, TabsToSpaces, TabsToSpacesAll,
         ToggleBulletAtLineStart, TransposeChars, TransposeWords, TrimTrailingWhitespace,
@@ -94,6 +94,7 @@ pub(crate) fn kind_of(edit: &SelectionEdit) -> &'static str {
         MarkdownInsertCodeFence => "markdown_insert_code_fence",
         MarkdownInsertLink => "markdown_insert_link",
         MarkdownInsertImageRef => "markdown_insert_image_ref",
+        MarkdownStripFormatting => "markdown_strip_formatting",
         InsertPair { .. } => "insert_pair",
         DeletePair { .. } => "delete_pair",
     }

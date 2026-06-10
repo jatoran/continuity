@@ -32,6 +32,9 @@ pub(crate) struct RuntimePaths {
 pub(crate) struct StartupOptions {
     pub(crate) startup_paths: StartupPaths,
     pub(crate) runtime_paths: RuntimePaths,
+    /// `--new-instance`: skip the single-instance handoff and run a
+    /// fully separate process even when another instance is live.
+    pub(crate) new_instance: bool,
 }
 
 impl StartupOptions {
@@ -49,10 +52,13 @@ impl StartupOptions {
         auto_portable: bool,
     ) -> Result<Self> {
         let mut portable = false;
+        let mut new_instance = false;
         let mut paths = Vec::new();
         for arg in args {
             if arg == "--portable" {
                 portable = true;
+            } else if arg == "--new-instance" {
+                new_instance = true;
             } else if arg == "--" {
                 continue;
             } else {
@@ -68,6 +74,7 @@ impl StartupOptions {
         Ok(Self {
             startup_paths: split_startup_paths(paths),
             runtime_paths,
+            new_instance,
         })
     }
 }

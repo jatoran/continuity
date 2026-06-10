@@ -39,6 +39,15 @@ impl Window {
             .is_none_or(|lr| lr.current_settings().window.restore_to_virtual_desktops);
         if restore_desktops {
             if let Some(guid) = initial.virtual_desktop_guid {
+                // A window restored onto a *different* desktop must never
+                // activate at show time — `SetForegroundWindow` on a
+                // window parked elsewhere makes Windows switch the user's
+                // desktop, which is exactly the launch-time yank this
+                // guards against.
+                let active_guid = current_desktop_guid(hwnd, self.virtual_desktop.as_ref());
+                if active_guid.is_some_and(|active| active != guid) {
+                    self.activate_on_show = false;
+                }
                 try_move_to_desktop(hwnd, self.virtual_desktop.as_ref(), guid);
             }
         }

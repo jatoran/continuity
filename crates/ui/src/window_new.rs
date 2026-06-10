@@ -141,6 +141,7 @@ impl Window {
             language_revision: None,
             active_theme,
             titlebar_dark_applied: None,
+            window_title_applied: None,
             view_options: crate::window_view_options::ViewOptions::default(),
             right_edge_chrome_defaults:
                 crate::window_right_edge_chrome::RightEdgeChromeState::default(),
@@ -216,6 +217,8 @@ impl Window {
             palette_recency_tick: 0,
             last_edit_stack: HashMap::new(),
             is_window_focused: true,
+            has_keyboard_focus: true,
+            activate_on_show: config.activate_on_show,
             is_window_minimized: false,
             is_live_resizing: false,
             tab_drag_ghost_window: None,

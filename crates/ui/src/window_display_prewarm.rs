@@ -37,7 +37,7 @@ mod frame_build_cold;
 mod frame_build_partial;
 mod frame_build_splice;
 mod frame_build_stats_emit;
-mod projection_inputs;
+pub(crate) mod projection_inputs;
 mod row_index_direct;
 mod stage;
 mod tick;

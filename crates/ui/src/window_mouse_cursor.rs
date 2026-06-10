@@ -68,6 +68,7 @@ impl Window {
         let name = match splitter_axis {
             Some(crate::pane_tree::SplitAxis::Horizontal) => IDC_SIZEWE,
             Some(crate::pane_tree::SplitAxis::Vertical) => IDC_SIZENS,
+            None if self.cursor_over_outline_resize_band(xf, yf) => IDC_SIZEWE,
             None if in_strip => IDC_ARROW,
             None if over_scrollbar => IDC_ARROW,
             None if over_code_copy => IDC_HAND,

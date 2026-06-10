@@ -17,9 +17,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, GWLP_USERDATA, HTCLIENT, SIZE_MINIMIZED, WM_ACTIVATEAPP, WM_CAPTURECHANGED,
     WM_CHAR, WM_CLOSE, WM_CONTEXTMENU, WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_ENTERSIZEMOVE,
     WM_ERASEBKGND, WM_EXITSIZEMOVE, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
-    WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MBUTTONDOWN, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_NCCREATE, WM_PAINT, WM_SETCURSOR,
-    WM_SETTINGCHANGE, WM_SIZE, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
+    WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_NCCREATE, WM_PAINT,
+    WM_SETCURSOR, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_TIMER,
 };
 
 use crate::window::Window;
@@ -229,32 +230,20 @@ impl Window {
             WM_ACTIVATEAPP => {
                 // β — app focus toggles drive the 30 Hz unfocused
                 // frame-skip in on_paint. wparam is non-zero when the
-                // window is becoming the active app window.
-                let becoming_active = wparam.0 != 0;
-                crate::paint_trace::log_event(
-                    "wm_activateapp",
-                    if becoming_active {
-                        "activate"
-                    } else {
-                        "deactivate"
-                    },
-                );
-                if !becoming_active {
-                    self.clear_unsaved_close_arm();
-                }
-                self.is_window_focused = becoming_active;
-                // Coming back to the foreground: force a repaint so the
-                // surface refreshes immediately rather than waiting for
-                // the next external invalidate. Also stamp
-                // `last_activation_tick` so the activation-grace gate
-                // suppresses spell recheck / MRU prewarm / spectator
-                // decoration submission for the first
-                // `Window::ACTIVATION_GRACE_MS`.
-                if self.is_window_focused {
-                    self.last_activation_tick =
-                        unsafe { windows::Win32::System::SystemInformation::GetTickCount64() };
-                    self.invalidate(hwnd);
-                }
+                // window is becoming the active app window. Body lives
+                // in `window_focus.rs`.
+                self.on_activate_app(hwnd, wparam.0 != 0);
+                None
+            }
+            // Keyboard-focus edges (fire on intra-process window
+            // switches that WM_ACTIVATEAPP never sees). Bodies live in
+            // `window_focus.rs`.
+            WM_SETFOCUS => {
+                self.on_set_focus(hwnd);
+                None
+            }
+            WM_KILLFOCUS => {
+                self.on_kill_focus(hwnd);
                 None
             }
             WM_MOVE => {

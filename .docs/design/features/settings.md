@@ -23,6 +23,9 @@ font_size           = 14.0
 line_height         = 1.35                  # row stride = round(scaled_font_size × this)
 word_wrap           = true
 ruler_columns       = []
+indent_type         = "tabs"                # "tabs" | "spaces" — default tabs
+indent_width        = 4                     # spaces per level when indent_type = "spaces"
+tab_width           = 4                     # rendered columns per literal tab (1..=16)
 caret_style         = "bar"                 # "bar" | "block" | "underline"
 caret_blink_ms      = 530
 caret_width_px      = 2                     # Phase B4

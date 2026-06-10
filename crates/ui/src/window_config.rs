@@ -25,6 +25,15 @@ pub struct WindowConfig {
     /// `window.new_window` / tear-off to cascade from the focused window.
     /// Ignored when a restored placement blob takes over after creation.
     pub initial_origin: Option<(i32, i32)>,
+    /// Whether [`crate::Window::run`] may bring the window to the
+    /// foreground when it is first shown. `true` for user-initiated
+    /// windows (new window, tear-off, file open); `false` for
+    /// session-restored windows other than the most recent one, so a
+    /// multi-window launch doesn't flash focus across every restored
+    /// window. Forced `false` at placement time when the window is
+    /// moved to a non-active virtual desktop — activating it there
+    /// would switch the user's desktop.
+    pub activate_on_show: bool,
 }
 
 impl Default for WindowConfig {
@@ -34,6 +43,7 @@ impl Default for WindowConfig {
             width: 1200,
             height: 800,
             initial_origin: None,
+            activate_on_show: true,
         }
     }
 }

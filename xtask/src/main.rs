@@ -56,6 +56,7 @@ fn main() -> ExitCode {
         "snapshot-canary" => run_snapshot_canary(false),
         "snapshot-update" => run_snapshot_canary(true),
         "e2e-smoke" => run_e2e_smoke(),
+        "e2e-stress" => run_e2e_stress(),
         "test-all" => run_test_all(),
         "check-all" => run_check_all(),
         "agent-check" => run_agent_check(),
@@ -109,6 +110,8 @@ fn print_help() {
     println!("  snapshot-canary   run the §D pixel canary in compare mode");
     println!("  snapshot-update   regenerate pixel-canary golden hashes");
     println!("  e2e-smoke         run the cheapest §C e2e tests (smoke + pane split)");
+    println!("  e2e-stress        long-usage crash hunt: 3 windows, split panes, heavy");
+    println!("                    interleaved editing (CONTINUITY_STRESS_OPS, default 800)");
     println!("  test-all          ci + every E2E test + pixel canary (correctness pass)");
     println!("  check-all         test-all + bench + perf-snapshot (\"is this shippable?\")");
     println!("  agent-check       docs-check + check-all with structured JSON to stdout");
@@ -178,6 +181,18 @@ fn run_e2e_smoke() -> Result<()> {
         run_cargo(&["test", "-p", "continuity-ui", "--test", test])?;
     }
     Ok(())
+}
+
+fn run_e2e_stress() -> Result<()> {
+    run_cargo(&[
+        "test",
+        "-p",
+        "continuity-ui",
+        "--test",
+        "e2e_stress",
+        "--",
+        "--nocapture",
+    ])
 }
 
 fn run_test_all() -> Result<()> {

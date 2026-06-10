@@ -189,7 +189,7 @@ pub struct EditorConfig {
     /// `"spaces" | "tabs"` — what `editor.indent` / `editor.outdent`
     /// insert and remove per level. `"spaces"` emits
     /// [`Self::indent_width`] spaces; `"tabs"` emits one tab character.
-    /// Default `"spaces"`. Switching at runtime does not retroactively
+    /// Default `"tabs"`. Switching at runtime does not retroactively
     /// convert existing indentation — use `editor.spaces_to_tabs` /
     /// `editor.tabs_to_spaces` for that.
     pub indent_type: String,
@@ -314,7 +314,7 @@ impl Default for EditorConfig {
             word_wrap: true,
             ruler_columns: Vec::new(),
             caret_style: "bar".into(),
-            indent_type: "spaces".into(),
+            indent_type: "tabs".into(),
             indent_width: 4,
             tab_width: 4,
             caret_blink_ms: 530,
@@ -535,23 +535,23 @@ mouse_wheel_scroll_speed = 1.25
     #[test]
     fn indent_defaults_and_overrides_parse() {
         let s = Settings::from_toml("").unwrap();
-        assert_eq!(s.editor.indent_type, "spaces");
+        assert_eq!(s.editor.indent_type, "tabs");
         assert_eq!(s.editor.indent_width, 4);
         assert_eq!(s.editor.tab_width, 4);
-        assert_eq!(s.indent_type(), crate::IndentType::Spaces);
+        assert_eq!(s.indent_type(), crate::IndentType::Tabs);
 
         let s = Settings::from_toml(
             r#"[editor]
-indent_type = "tabs"
+indent_type = "spaces"
 indent_width = 2
 tab_width = 8
 "#,
         )
         .unwrap();
-        assert_eq!(s.editor.indent_type, "tabs");
+        assert_eq!(s.editor.indent_type, "spaces");
         assert_eq!(s.editor.indent_width, 2);
         assert_eq!(s.editor.tab_width, 8);
-        assert_eq!(s.indent_type(), crate::IndentType::Tabs);
+        assert_eq!(s.indent_type(), crate::IndentType::Spaces);
         // Unspecified fields keep defaults.
         assert_eq!(s.editor.font_size, 14.0);
     }

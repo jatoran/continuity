@@ -9,12 +9,17 @@
 
 use continuity_buffer::Buffer;
 use continuity_text::{Selection, SelectionKind};
-use ropey::Rope;
 
 use crate::edit_planning::{advance_position, finalize_specs, line_content_end, EditSpec};
 use crate::selection_edit::SelectionEditPlan;
 use crate::EmphasisKind;
 use crate::Error;
+
+mod sections;
+pub(crate) use sections::{
+    enclosing_heading_line, heading_level, leading_whitespace_len, line_text, lines_in,
+    next_heading_level, previous_section_start, section_end_line, strip_heading_prefix,
+};
 
 pub(crate) fn plan_markdown_toggle_emphasis(
     buffer: &Buffer,
@@ -94,7 +99,7 @@ pub(crate) fn plan_markdown_toggle_numbered(
 ) -> Result<Option<SelectionEditPlan>, Error> {
     let rope = buffer.rope();
     let selections_before = buffer.selections().to_vec();
-    let lines = lines_in(buffer);
+    let lines = content_lines_in(buffer);
     let mut specs = Vec::new();
     let mut counter = 1_u32;
     for &line in &lines {
@@ -128,7 +133,7 @@ pub(crate) fn plan_markdown_toggle_numbered(
 /// off the front of a line body. Returns `(marker, rest)`; `marker` is
 /// empty when the body has no marker. Lets checkbox/task toggles operate
 /// *after* the bullet instead of mistaking `- [ ] x` for plain text.
-fn split_leading_list_marker(body: &str) -> (&str, &str) {
+pub(crate) fn split_leading_list_marker(body: &str) -> (&str, &str) {
     for marker in ["- ", "* ", "+ "] {
         if let Some(rest) = body.strip_prefix(marker) {
             return (&body[..marker.len()], rest);
@@ -154,7 +159,7 @@ pub(crate) fn plan_markdown_toggle_checkbox(
 ) -> Result<Option<SelectionEditPlan>, Error> {
     let rope = buffer.rope();
     let selections_before = buffer.selections().to_vec();
-    let lines = lines_in(buffer);
+    let lines = content_lines_in(buffer);
     let mut specs = Vec::new();
     for &line in &lines {
         let start = rope.line_to_byte(line);
@@ -187,16 +192,30 @@ pub(crate) fn plan_markdown_toggle_checkbox(
     ))
 }
 
-/// Toggle a full `- [ ] ` task bullet on each covered line. A line that
-/// is already a task (`- [ ] `, `[x] `, …) loses the whole prefix; a
-/// plain bullet (`- foo`) keeps its marker and gains a checkbox; any
-/// other line is prefixed with `- [ ] `. Bound to `Ctrl+E`.
+/// Toggle a full `- [ ] ` task bullet on each covered line. Bound to
+/// `Ctrl+E`.
+///
+/// Multi-line behaviour mirrors the `Ctrl+R` bullet toggle (scan first,
+/// then pick one action globally):
+/// - **All covered content lines already tasks** → strip the whole
+///   marker + checkbox prefix from each.
+/// - **None or only some are tasks** → add the task prefix to the lines
+///   missing one (plain bullets keep their marker and gain a checkbox;
+///   plain lines gain `- [ ] `); already-task lines stay untouched, so
+///   a mixed selection converges to all-tasks on the first press.
 pub(crate) fn plan_markdown_toggle_task(
     buffer: &Buffer,
 ) -> Result<Option<SelectionEditPlan>, Error> {
     let rope = buffer.rope();
     let selections_before = buffer.selections().to_vec();
-    let lines = lines_in(buffer);
+    let lines = content_lines_in(buffer);
+    let line_is_task = |line: usize| -> bool {
+        let text = line_text(rope, line);
+        let body = &text[leading_whitespace_len(&text)..];
+        let (_, after) = split_leading_list_marker(body);
+        after.starts_with("[ ] ") || after.starts_with("[x] ") || after.starts_with("[X] ")
+    };
+    let all_tasks = !lines.is_empty() && lines.iter().all(|&line| line_is_task(line));
     let mut specs = Vec::new();
     for &line in &lines {
         let start = rope.line_to_byte(line);
@@ -208,9 +227,13 @@ pub(crate) fn plan_markdown_toggle_task(
         let (marker, after) = split_leading_list_marker(body);
         let is_task =
             after.starts_with("[ ] ") || after.starts_with("[x] ") || after.starts_with("[X] ");
-        let replacement = if is_task {
-            // Drop the marker + checkbox, leaving plain content.
+        let replacement = if all_tasks {
+            // Every covered line is a task → strip marker + checkbox,
+            // leaving plain content.
             format!("{indent}{}", &after[4..])
+        } else if is_task {
+            // Mixed state: keep existing tasks untouched.
+            continue;
         } else if !marker.is_empty() {
             // Plain bullet → task bullet, keeping the existing marker.
             format!("{indent}{marker}[ ] {after}")
@@ -367,7 +390,7 @@ fn toggle_line_prefix(
 ) -> Result<Option<SelectionEditPlan>, Error> {
     let rope = buffer.rope();
     let selections_before = buffer.selections().to_vec();
-    let lines = lines_in(buffer);
+    let lines = content_lines_in(buffer);
     let mut specs = Vec::new();
     let all_have_prefix = lines.iter().all(|&line| {
         let text = line_text(rope, line);
@@ -431,22 +454,23 @@ fn insert_around(
     Ok(finalize_specs(specs, selections_before, selections_after))
 }
 
-/// Sorted, deduplicated list of line numbers covered by the buffer's
-/// selections, clipped to the rope length. Shared with
-/// `edit_markdown_blocks.rs`.
-pub(crate) fn lines_in(buffer: &Buffer) -> Vec<usize> {
-    let mut out = Vec::new();
-    let len_lines = buffer.rope().len_lines();
-    for selection in buffer.selections() {
-        let range = selection.ordered_range();
-        for line in (range.start.line as usize)..=(range.end.line as usize) {
-            if line < len_lines && !out.contains(&line) {
-                out.push(line);
-            }
-        }
+/// Like [`lines_in`], but a multi-line selection skips blank /
+/// whitespace-only lines so prefix toggles never mint markers on the
+/// gaps between paragraphs. A single covered line is kept as-is — a
+/// caret on an empty line can still start a list.
+fn content_lines_in(buffer: &Buffer) -> Vec<usize> {
+    let lines = lines_in(buffer);
+    if lines.len() <= 1 {
+        return lines;
     }
-    out.sort_unstable();
-    out
+    let rope = buffer.rope();
+    lines
+        .into_iter()
+        .filter(|&line| {
+            let text = line_text(rope, line);
+            !text[leading_whitespace_len(&text)..].is_empty()
+        })
+        .collect()
 }
 
 fn emphasis_delim(kind: EmphasisKind) -> (&'static str, &'static str) {
@@ -466,47 +490,6 @@ fn strip_wrap<'a>(text: &'a str, open: &str, close: &str) -> Option<&'a str> {
     }
 }
 
-/// Heading level (1..=6) of a single line, or `0` when the line is not a
-/// markdown ATX heading. Shared with `edit_markdown_blocks.rs`.
-pub(crate) fn heading_level(text: &str) -> u8 {
-    let mut level = 0u8;
-    for c in text.chars().take(7) {
-        if c == '#' && level < 6 {
-            level += 1;
-        } else if c == ' ' && level > 0 {
-            return level;
-        } else {
-            return 0;
-        }
-    }
-    0
-}
-
-/// Strip the `#`-prefix and following space from an ATX heading line. When
-/// the line is not a heading, returns the original text. Shared with
-/// `edit_markdown_blocks.rs`.
-pub(crate) fn strip_heading_prefix(text: &str) -> &str {
-    let mut idx = 0;
-    let bytes = text.as_bytes();
-    while idx < bytes.len() && bytes[idx] == b'#' && idx < 6 {
-        idx += 1;
-    }
-    if idx == 0 {
-        return text;
-    }
-    if idx < bytes.len() && bytes[idx] == b' ' {
-        return &text[idx + 1..];
-    }
-    text
-}
-
-fn leading_whitespace_len(text: &str) -> usize {
-    text.chars()
-        .take_while(|c| *c == ' ' || *c == '\t')
-        .map(char::len_utf8)
-        .sum()
-}
-
 fn strip_numbered_prefix(body: &str) -> Option<&str> {
     let digit_count = body.chars().take_while(|c| c.is_ascii_digit()).count();
     if digit_count == 0 {
@@ -514,72 +497,6 @@ fn strip_numbered_prefix(body: &str) -> Option<&str> {
     }
     let rest = &body[digit_count..];
     rest.strip_prefix(". ")
-}
-
-/// Read a single line's content (without trailing newline) as an owned
-/// string. Shared with `edit_markdown_blocks.rs`.
-pub(crate) fn line_text(rope: &Rope, line: usize) -> String {
-    let start = rope.line_to_byte(line);
-    let end = line_content_end(rope, line);
-    rope.byte_slice(start..end).to_string()
-}
-
-/// Walk upward from `line` until we hit an ATX heading; return its line
-/// index. Shared with `edit_markdown_blocks.rs`.
-pub(crate) fn enclosing_heading_line(rope: &Rope, line: usize) -> Option<usize> {
-    let mut probe = line;
-    loop {
-        let text = line_text(rope, probe);
-        if heading_level(&text) > 0 {
-            return Some(probe);
-        }
-        if probe == 0 {
-            return None;
-        }
-        probe -= 1;
-    }
-}
-
-/// Walk upward from `before_inclusive` to find the previous heading line.
-/// Shared with `edit_markdown_blocks.rs`.
-pub(crate) fn previous_section_start(rope: &Rope, before_inclusive: usize) -> Option<usize> {
-    let mut probe = before_inclusive;
-    loop {
-        if heading_level(&line_text(rope, probe)) > 0 {
-            return Some(probe);
-        }
-        if probe == 0 {
-            return None;
-        }
-        probe -= 1;
-    }
-}
-
-/// If the line at `line` is a heading, return its level; otherwise `None`.
-/// Shared with `edit_markdown_blocks.rs`.
-pub(crate) fn next_heading_level(rope: &Rope, line: usize) -> Option<u8> {
-    let lvl = heading_level(&line_text(rope, line));
-    if lvl > 0 {
-        Some(lvl)
-    } else {
-        None
-    }
-}
-
-/// Last line of the section starting at `start` of given `level` —
-/// extends until the next heading at the same or lower level (or EOF).
-/// Shared with `edit_markdown_blocks.rs`.
-pub(crate) fn section_end_line(rope: &Rope, start: usize, level: u8) -> usize {
-    let mut last = start;
-    let len = rope.len_lines();
-    for line in (start + 1)..len {
-        let lvl = heading_level(&line_text(rope, line));
-        if lvl > 0 && lvl <= level {
-            return last;
-        }
-        last = line;
-    }
-    last
 }
 
 #[cfg(test)]

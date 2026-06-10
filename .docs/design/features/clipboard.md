@@ -19,9 +19,9 @@ Cut, copy, and paste via `CF_UNICODETEXT`. Smart-paste rewrites a clipboard URL 
 ## Operations
 
 ### Copy / cut
-- `editor.copy` — copies selection text; multi-cursor: each selection range becomes a line in the clipboard, joined by `\n`.
-- `editor.cut` — copies, then applies `SelectionEdit::DeleteBack` (or range-replace for non-collapsed selections).
-- `editor.copy_as_rtf` (`Ctrl+Shift+Alt+C`) — copies as RTF text with `markdown.*` styles baked in.
+- `editor.copy` — copies every non-collapsed selection's source text in document order, joined by `\n`. With one selection that is just that selection's text; with Ctrl-drag multi-region highlights the clipboard carries all of them (`window_clipboard::selections_clipboard_source`).
+- `editor.cut` — same multi-region gather, then deletes every selected range in one undo group (`dispatch_selection_edit(SelectionEdit::InsertText(""))`). Copy and cut therefore put the *same* text on the clipboard that cut removes.
+- `editor.copy_as_rtf` (`Ctrl+Shift+Alt+C`) — copies as styled text with `markdown.*` styles baked in.
 
 ### Paste (`Ctrl+V`, `editor.paste`)
 1. `clipboard::read_text` returns `Option<String>`.
@@ -49,7 +49,7 @@ Cut, copy, and paste via `CF_UNICODETEXT`. Smart-paste rewrites a clipboard URL 
 - Reader / writer: `crates/win/src/clipboard.rs::{read_text, write_text, Error}`.
 - Paste history: `crates/ui/src/window_clipboard.rs::PasteHistory`.
 - Smart paste: `crates/ui/src/smart_paste.rs::{smart_paste_transform, SmartPasteOp}`.
-- Window handlers: `crates/ui/src/window_clipboard.rs::{paste_clipboard_impl, paste_as_plain_text_impl, paste_from_history_impl}` + `crates/ui/src/window_link_clipboard.rs::{copy_impl, cut_impl, copy_as_rtf_impl}`.
+- Window handlers: `crates/ui/src/window_clipboard.rs::{copy_selection_impl, cut_selection_impl, selections_clipboard_source, paste_clipboard_impl, paste_as_plain_text_impl, paste_from_history_impl, copy_caret_line_impl}` + rich-copy variants in `crates/ui/src/window_link_clipboard.rs`.
 
 ## Configuration
 - `clipboard.history_size` (default `16`).
@@ -58,9 +58,9 @@ Cut, copy, and paste via `CF_UNICODETEXT`. Smart-paste rewrites a clipboard URL 
 
 ## Key files
 - Win32 clipboard wrapper: `crates/win/src/clipboard.rs`
-- paste history ring: `crates/ui/src/window_clipboard.rs`
+- copy / cut / paste / paste-history ring: `crates/ui/src/window_clipboard.rs`
 - smart paste: `crates/ui/src/smart_paste.rs`
-- copy / cut / RTF copy: `crates/ui/src/window_link_clipboard.rs`
+- rich-copy variants (rendered / source / HTML): `crates/ui/src/window_link_clipboard.rs`
 - bare-URL detector reuse: `crates/decorate/src/autolink.rs` (Phase B12)
 
 ## Relates to

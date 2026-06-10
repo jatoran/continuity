@@ -117,6 +117,29 @@ impl Window {
         true
     }
 
+    /// Ctrl+drag: extend only the *newest* selection's head to the
+    /// pixel target, leaving every other range untouched. Pairs with
+    /// [`Self::add_cursor_at_pixel`] (which dropped the newest caret on
+    /// the Ctrl+`WM_LBUTTONDOWN`) to build multi-region highlights.
+    pub(crate) fn extend_additional_selection_at_pixel(&mut self, x: i32, y: i32) -> bool {
+        let Some(snap) = self.editor.snapshot(self.buffer_id) else {
+            return false;
+        };
+        let target = self
+            .client_to_buffer_position(x, y)
+            .unwrap_or(Position::ZERO);
+        let mut selections: Vec<Selection> = snap.selections().to_vec();
+        let Some(last) = selections.last_mut() else {
+            return false;
+        };
+        if last.head == target {
+            return false;
+        }
+        last.head = target;
+        let _ = self.editor.set_selections(self.buffer_id, selections);
+        true
+    }
+
     /// Map a client-area `(x, y)` (in DIPs) to a buffer `Position` for
     /// the focused pane. Accounts for:
     /// - the pane's body origin (tab strip height + multi-pane layout),
@@ -203,11 +226,15 @@ impl Window {
             // column each. Keep this in lock-step with `tab_width` so
             // the hanging-indent hit-test lands where the glyph is.
             let tab_advance = column_advance * self.view_options.tab_width.max(1) as f32;
-            continuity_render::FrameDisplay::leading_whitespace_advance_dip(
+            continuity_render::FrameDisplay::hanging_indent_advance_dip(
                 rope,
                 source_line,
                 column_advance,
                 tab_advance,
+                // Clamp against the wrap budget like the painter clamps
+                // against its text column, so the hit-test offset tracks
+                // the painted offset for deeply indented lines.
+                metrics.wrap_width_dip as f32,
             )
         } else {
             0.0

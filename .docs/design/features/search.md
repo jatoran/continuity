@@ -21,6 +21,7 @@ Find bar with X-of-N count, compact mode toggles, find-and-replace, find-in-all 
 - **Find** (`editor.find` → `Window::open_find` → `Overlays::Find`):
   - User types into the bar; `recompute_find_matches` re-runs the dispatcher on every keystroke and on every buffer revision change.
   - Re-dispatching `editor.find` while the bar is open forces find-only mode and focuses the query field, even if the per-buffer memento last used replace mode.
+  - **Selection seed + select-all on open.** `Window::open_find_impl` seeds the query from the active selection when it is a single non-collapsed, single-line, non-blank, ≤256-byte range (`find_query_seed_from_selection`), and select-alls the focused field on **every** open — whether the bar was already open, reopened from the per-buffer memento, or seeded — so the next typed character overtypes the existing query. (Both `editor.find` and `editor.replace` share this; `editor.replace` also seeds.) Multi-line selections seed nothing — they become the find-in-selection scope instead.
   - Pane / tab / focused-buffer changes retarget the open bar to the new focused pane, recompute the count/highlights, and update the footer label (`P<n>: <tab label>`) without jumping the caret or scrolling.
   - `Enter` / `F3` → `step(1)` jumps to the next match; `Shift+F3` → previous.
   - Mode hotkeys while the bar is visible: `Alt+C` case, `Alt+W` word, `Alt+R` regex, `Alt+S` scope, `Alt+P` preserve-case.
@@ -40,7 +41,7 @@ Find bar with X-of-N count, compact mode toggles, find-and-replace, find-in-all 
 - **Multi-cursor via search** (Phase G3): with the find bar open and N matches, `Alt+Enter` converts every match into a cursor.
 
 ## Match-state persistence (Phase G2)
-Per-buffer: last query, replacement, mode flags, scope. Restored when the bar opens in that buffer. While the bar stays open, pane/tab focus changes keep the active query/replacement/modes and retarget only the match set; per-buffer mementos do not hot-swap into the live search session. Setting `find.persist_per_buffer` (default `true`) disables. Find bar does **not** pre-fill with the word under caret (decisions §G2 override).
+Per-buffer: last query, replacement, mode flags, scope. Restored when the bar opens in that buffer. While the bar stays open, pane/tab focus changes keep the active query/replacement/modes and retarget only the match set; per-buffer mementos do not hot-swap into the live search session. Setting `find.persist_per_buffer` (default `true`) disables. The bar does **not** auto-fill from the word under the caret (decisions §G2 override) — but it *does* seed from an explicit highlighted selection (§ Find), and it select-alls the focused field on every open so the restored memento query is fully highlighted and overtypable.
 
 Selection scope is recaptured from the newly focused buffer whenever the find target changes. Old selection byte ranges never cross buffers.
 

@@ -30,7 +30,9 @@ mod main_initial_requests;
 mod registry;
 mod registry_closed_history;
 mod registry_file_buffers;
+mod registry_time;
 mod runtime_paths;
+mod single_instance;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -50,6 +52,7 @@ use registry_file_buffers::{
     build_file_buffer_index, file_buffer_for_path, register_file_buffer, FileBufferIndex,
 };
 use runtime_paths::StartupOptions;
+use single_instance::{claim_or_forward, spawn_instance_hub, InstanceClaim};
 
 fn main() -> Result<()> {
     // The main thread also touches COM (used by the desktop manager + later
@@ -60,6 +63,23 @@ fn main() -> Result<()> {
     startup_options.runtime_paths.apply_process_overrides();
 
     let db = db_path().context("resolving continuity database path")?;
+
+    // Single-instance handoff: a second launch would otherwise replay the
+    // persisted window session and duplicate every open window. Forward
+    // this launch's paths to the running instance and exit instead. The
+    // e2e insert hook and `--new-instance` bypass the check (their data
+    // dirs are isolated / intentionally shared).
+    let bypass_single_instance =
+        startup_options.new_instance || std::env::var_os("CONTINUITY_E2E_INSERT").is_some();
+    let instance_guard = if bypass_single_instance {
+        None
+    } else {
+        match claim_or_forward(&db, &startup_options.startup_paths) {
+            InstanceClaim::Primary(guard) => guard,
+            InstanceClaim::Forwarded => return Ok(()),
+        }
+    };
+
     let persist = PersistHandle::spawn(&db)
         .with_context(|| format!("opening persistence database at {}", db.display()))?;
     let editor = Arc::new(EditorHandle::spawn(persist.client(), Arc::new(SystemClock)));
@@ -141,6 +161,16 @@ fn main() -> Result<()> {
         &mut initial_requests,
         &startup_options.startup_paths.folders,
     );
+    // The hub only exists in a claimed primary; bypassed instances must
+    // not receive forwards meant for the real session.
+    let instance_hub = instance_guard.as_ref().and_then(|_| {
+        spawn_instance_hub(
+            &db,
+            editor.clone(),
+            Arc::clone(&file_buffer_index),
+            tx.clone(),
+        )
+    });
     let ctx = RegistryCtx {
         persist: persist.client(),
         editor: editor.clone(),
@@ -157,6 +187,12 @@ fn main() -> Result<()> {
         backup: Some(Arc::clone(&backup)),
     };
     run(ctx, rx, runtime, initial_requests).context("registry loop")?;
+
+    // Stop accepting forwarded launches and release the instance claim
+    // first, so a relaunch racing this shutdown becomes the new primary
+    // instead of forwarding into a dying process.
+    drop(instance_hub);
+    drop(instance_guard);
 
     // The registry loop returns only when every window closed gracefully.
     // Mark the exit clean so the next launch starts blank instead of
@@ -300,7 +336,7 @@ fn attach_startup_open_files(
     requests.extend(file_requests);
 }
 
-fn startup_file_spawn_request(
+pub(crate) fn startup_file_spawn_request(
     buffer_id: BufferId,
     recovery_notices: Vec<String>,
     ordinal: usize,
@@ -308,6 +344,7 @@ fn startup_file_spawn_request(
     SpawnRequest {
         initial_buffer_id: buffer_id,
         restored: None,
+        activate_on_restore: false,
         explicit_origin: startup_file_window_origin(ordinal),
         cascade_from: None,
         recovery_notices,
@@ -317,7 +354,7 @@ fn startup_file_spawn_request(
     }
 }
 
-fn startup_file_window_origin(ordinal: usize) -> Option<(i32, i32)> {
+pub(crate) fn startup_file_window_origin(ordinal: usize) -> Option<(i32, i32)> {
     const STARTUP_WINDOW_SIZE: (i32, i32) = (1200, 800);
     const STARTUP_CASCADE_STEP_PX: i32 = 30;
     let (x, y) = continuity_win::centered_origin_on_focused_monitor(STARTUP_WINDOW_SIZE)?;

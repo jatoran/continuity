@@ -518,6 +518,26 @@ mod tests {
     }
 
     #[test]
+    fn outdent_tab_unit_drops_leading_spaces_too() {
+        // Shift+Tab with tabs as the indent unit must still outdent
+        // lines whose indentation is spaces — one indent level per
+        // press, not all of it and not nothing.
+        let mut b = Buffer::from_text("\tabc\n    def\n  ghi");
+        b.set_selections(vec![Selection::new(
+            Position::new(0, 0),
+            Position::new(2, 5),
+            continuity_text::SelectionKind::Caret,
+        )]);
+        run(
+            &mut b,
+            SelectionEdit::Outdent {
+                unit: IndentUnit::Tab,
+            },
+        );
+        assert_eq!(b.rope().to_string(), "abc\ndef\nghi");
+    }
+
+    #[test]
     fn spaces_to_tabs_converts_runs() {
         let mut b = build("    foo", vec![at(0, 0)]);
         run(&mut b, SelectionEdit::SpacesToTabs { tab_width: 4 });

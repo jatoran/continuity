@@ -223,6 +223,12 @@ pub enum SelectionEdit {
     MarkdownInsertLink,
     /// Insert `![alt](path)` at each caret.
     MarkdownInsertImageRef,
+    /// Strip markdown formatting from every covered line: heading
+    /// hashes, list/checkbox markers, blockquote prefixes, emphasis /
+    /// code / strikethrough delimiters, and link syntax (keeping the
+    /// link text). Conservative on intraword `_` / lone `*` so code
+    /// identifiers and arithmetic survive.
+    MarkdownStripFormatting,
 
     /// Phase-16.5 auto-pair insert: at each caret, insert `open`
     /// immediately followed by `close`, leaving the caret between
@@ -409,6 +415,9 @@ pub fn plan(buffer: &Buffer, edit: &SelectionEdit) -> Result<Option<SelectionEdi
         SelectionEdit::MarkdownInsertCodeFence => plan_markdown_insert_code_fence(buffer),
         SelectionEdit::MarkdownInsertLink => plan_markdown_insert_link(buffer),
         SelectionEdit::MarkdownInsertImageRef => plan_markdown_insert_image_ref(buffer),
+        SelectionEdit::MarkdownStripFormatting => {
+            crate::edit_markdown_strip::plan_markdown_strip_formatting(buffer)
+        }
 
         SelectionEdit::InsertPair { open, close } => plan_insert_pair(buffer, open, close),
         SelectionEdit::DeletePair { open, close } => plan_delete_pair(buffer, *open, *close),

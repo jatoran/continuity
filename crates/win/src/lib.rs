@@ -13,6 +13,7 @@ pub mod error;
 pub mod icon;
 pub mod ime;
 pub mod monitor;
+pub mod single_instance;
 pub mod virtual_desktop;
 pub mod window;
 
@@ -23,6 +24,10 @@ pub use error::Error;
 pub use icon::load_app_icon;
 pub use monitor::{
     cascade_origin_on_source_monitor, centered_origin_on_focused_monitor, focused_monitor_work_area,
+};
+pub use single_instance::{
+    activate_first_visible_window_of_current_process, send_to_instance_hub, InstanceHub,
+    SingleInstanceMutex,
 };
 pub use virtual_desktop::VirtualDesktopManager;
 pub use window::{HiddenWindow, WindowClass};

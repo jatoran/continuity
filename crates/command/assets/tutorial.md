@@ -38,7 +38,7 @@ Pure function `(RopeSnapshot, Revision) → Decorations`, run on a worker pool. 
 
 ### Display map
 
-Pure projection from source bytes to visible display rows: hide marker bytes (e.g. `==highlight==` markers, table pipes, table formula source bytes, table alignment-row content), replace list markers with `• `, collapse folds, break lines at soft-wrap points. The rope stays canonical; the display map is derived — torn out, the editor is degraded but correct.
+Pure projection from source bytes to visible display rows: hide marker bytes (e.g. `==highlight==` markers, table pipes, table formula source bytes, table alignment-row content), replace **unordered** list markers with `• ` (ordered `N.` / `N)` markers keep their literal number), collapse folds, break lines at soft-wrap points. The rope stays canonical; the display map is derived — torn out, the editor is degraded but correct.
 
 ### File I/O
 
@@ -635,6 +635,7 @@ _Every command registered by `continuity_command::default_registry`, grouped by 
 | `markdown.set_heading_4` | `alt+4` |  |  |
 | `markdown.set_heading_5` | `alt+5` |  |  |
 | `markdown.set_heading_6` | `alt+6` |  |  |
+| `markdown.strip_formatting` |  |  |  |
 | `markdown.table.caret_cell_end` | `end` |  |  |
 | `markdown.table.caret_cell_start` | `home` |  |  |
 | `markdown.table.cell_up` | `shift+enter` |  |  |
@@ -854,7 +855,7 @@ _Auto-extracted from rustdoc `///` comments on the `Settings` struct and the per
 | `word_wrap` | `bool` | Word wrap on/off. |
 | `ruler_columns` | `Vec<u32>` | Ruler column positions (e.g., `[80, 120]`). |
 | `caret_style` | `String` | `"bar" \| "block" \| "underline"`. |
-| `indent_type` | `String` | `"spaces" \| "tabs"` — what `editor.indent` / `editor.outdent` insert and remove per level. `"spaces"` emits [`Self::indent_width`] spaces; `"tabs"` emits one tab character. Default `"spaces"`. Switching at runtime does not retroactively convert existing indentation — use `editor.spaces_to_tabs` / `editor.tabs_to_spaces` for that. |
+| `indent_type` | `String` | `"spaces" \| "tabs"` — what `editor.indent` / `editor.outdent` insert and remove per level. `"spaces"` emits [`Self::indent_width`] spaces; `"tabs"` emits one tab character. Default `"tabs"`. Switching at runtime does not retroactively convert existing indentation — use `editor.spaces_to_tabs` / `editor.tabs_to_spaces` for that. |
 | `indent_width` | `u32` | Spaces emitted per indent level when `indent_type = "spaces"`. Also drives the indent-guide column spacing. Validated `1..=16`. Default `4`. |
 | `tab_width` | `u32` | On-screen width of a literal tab character, in columns. Drives the rendered tab-stop (via DirectWrite incremental tab stops), the indent-guide geometry for tab-indented lines, and the spaces↔tabs conversion commands. Validated `1..=16`. Default `4`. |
 | `caret_blink_ms` | `u32` | Caret blink interval in ms. `0` disables blinking. |

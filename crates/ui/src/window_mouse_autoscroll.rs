@@ -116,6 +116,7 @@ impl Window {
         if had_selection_drag {
             self.mouse_state.dragging = false;
         }
+        self.mouse_state.multi_select_drag = false;
         // Losing capture (Alt+Tab, system pop-up, etc.) mid-drag must
         // tear down the tab drag — otherwise the source tab stays
         // faded and the next mouse click runs into a stale drop

@@ -6,8 +6,11 @@
 //! must run on the thread that owns the window, which is where both the
 //! window-creation path and the paint path run.
 
+use windows::core::HSTRING;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, ICON_BIG, ICON_SMALL, WM_SETICON};
+use windows::Win32::UI::WindowsAndMessaging::{
+    SendMessageW, SetWindowTextW, ICON_BIG, ICON_SMALL, WM_SETICON,
+};
 
 use crate::Window;
 
@@ -42,6 +45,39 @@ impl Window {
         // to set and retrying every paint would be pure waste.
         let _ = continuity_win::set_titlebar_dark_mode(self.hwnd, dark);
         self.titlebar_dark_applied = Some(dark);
+    }
+
+    /// Match the OS window caption to the active tab's label so the
+    /// taskbar / Alt-Tab entry names the note the user is editing
+    /// instead of the application ("continuity").
+    ///
+    /// Idempotent and cheap like [`Self::sync_titlebar_theme`]: the
+    /// label is recomputed each call but `SetWindowTextW` only fires
+    /// when it differs from the last applied caption. Safe on the paint
+    /// path — every label-changing event (tab switch, first-line edit,
+    /// file association, tab rename) already invalidates and therefore
+    /// paints.
+    pub(crate) fn sync_window_title(&mut self) {
+        if self.hwnd.is_invalid() {
+            return;
+        }
+        let label = self
+            .tree
+            .active_tab()
+            .map(|tab| self.tab_label(tab))
+            .unwrap_or_default();
+        let title = if label.trim().is_empty() {
+            "Untitled".to_string()
+        } else {
+            label
+        };
+        if self.window_title_applied.as_deref() == Some(title.as_str()) {
+            return;
+        }
+        unsafe {
+            let _ = SetWindowTextW(self.hwnd, &HSTRING::from(title.as_str()));
+        }
+        self.window_title_applied = Some(title);
     }
 
     /// Attach the embedded application icon to this window's caption and

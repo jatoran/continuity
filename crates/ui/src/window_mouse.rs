@@ -77,6 +77,14 @@ impl Window {
             click_trace.claim("minimap");
             return true;
         }
+        // Outline-sidebar edge-resize begins before the row hit-test so
+        // a grab on the band never doubles as a heading jump.
+        if click_trace.measure(ClickStage::Outline, || {
+            self.try_outline_resize_left_down(x, y)
+        }) {
+            click_trace.claim("outline_resize");
+            return true;
+        }
         // Phase F2: a click on an outline-sidebar row jumps the caret
         // to that heading line and scrolls it into view. Runs before
         // pane-body focus switch + caret placement so a click on the
@@ -217,6 +225,13 @@ impl Window {
                 _ => {
                     if is_key_down(VK_MENU.0) {
                         self.add_cursor_at_pixel(x, y)
+                    } else if is_key_down(VK_CONTROL.0) && !is_key_down(VK_SHIFT.0) {
+                        // Ctrl+click starts an *additional* selection:
+                        // existing ranges stay put, a fresh caret lands at
+                        // the click point, and the drag extends only that
+                        // newest range (multi-region highlight).
+                        self.mouse_state.multi_select_drag = self.add_cursor_at_pixel(x, y);
+                        self.mouse_state.multi_select_drag
                     } else if !is_key_down(VK_SHIFT.0) && self.try_select_cell_at_pixel(x, y) {
                         true
                     } else {
@@ -333,6 +348,11 @@ impl Window {
         if self.mouse_state.table_col_drag.is_some() {
             return self.drag_table_col_resize(x);
         }
+        // Outline-sidebar resize: same capture-without-`dragging`
+        // pattern as the table column drag above.
+        if self.mouse_state.outline_resize_drag.is_some() {
+            return self.drag_outline_resize(x);
+        }
         if !self.mouse_state.dragging {
             return invalidate_hover;
         }
@@ -348,7 +368,11 @@ impl Window {
             // resolution the next mouse-up will actually commit.
             return self.on_tab_drag_mouse_move(x, y);
         }
-        let placed = self.extend_drag_selection_at_pixel(x, y);
+        let placed = if self.mouse_state.multi_select_drag {
+            self.extend_additional_selection_at_pixel(x, y)
+        } else {
+            self.extend_drag_selection_at_pixel(x, y)
+        };
         self.update_mouse_drag_autoscroll_from_cursor(x, y);
         placed
     }
@@ -364,6 +388,7 @@ impl Window {
     ///    on the desktop never silently "loses" the tab.
     pub(crate) fn on_left_button_up(&mut self, x: i32, y: i32) -> bool {
         let selection_drag_finished = self.finish_selection_drag_for_button_up();
+        self.mouse_state.multi_select_drag = false;
         // Buffer-history tab: end an in-flight pan-drag. Runs first
         // so a drag release doesn't bleed into tab-drop / splitter
         // resolution paths below.
@@ -395,6 +420,11 @@ impl Window {
         // splitter / tab-drop branches so a release ending a resize drag
         // doesn't bleed into them.
         if self.finish_table_col_resize() {
+            let _ = (x, y);
+            return true;
+        }
+        // Outline-sidebar resize commits its width + releases capture.
+        if self.finish_outline_resize() {
             let _ = (x, y);
             return true;
         }

@@ -32,13 +32,14 @@ use crate::image_row_reservation_provider::ImageRowReservation;
 use crate::markdown_toggles::MarkdownRenderToggles;
 use crate::segment::DisplaySegment;
 use crate::style::SpanStyle;
-use crate::wrap::{WidthMeasure, WrapConfig};
+use crate::wrap::{continuation_wrap_budget_dip, hanging_indent_dip, WidthMeasure, WrapConfig};
 use crate::wrap_cache::{WrapCache, WrapCacheKey};
 use crate::{compute_line_projection_stamp, SegmentCache, SegmentCacheKey};
 
 use super::line_helpers::{line_is_hidden, read_line_text, source_line_range};
 use super::segments::build_line_segments;
-use super::{SlowestLineRecord, WalkerStats, WALKER_SLOWEST_LINES_CAPACITY};
+use super::stats::record_slowest_line;
+use super::{SlowestLineRecord, WalkerStats};
 
 /// Shared row-count cache context for one walker invocation.
 #[derive(Clone, Copy)]
@@ -68,41 +69,6 @@ fn accumulate_stage_us(
         let us = t0.elapsed().as_micros() as u64;
         let slot = field(s);
         *slot = slot.saturating_add(us);
-    }
-}
-
-/// Insert one observation into the fixed-capacity slowest-lines
-/// reservoir on `WalkerStats`. Maintains descending sort order. O(8).
-#[inline]
-fn record_slowest_line(stats: &mut WalkerStats, record: SlowestLineRecord) {
-    let len = stats.slowest_lines_len as usize;
-    let cap = WALKER_SLOWEST_LINES_CAPACITY;
-    if len < cap {
-        // Insert at correct sorted position; shift the tail right.
-        let pos = stats.slowest_lines[..len]
-            .iter()
-            .position(|r| r.cost_us < record.cost_us)
-            .unwrap_or(len);
-        let mut i = len;
-        while i > pos {
-            stats.slowest_lines[i] = stats.slowest_lines[i - 1];
-            i -= 1;
-        }
-        stats.slowest_lines[pos] = record;
-        stats.slowest_lines_len += 1;
-    } else if record.cost_us > stats.slowest_lines[cap - 1].cost_us {
-        // Reservoir full; evict the smallest (last) entry by shifting
-        // and re-inserting at the correct position.
-        let pos = stats.slowest_lines[..cap]
-            .iter()
-            .position(|r| r.cost_us < record.cost_us)
-            .unwrap_or(cap - 1);
-        let mut i = cap - 1;
-        while i > pos {
-            stats.slowest_lines[i] = stats.slowest_lines[i - 1];
-            i -= 1;
-        }
-        stats.slowest_lines[pos] = record;
     }
 }
 
@@ -225,6 +191,21 @@ pub(super) fn row_count_for_source_line(
         return Ok(0);
     }
 
+    // Continuation rows are painted shifted right by the line's hanging
+    // indent, so every wrap-row decision below budgets them at the
+    // reduced width. Cheap: `hanging_indent_dip` returns 0.0 without
+    // measuring for the common no-indent / no-marker line, and the two
+    // probe measurements (" " and "\t") are served from the measurer's
+    // single-ASCII cache.
+    let continuation_budget_dip = if wrap.enabled() {
+        continuation_wrap_budget_dip(
+            wrap.width_dip as f32,
+            hanging_indent_dip(&line_text, measure),
+        )
+    } else {
+        0.0
+    };
+
     let natural_rows: u16 = if wrap.enabled() {
         // P18.12d (2026-05-22) — `content_stamp` and `cache_context`
         // are now passed to `count_soft_wrap_rows` *regardless* of
@@ -250,9 +231,14 @@ pub(super) fn row_count_for_source_line(
                 &line_text,
             )
         });
-        if let Some(cached) =
-            try_cached_wrap_rows(cache_context, content_stamp, wrap, stats.as_deref_mut(), 0)
-        {
+        if let Some(cached) = try_cached_wrap_rows(
+            cache_context,
+            content_stamp,
+            wrap,
+            continuation_budget_dip,
+            stats.as_deref_mut(),
+            0,
+        ) {
             cached.rows
         } else {
             let segment_cache_eligible = !line_text.is_ascii();
@@ -309,6 +295,7 @@ pub(super) fn row_count_for_source_line(
                 &line_text,
                 line_start,
                 wrap,
+                continuation_budget_dip,
                 measure,
                 cache_context,
                 content_stamp,
@@ -357,6 +344,7 @@ fn count_soft_wrap_rows(
     line_text: &str,
     source_byte_start: usize,
     wrap: WrapConfig,
+    continuation_budget_dip: f32,
     measure: &mut dyn WidthMeasure,
     cache_context: Option<RowCountCacheContext<'_>>,
     content_stamp: Option<u64>,
@@ -440,6 +428,7 @@ fn count_soft_wrap_rows(
         cache_context,
         content_stamp,
         wrap,
+        continuation_budget_dip,
         stats.as_deref_mut(),
         segment_measure_calls,
     ) {
@@ -488,6 +477,10 @@ fn count_soft_wrap_rows(
     let mut break_offsets: Vec<u32> = Vec::new();
     let mut prefix_advances_bits: Vec<u32> = Vec::new();
     let mut pre_whitespace_advances_bits: Vec<u32> = Vec::new();
+    // First row budgets the full wrap width; continuation rows budget
+    // the hang-indent-reduced width (mirrors
+    // `grapheme_word_break_points_styled`).
+    let mut row_budget = max_width;
     for seg in segments {
         let bytes = seg.display_bytes(line_text, source_byte_start_typed);
         if bytes.is_empty() {
@@ -520,11 +513,12 @@ fn count_soft_wrap_rows(
                 running_at_word_break = running + w;
             }
             cum_from_line_start += w;
-            if running + w > max_width && byte_off > line_start_byte {
+            if running + w > row_budget && byte_off > line_start_byte {
                 let word_break = last_word_break.filter(|c| *c > line_start_byte);
                 let cut = word_break.unwrap_or(byte_off);
                 breaks = breaks.saturating_add(1);
                 line_start_byte = cut;
+                row_budget = continuation_budget_dip;
                 // Exact carry-over with no re-measure (matches
                 // `grapheme_word_break_points_styled`): a word-boundary break
                 // carries everything past the break point; a hard grapheme

@@ -175,13 +175,13 @@ fn for_each_visible_code_span(
         {
             continue;
         }
-        let inner_start = span.range.start.max(line_byte_range.start);
-        let inner_end = span.range.end.min(line_byte_range.end);
-        if inner_end <= inner_start {
+        let visible_start = span.range.start.max(line_byte_range.start);
+        let visible_end = span.range.end.min(line_byte_range.end);
+        if visible_end <= visible_start {
             continue;
         }
-        let local_start = inner_start - line_byte_range.start;
-        let local_end = inner_end - line_byte_range.start;
+        let local_start = visible_start - line_byte_range.start;
+        let local_end = visible_end - line_byte_range.start;
         let utf16_start = source_to_utf16(line_byte_range.start + local_start);
         let utf16_end = source_to_utf16(line_byte_range.start + local_end);
         let Some(x_start) = hit_test_x(layout, utf16_start) else {
@@ -193,7 +193,12 @@ fn for_each_visible_code_span(
         if x_end <= x_start {
             continue;
         }
-        on_span(span, inner_start, inner_end, x_start, x_end);
+        // The painted rect covers only this display row's slice of the
+        // span, but the published hit must carry the FULL inner range:
+        // a soft-wrapped `code` span paints across several rows, and the
+        // copy button on any of them must copy the whole span — not the
+        // one row it happened to be hovered on.
+        on_span(span, span.range.start, span.range.end, x_start, x_end);
     }
 }
 

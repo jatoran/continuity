@@ -100,6 +100,7 @@ pub(crate) fn build_initial_requests(
         return Ok(vec![SpawnRequest {
             initial_buffer_id: buffer_id,
             restored: None,
+            activate_on_restore: false,
             explicit_origin: None,
             cascade_from: None,
             recovery_notices: format_recovery_halts(&halts),
@@ -110,7 +111,13 @@ pub(crate) fn build_initial_requests(
     }
     let mut out = Vec::with_capacity(rows.len());
     let mut adopted = HashSet::new();
+    // Only the most-recently-seen restored window may take the
+    // foreground on launch; the rest show without activation so a
+    // multi-window restore neither flashes focus around nor yanks the
+    // user onto another virtual desktop.
+    let mut most_recent: Option<(i64, usize)> = None;
     for row in rows {
+        let row_last_seen_ms = row.last_seen_ms;
         let outcome = seed_buffer_for_row(persist, editor, &row, &mut adopted, &mut halts);
         let (buffer_id, restored, partial_notice) = match outcome {
             SeedOutcome::Restored(b) => (
@@ -149,9 +156,13 @@ pub(crate) fn build_initial_requests(
         if let Some(b) = partial_notice {
             recovery_notices.push(b);
         }
+        if most_recent.is_none_or(|(best, _)| row_last_seen_ms >= best) {
+            most_recent = Some((row_last_seen_ms, out.len()));
+        }
         out.push(SpawnRequest {
             initial_buffer_id: buffer_id,
             restored,
+            activate_on_restore: false,
             explicit_origin: None,
             cascade_from: None,
             recovery_notices,
@@ -166,6 +177,7 @@ pub(crate) fn build_initial_requests(
         return Ok(vec![SpawnRequest {
             initial_buffer_id: buffer_id,
             restored: None,
+            activate_on_restore: false,
             explicit_origin: None,
             cascade_from: None,
             recovery_notices: format_recovery_halts(&halts),
@@ -173,6 +185,11 @@ pub(crate) fn build_initial_requests(
             startup_open_buffer_ids: Vec::new(),
             startup_folder_roots: Vec::new(),
         }]);
+    }
+    if let Some((_, idx)) = most_recent {
+        if let Some(request) = out.get_mut(idx) {
+            request.activate_on_restore = true;
+        }
     }
     if let Some(first) = out.first_mut() {
         let mut existing = std::mem::take(&mut first.recovery_notices);
@@ -440,155 +457,4 @@ fn unix_ms_now() -> i64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use continuity_buffer::{BufferId, Revision};
-    use continuity_core::SystemClock;
-    use continuity_persist::{EditRow, PersistHandle, SnapshotRow};
-
-    use super::*;
-
-    #[test]
-    fn recovered_snapshot_decoration_populates_inline_colors_and_formulas() {
-        let id = BufferId::new();
-        let content = "{#ff0000:red text}\n\n| A | B |\n|---|---|\n| 1 | =1+2 |\n";
-        let snapshot = SnapshotRow {
-            id: Some(1),
-            buffer_id: id,
-            revision: Revision(4),
-            content: content.to_string(),
-            byte_len: content.len() as u64,
-            line_count: content.lines().count() as u32,
-            checksum: 0,
-            label: None,
-            created_at_ms: 0,
-        };
-        let (buffer, halt) = rebuild_buffer_with_halt(id, &snapshot, Vec::new(), None);
-        assert!(halt.is_none(), "empty edit log should not halt");
-        let source = buffer.rope().to_string();
-        let decorations =
-            continuity_decorate::Decorations::compute(&source, buffer.revision().get())
-                .expect("decorations compute for recovered snapshot");
-        assert!(!decorations.inline_color_spans.is_empty());
-        assert!(!decorations.evaluated_tables.is_empty());
-        assert_eq!(decorations.revision, 4);
-    }
-
-    #[test]
-    fn format_recovery_halt_mentions_revision_and_reason() {
-        let buffer_id = BufferId::new();
-        let halt = RecoveryHalt {
-            buffer_id,
-            halted_at_seq: 42,
-            last_valid_revision: Revision(7),
-            reason: RecoveryHaltReason::ChecksumMismatch {
-                computed: 0x1234_5678_9abc_def0,
-                expected: 0xfedc_ba98_7654_3210,
-            },
-        };
-        let banner = format_recovery_halt(&halt);
-        assert!(banner.contains(&buffer_id.as_uuid().to_string()));
-        assert!(banner.contains("seq 42"));
-        assert!(banner.contains("revision 7"));
-        assert!(banner.contains("checksum mismatch"));
-    }
-
-    /// δ.3 acceptance — corrupt the persisted edit log for the
-    /// most-recent buffer and assert `build_initial_requests` returns
-    /// a SpawnRequest with a non-empty `recovery_notices` payload.
-    #[test]
-    fn corrupt_edit_row_surfaces_recovery_notice() {
-        use continuity_buffer::Buffer;
-        let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("recovery_notice.db");
-        let persist = PersistHandle::spawn(&db).unwrap();
-        let client = persist.client();
-        let editor = Arc::new(EditorHandle::spawn(client.clone(), Arc::new(SystemClock)));
-        let buf = Buffer::from_text("hi");
-        let buffer_id = buf.id();
-        client.upsert_buffer(buffer_id, 1, 1).unwrap();
-        client
-            .save_snapshot_blocking(buffer_id, buf.snapshot())
-            .unwrap();
-        let bad_row = EditRow {
-            buffer_id,
-            seq: 1,
-            revision: Revision(1),
-            ts_ms: 2,
-            op_kind: "insert".into(),
-            range_start_line: Some(0),
-            range_start_byte: Some(2),
-            range_end_line: None,
-            range_end_byte: None,
-            inserted_text: Some("!".into()),
-            removed_text: None,
-            selections_before_json: None,
-            selections_after_json: None,
-            undo_group_id: None,
-            checksum_after: 0xDEAD_BEEF_DEAD_BEEF,
-        };
-        client.append_edit(bad_row).unwrap();
-        let _ = client.most_recent_buffer().unwrap();
-        let requests =
-            build_initial_requests(&client, &editor, &db).expect("build_initial_requests");
-        assert_eq!(requests.len(), 1);
-        let notices = &requests[0].recovery_notices;
-        assert!(!notices.is_empty());
-        let banner = &notices[0];
-        assert!(banner.contains("checksum mismatch"));
-        assert!(banner.contains("revision 0"));
-        assert!(banner.contains(&buffer_id.as_uuid().to_string()));
-    }
-
-    /// Bug A acceptance — a window row whose pane_tree_json is total
-    /// gibberish must still produce a `SpawnRequest`, never get
-    /// silently dropped. The request carries a partial-restore
-    /// banner naming the decoder error and keeps the window's id.
-    #[test]
-    fn malformed_pane_tree_produces_partial_restore_request_not_skip() {
-        use continuity_buffer::{Buffer, WindowId};
-        use continuity_persist::WindowRow;
-        let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("partial_restore.db");
-        let persist = PersistHandle::spawn(&db).unwrap();
-        let client = persist.client();
-        let editor = Arc::new(EditorHandle::spawn(client.clone(), Arc::new(SystemClock)));
-        // Stage a buffer so recover_or_open has something to fall back to.
-        let buf = Buffer::from_text("seed");
-        let buffer_id = buf.id();
-        client.upsert_buffer(buffer_id, 1, 1).unwrap();
-        client
-            .save_snapshot_blocking(buffer_id, buf.snapshot())
-            .unwrap();
-        // Stage a windows row whose pane_tree_json fails strict decode.
-        let win = WindowId::new();
-        let row = WindowRow {
-            id: win,
-            virtual_desktop_guid: None,
-            monitor_id: None,
-            placement_blob: None,
-            pane_tree_json: "not even json at all".into(),
-            last_seen_ms: 42,
-        };
-        client.save_window(row).unwrap();
-        let requests =
-            build_initial_requests(&client, &editor, &db).expect("build_initial_requests");
-        assert_eq!(
-            requests.len(),
-            1,
-            "malformed window must still produce a spawn request"
-        );
-        let req = &requests[0];
-        let restored = req.restored.as_ref().expect("restored info preserved");
-        assert_eq!(
-            restored.0, win,
-            "window id preserved across partial restore"
-        );
-        assert!(
-            req.recovery_notices
-                .iter()
-                .any(|n| n.contains("decoder error")),
-            "partial-restore banner missing: {:?}",
-            req.recovery_notices
-        );
-    }
-}
+mod tests;

@@ -16,6 +16,8 @@
 
 Single process, multiple top-level Win32 windows, one shared editor core. Per window: own message pump, own swap chain, own pane tree, own scalar `view_options`. Cross-window shared: `EditorHandle`, persistence client, decoration pool, theme set, command registry, settings watcher.
 
+**Single instance per data dir.** The process holds a named mutex keyed by the database path (`win::single_instance::SingleInstanceMutex`). A second launch is *not* a second process running the full session — it forwards its command-line file/folder paths to the running instance over a message-only `WM_COPYDATA` hub (`win::single_instance::InstanceHub`, spawned only by the mutex-holding primary) and exits; a bare relaunch just activates the running instance's top-most window. Only when no live instance is reachable does the launcher run standalone. `--new-instance` (and the `CONTINUITY_E2E_INSERT` test hook) bypass the handoff. This is what keeps a double-click / shortcut launch from replaying the persisted window set and duplicating every open window. Claim/forward logic: `app::single_instance::claim_or_forward`; hub receive → `RegistryEvent::Spawn` / window activation on the hub's pump thread.
+
 ## Thread map
 
 | Thread | Owns | Reads | Sends |

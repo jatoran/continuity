@@ -77,26 +77,43 @@ impl PasteHistory {
 }
 
 impl Window {
-    /// Read the source text of the primary selection (or the whole
-    /// buffer when the primary selection is empty).
-    fn primary_selection_source(&self) -> Option<String> {
+    /// Read the clipboard payload for the current selections: every
+    /// non-collapsed selection's source text in document order, joined
+    /// with newlines. With a single selection this is exactly that
+    /// selection's text; with Ctrl-drag multi-region highlights the
+    /// clipboard carries all of them — matching the cut/delete path,
+    /// which already removes every highlighted range. `None` when no
+    /// selection covers any text.
+    fn selections_clipboard_source(&self) -> Option<String> {
         let snap = self.editor.snapshot(self.buffer_id)?;
-        let sel = snap.selections().first().copied()?;
         let rope = snap.rope_snapshot().rope();
-        let range = sel.ordered_range();
-        let start = range.start.to_byte_offset(rope).unwrap_or(0);
-        let end = range.end.to_byte_offset(rope).unwrap_or(rope.len_bytes());
-        if start == end {
-            None
-        } else {
-            Some(rope.byte_slice(start..end).to_string())
+        let mut ranges: Vec<(usize, usize)> = snap
+            .selections()
+            .iter()
+            .filter(|sel| !sel.is_collapsed())
+            .filter_map(|sel| {
+                let range = sel.ordered_range();
+                let start = range.start.to_byte_offset(rope).ok()?;
+                let end = range.end.to_byte_offset(rope).ok()?;
+                (start < end).then_some((start, end))
+            })
+            .collect();
+        if ranges.is_empty() {
+            return None;
         }
+        ranges.sort_unstable();
+        let pieces: Vec<String> = ranges
+            .iter()
+            .map(|(start, end)| rope.byte_slice(*start..*end).to_string())
+            .collect();
+        Some(pieces.join("\n"))
     }
 
-    /// `editor.copy` — copy primary-selection source to the OS clipboard
-    /// and record it in the paste-history ring.
+    /// `editor.copy` — copy every selection's source to the OS clipboard
+    /// (newline-joined, document order) and record it in the
+    /// paste-history ring.
     pub(crate) fn copy_selection_impl(&mut self) -> Result<(), CommandError> {
-        let Some(text) = self.primary_selection_source() else {
+        let Some(text) = self.selections_clipboard_source() else {
             return Err(CommandError::UnsupportedContext("no selection"));
         };
         if let Err(e) = clipboard::write_text(self.hwnd, &text) {
@@ -107,9 +124,10 @@ impl Window {
         Ok(())
     }
 
-    /// `editor.cut` — copy primary-selection source, then delete it.
+    /// `editor.cut` — copy every selection's source, then delete all of
+    /// them.
     pub(crate) fn cut_selection_impl(&mut self) -> Result<(), CommandError> {
-        let Some(text) = self.primary_selection_source() else {
+        let Some(text) = self.selections_clipboard_source() else {
             return Err(CommandError::UnsupportedContext("no selection"));
         };
         if let Err(e) = clipboard::write_text(self.hwnd, &text) {

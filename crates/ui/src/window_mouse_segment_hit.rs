@@ -231,7 +231,7 @@ impl Window {
         }
     }
 
-    fn snapshot_open_url_at_range(&self, url_start: u32, url_end: u32) -> bool {
+    fn snapshot_open_url_at_range(&mut self, url_start: u32, url_end: u32) -> bool {
         let snap = match self.editor.snapshot(self.buffer_id) {
             Some(s) => s,
             None => return false,
@@ -244,6 +244,11 @@ impl Window {
             return false;
         }
         let raw_url: String = rope.byte_slice(start..end).to_string();
+        // In-document anchors (`#some-heading`) jump to the matching
+        // heading instead of leaving the editor.
+        if let Some(anchor) = raw_url.trim().strip_prefix('#') {
+            return self.jump_to_heading_anchor(anchor);
+        }
         // Scheme-less targets (`www.google.com`) open as files otherwise.
         let url = crate::window_link_clipboard::normalize_url_for_open(&raw_url);
         if url.is_empty() {
@@ -265,6 +270,42 @@ impl Window {
             );
         }
         true
+    }
+
+    /// `[text](#some-heading)` — resolve the anchor against the
+    /// buffer's ATX headings (GitHub-style slug comparison, lenient
+    /// about punctuation and `%20`s) and jump the caret there.
+    fn jump_to_heading_anchor(&mut self, anchor: &str) -> bool {
+        let Some(snap) = self.editor.snapshot(self.buffer_id) else {
+            return false;
+        };
+        let rope = snap.rope_snapshot().rope();
+        let wanted = heading_anchor_slug(&anchor.replace("%20", " "));
+        if wanted.is_empty() {
+            return false;
+        }
+        for line in 0..rope.len_lines() {
+            let start = rope.line_to_byte(line);
+            let end = if line + 1 < rope.len_lines() {
+                rope.line_to_byte(line + 1)
+            } else {
+                rope.len_bytes()
+            };
+            let text = rope.byte_slice(start..end).to_string();
+            let trimmed = text.trim_end();
+            let hashes = trimmed.bytes().take_while(|b| *b == b'#').count();
+            if hashes == 0 || hashes > 6 {
+                continue;
+            }
+            let Some(title) = trimmed[hashes..].strip_prefix(' ') else {
+                continue;
+            };
+            if heading_anchor_slug(title) == wanted {
+                let s = SourceByte::from_usize(start);
+                return self.jump_to_source_range(&(s..s));
+            }
+        }
+        false
     }
 
     fn toggle_checkbox_at_byte(&mut self, abs_byte: u32) -> bool {
@@ -355,6 +396,26 @@ fn log_segment_hit_cache_path(cache_path: &str) {
     }
 }
 
+/// GitHub-style heading slug, lenient: lowercase, alphanumerics kept,
+/// whitespace and dashes collapse to single dashes, underscores kept,
+/// all other punctuation dropped. Both the anchor and the heading
+/// title pass through this, so `[x](#My-Header!)` matches `## My
+/// Header!`.
+fn heading_anchor_slug(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut prev_dash = true; // suppress leading dashes
+    for c in text.trim().chars() {
+        if c.is_alphanumeric() || c == '_' {
+            out.extend(c.to_lowercase());
+            prev_dash = false;
+        } else if (c.is_whitespace() || c == '-') && !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    out.trim_end_matches('-').to_string()
+}
+
 fn source_line_text_for_segment_cache(
     rope: &ropey::Rope,
     source_line: usize,
@@ -378,5 +439,21 @@ fn source_line_text_for_segment_cache(
         (line_end, slice)
     } else {
         (line_end, rope.byte_slice(line_start..line_end).to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::heading_anchor_slug;
+
+    #[test]
+    fn slug_matches_github_style_anchors() {
+        assert_eq!(heading_anchor_slug("My Header"), "my-header");
+        assert_eq!(heading_anchor_slug("my-header"), "my-header");
+        assert_eq!(heading_anchor_slug("My  Header!"), "my-header");
+        assert_eq!(heading_anchor_slug("With_Underscore"), "with_underscore");
+        assert_eq!(heading_anchor_slug("  Trim Me  "), "trim-me");
+        assert_eq!(heading_anchor_slug("Émigré Café"), "émigré-café");
+        assert_eq!(heading_anchor_slug("!!!"), "");
     }
 }

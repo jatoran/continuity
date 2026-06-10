@@ -5,6 +5,7 @@ Right-docked per-pane sidebar listing the active buffer's heading tree, plus two
 ## Surface
 
 - View toggle: `view.toggle_outline` (no default chord) flips the current buffer's runtime outline visibility. `[ui].show_outline_sidebar` supplies the default for buffers without an override. Width comes from `[ui].outline_sidebar_width_dip` (default 220 DIP). Settings hot-reload.
+- Drag-resize: dragging the sidebar's left edge (a ±4 DIP grab band, `IDC_SIZEWE` cursor) resizes it live, clamped to `120..=min(600, 80 % of body)` DIP; the settled width persists to `[ui].outline_sidebar_width_dip` on release and prewarms the projection at the new wrap width (the sidebar consumes body width, so resizing reflows text). Drag state is `MouseState.outline_resize_drag`; logic in `window_outline_resize.rs`. Routed before the row hit-test so a grab on the band never doubles as a heading jump.
 - TOC commands: `markdown.insert_toc` writes a fresh marker-delimited bullet list at the caret line. `markdown.refresh_toc` re-runs the formatter in place against the existing `<!-- toc --> … <!-- /toc -->` pair; no-op when the markers are absent.
 - Theme keys: `editor.outline.{background, foreground, foreground_active, separator}`. Required on every bundled theme + the neutral fallback.
 - Click target: a click anywhere inside a sidebar row scrolls the heading line to the viewport top and places the caret at column 0 of that line. Hit-test consults a layout the paint pass caches in `view_options.outline_layout`.
@@ -135,6 +136,7 @@ the full row index. See `display-map.md` for the partial classifier.
 - `crates/render/src/outline_paint.rs` — D2D paint dispatch.
 - `crates/ui/src/window_paint.rs` — per-frame `OutlineData` build + body-width subtraction.
 - `crates/ui/src/window_outline.rs` — click hit-test, scroll handling, TOC mutation handlers.
+- `crates/ui/src/window_outline_resize.rs` — left-edge drag-resize (grab band, live width, width persistence).
 - `crates/ui/src/window_outline_entries_cache.rs` — UI-thread `(BufferId, rope_revision, decoration_revision)` cache shared by paint + click.
 - `crates/ui/src/window_right_edge_chrome.rs` — buffer-local minimap / outline state + chrome hit-test.
 - `crates/ui/src/window_context_menu.rs` — right-click chrome menu dispatch.

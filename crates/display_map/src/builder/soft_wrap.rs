@@ -14,7 +14,7 @@ use crate::id::{DisplayByte, SourceByte};
 use crate::line::DisplayLineSpec;
 use crate::segment::DisplaySegment;
 use crate::style::SpanStyle;
-use crate::wrap::{WidthMeasure, WrapConfig};
+use crate::wrap::{continuation_wrap_budget_dip, hanging_indent_dip, WidthMeasure, WrapConfig};
 
 /// If the line fits, return `[spec]`; otherwise split it at word-aware
 /// break points (falling back to grapheme breaks when no whitespace is
@@ -47,9 +47,22 @@ pub(super) fn soft_wrap_spec(
         return Ok(vec![spec]);
     }
 
+    // Continuation rows are painted shifted right by the line's hanging
+    // indent (leading whitespace + list marker), so they get a reduced
+    // budget — otherwise their painted right edge overflows the text
+    // column by exactly the indent width.
+    let hang_indent = hanging_indent_dip(line_text, measure);
+    let continuation_max_width = continuation_wrap_budget_dip(max_width, hang_indent);
+
     // Find wrap breakpoints in display space, then translate back to
     // source bytes via the spec's `display_to_source` table.
-    let break_points = grapheme_word_break_points_styled(&spec, line_text, max_width, measure);
+    let break_points = grapheme_word_break_points_styled(
+        &spec,
+        line_text,
+        max_width,
+        continuation_max_width,
+        measure,
+    );
     if break_points.is_empty() {
         return Ok(vec![spec]);
     }
@@ -155,10 +168,16 @@ fn trim_segment(seg: &DisplaySegment, start: usize, end: usize) -> DisplaySegmen
 /// grapheme boundary otherwise. Each segment's graphemes are measured
 /// under that segment's own [`SpanStyle`] so heading runs (1.42× body)
 /// and superscript runs (0.70× body) wrap at the right column.
+///
+/// The first row is budgeted at `max_width`; every later row at
+/// `continuation_max_width` (the wrap column minus the line's hanging
+/// indent), matching where the painter actually places continuation
+/// rows.
 fn grapheme_word_break_points_styled(
     spec: &DisplayLineSpec,
     line_text: &str,
     max_width: f32,
+    continuation_max_width: f32,
     measure: &mut dyn WidthMeasure,
 ) -> Vec<usize> {
     let mut breaks: Vec<usize> = Vec::new();
@@ -176,6 +195,7 @@ fn grapheme_word_break_points_styled(
     let mut running = 0.0_f32;
     let mut running_at_word_break = 0.0_f32;
     let mut segment_base = 0_usize;
+    let mut row_budget = max_width;
 
     for seg in &spec.segments {
         let bytes = seg.display_bytes(line_text, spec.source_byte_start);
@@ -190,11 +210,12 @@ fn grapheme_word_break_points_styled(
                 last_word_break = Some(byte_off + g.len());
                 running_at_word_break = running + w;
             }
-            if running + w > max_width && byte_off > line_start_byte {
+            if running + w > row_budget && byte_off > line_start_byte {
                 let word_break = last_word_break.filter(|c| *c > line_start_byte);
                 let cut = word_break.unwrap_or(byte_off);
                 breaks.push(cut);
                 line_start_byte = cut;
+                row_budget = continuation_max_width;
                 // Carry-over width with no re-measure: a word-boundary break
                 // carries everything after the break point; a hard grapheme
                 // break (no usable word break) starts the new row at the

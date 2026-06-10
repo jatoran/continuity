@@ -12,6 +12,7 @@ pub(super) fn try_cached_wrap_rows(
     cache_context: Option<RowCountCacheContext<'_>>,
     content_stamp: Option<u64>,
     wrap: WrapConfig,
+    continuation_budget_dip: f32,
     stats: Option<&mut WalkerStats>,
     measure_calls_on_hit: u64,
 ) -> Option<SoftWrapRowCount> {
@@ -32,6 +33,7 @@ pub(super) fn try_cached_wrap_rows(
         ctx.font_state,
         ctx.locale,
         wrap.width_dip,
+        continuation_budget_dip,
         key,
     ) {
         record_wrap_hit(stats, |s| &mut s.wrap_profile_hits, measure_calls_on_hit);

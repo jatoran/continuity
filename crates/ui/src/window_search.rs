@@ -35,14 +35,20 @@ pub(crate) fn emit_find_pattern_trace(
 
 impl Window {
     /// Open or retarget the find bar using the mode requested by the
-    /// command while preserving cached query / replacement text.
+    /// command while preserving cached query / replacement text. A
+    /// single-line highlight seeds the query so Ctrl+F / Ctrl+H search
+    /// for the selected text immediately.
     pub(crate) fn open_find_impl(&mut self, with_replace: bool) -> Result<(), Error> {
+        let seed = self.find_query_seed_from_selection();
         if self.overlays.find_bar().is_some() {
             let ranges = self.current_find_selection_ranges();
             if let Some(fb) = self.overlays.find_bar_mut() {
                 fb.apply_requested_find_mode(with_replace);
                 if fb.selection_scope_ranges.is_empty() {
                     fb.selection_scope_ranges = ranges;
+                }
+                if let Some(text) = seed.as_deref() {
+                    fb.query_input.set_text(text);
                 }
             }
             self.focus_overlay_input();
@@ -51,7 +57,11 @@ impl Window {
             if let Some(fb) = self.overlays.find_bar_mut() {
                 fb.select_all_focused_field();
             }
-            self.ensure_find_matches_current_for_focused_pane();
+            if seed.is_some() {
+                self.recompute_find_matches();
+            } else {
+                self.ensure_find_matches_current_for_focused_pane();
+            }
             self.save_find_memento();
             return Ok(());
         }
@@ -62,10 +72,46 @@ impl Window {
             .unwrap_or_default();
         fb.apply_requested_find_mode(with_replace);
         fb.selection_scope_ranges = self.current_find_selection_ranges();
+        if let Some(text) = seed.as_deref() {
+            fb.query_input.set_text(text);
+        }
         self.overlays.open_find_with(fb);
         self.focus_overlay_input();
+        // Select the whole focused field on every open — whether the
+        // query came from the highlight seed or the memento of a
+        // previously closed bar — so typing always overtypes it,
+        // exactly like re-pressing the chord on an open bar.
+        if let Some(fb) = self.overlays.find_bar_mut() {
+            fb.select_all_focused_field();
+        }
         self.recompute_find_matches();
         Ok(())
+    }
+
+    /// Selected text suitable to seed the find query: exactly one
+    /// non-collapsed selection, single-line, non-blank, and short
+    /// enough to be a plausible query. Multi-line selections return
+    /// `None` — they become the find-in-selection scope instead.
+    fn find_query_seed_from_selection(&self) -> Option<String> {
+        const MAX_SEED_BYTES: usize = 256;
+        let snap = self.editor.snapshot(self.buffer_id)?;
+        let mut non_collapsed = snap.selections().iter().filter(|s| !s.is_collapsed());
+        let selection = *non_collapsed.next()?;
+        if non_collapsed.next().is_some() {
+            return None;
+        }
+        let rope = snap.rope_snapshot().rope();
+        let range = selection.ordered_range();
+        let start = range.start.to_byte_offset(rope).ok()?;
+        let end = range.end.to_byte_offset(rope).ok()?;
+        if start >= end || end - start > MAX_SEED_BYTES {
+            return None;
+        }
+        let text = rope.byte_slice(start..end).to_string();
+        if text.contains('\n') || text.trim().is_empty() {
+            return None;
+        }
+        Some(text)
     }
 
     /// Re-run the in-buffer find against the current snapshot.

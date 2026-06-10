@@ -398,17 +398,23 @@ fn spectator_wrap_width_dip(window: &Window, pane: &NonFocusedPaneRender) -> u32
     if !pane.view.soft_wrap {
         return 0;
     }
-    continuity_render::pane_body::spectator_body_text_width_with_right_edge_for_line_count_dip(
-        pane.rect.2,
-        window.scaled_font_size(),
-        window.view_options.line_numbers,
-        pane.snapshot.rope_snapshot().rope().len_lines(),
-        pane.minimap,
-        pane.show_outline_sidebar,
-        window.view_options.outline_sidebar_width_dip,
-    )
-    .round()
-    .max(0.0) as u32
+    let text_width =
+        continuity_render::pane_body::spectator_body_text_width_with_right_edge_for_line_count_dip(
+            pane.rect.2,
+            window.scaled_font_size(),
+            window.view_options.line_numbers,
+            pane.snapshot.rope_snapshot().rope().len_lines(),
+            pane.minimap,
+            pane.show_outline_sidebar,
+            window.view_options.outline_sidebar_width_dip,
+        );
+    // Same safety margin as the focused pane's `display_projection_metrics`
+    // — the two MUST agree or focusing a spectator pane rewraps its text.
+    (text_width
+        - window.scaled_font_size()
+            * crate::window_display_prewarm::projection_inputs::WRAP_SAFETY_MARGIN_EM)
+        .round()
+        .max(0.0) as u32
 }
 
 #[cfg(test)]

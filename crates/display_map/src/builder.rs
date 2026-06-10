@@ -572,7 +572,7 @@ use line_helpers::{line_is_hidden, phantom_display_line, read_line_text, source_
 use row_counts::compute_row_counts;
 use segments::build_line_segments;
 use soft_wrap::soft_wrap_spec;
-pub(crate) use stats::{SlowestLineRecord, WalkerStats, WALKER_SLOWEST_LINES_CAPACITY};
+pub(crate) use stats::{SlowestLineRecord, WalkerStats};
 
 #[cfg(test)]
 mod tests;

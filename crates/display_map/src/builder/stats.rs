@@ -84,3 +84,35 @@ pub struct WalkerStats {
     /// Number of populated entries in `slowest_lines`.
     pub slowest_lines_len: u8,
 }
+
+/// Insert one observation into the fixed-capacity slowest-lines
+/// reservoir on `WalkerStats`. Maintains descending sort order. O(8).
+#[inline]
+pub(super) fn record_slowest_line(stats: &mut WalkerStats, record: SlowestLineRecord) {
+    let len = stats.slowest_lines_len as usize;
+    let cap = WALKER_SLOWEST_LINES_CAPACITY;
+    if len < cap {
+        let pos = stats.slowest_lines[..len]
+            .iter()
+            .position(|r| r.cost_us < record.cost_us)
+            .unwrap_or(len);
+        let mut i = len;
+        while i > pos {
+            stats.slowest_lines[i] = stats.slowest_lines[i - 1];
+            i -= 1;
+        }
+        stats.slowest_lines[pos] = record;
+        stats.slowest_lines_len += 1;
+    } else if record.cost_us > stats.slowest_lines[cap - 1].cost_us {
+        let pos = stats.slowest_lines[..cap]
+            .iter()
+            .position(|r| r.cost_us < record.cost_us)
+            .unwrap_or(cap - 1);
+        let mut i = cap - 1;
+        while i > pos {
+            stats.slowest_lines[i] = stats.slowest_lines[i - 1];
+            i -= 1;
+        }
+        stats.slowest_lines[pos] = record;
+    }
+}

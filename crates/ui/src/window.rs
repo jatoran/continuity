@@ -5,17 +5,8 @@
 //! the one that registered its HWND and runs its message pump. Cross-
 //! thread access goes through the registry's `WindowControl` channel.
 //!
-//! The `Window` type's surface is split across topical siblings to
-//! keep this file under the 600-line conventions cap:
-//! - [`crate::window_new`] — the `Window::new` constructor.
-//! - [`crate::window_activation_grace`] — post-foreground idle gate
-//!   (`ACTIVATION_GRACE_MS` + `in_activation_grace`).
-//! - [`crate::window_renderer_lifecycle`] — `WM_SIZE` client-size
-//!   refresh + lazy renderer / DirectWrite text-format init.
-//! - [`crate::window_dispatch`] — `wndproc` + the central
-//!   `handle_message` dispatcher.
-//! - [`crate::window_commanding`] — `Context` trait impl + per-command
-//!   helpers. (Plus the dozens of other `window_*.rs` siblings.)
+//! The `Window` type's surface is split across topical `window_*.rs`
+//! siblings; this file carries the shared UI-thread state.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -42,16 +33,10 @@ use continuity_render::{FrameDisplay, Renderer};
 use continuity_win::WindowClass;
 use windows::Win32::Foundation::HWND;
 
-pub(crate) const FONT_FAMILY: &str = "Cascadia Mono";
-pub(crate) const FONT_LOCALE: &str = "en-us";
-pub(crate) const FONT_SIZE_DIP: f32 = 14.0;
-pub(crate) const LINE_HEIGHT_DIP: f32 = 20.0;
-/// Functional bottom inset used by caret/doc-end reveals so the final
-/// display row is not painted exactly on the viewport clip edge.
-pub(crate) const END_OF_BUFFER_BOTTOM_PADDING_DIP: f32 = LINE_HEIGHT_DIP;
-/// Default soft-cap for cached layouts. ~10× a typical 50-line viewport per
-/// spec §5.
-pub(crate) const LAYOUT_CACHE_CAPACITY: usize = 512;
+pub(crate) use crate::window_constants::{
+    END_OF_BUFFER_BOTTOM_PADDING_DIP, FONT_FAMILY, FONT_LOCALE, FONT_SIZE_DIP,
+    LAYOUT_CACHE_CAPACITY,
+};
 
 pub(crate) use crate::window_timers::{
     CARET_BLINK_TIMER_ID, CONFIG_POLL_TIMER_ID, CONFIG_POLL_TIMER_MS, DECORATION_WATCHDOG_TIMER_ID,
@@ -177,6 +162,11 @@ pub struct Window {
     /// so the DWM syscall only fires when the resolved theme's light/dark
     /// cast actually changes. Owned by this window's UI thread.
     pub(crate) titlebar_dark_applied: Option<bool>,
+    /// Last window-caption text applied via `SetWindowTextW`. `None`
+    /// until the first sync. Guards [`Self::sync_window_title`] so the
+    /// syscall only fires when the active tab's label actually changes.
+    /// Owned by this window's UI thread.
+    pub(crate) window_title_applied: Option<String>,
     /// Phase-11 per-window view-options state (line numbers, minimap,
     /// ruler columns, caret style, …).
     pub(crate) view_options: crate::window_view_options::ViewOptions,
@@ -387,6 +377,20 @@ pub struct Window {
     /// Drives `on_paint`'s 30 Hz frame-skip when unfocused. Defaults
     /// to `true`; refreshed on WM_ACTIVATEAPP.
     pub(crate) is_window_focused: bool,
+    /// `true` while this HWND holds keyboard focus. Distinct from
+    /// [`Self::is_window_focused`]: switching between two continuity
+    /// windows fires WM_SETFOCUS / WM_KILLFOCUS but never
+    /// WM_ACTIVATEAPP. Gates the active-pane highlight so only the
+    /// window the user is actually typing into advertises an active
+    /// pane. Defaults to `true`; refreshed on WM_SETFOCUS /
+    /// WM_KILLFOCUS. UI-thread-owned.
+    pub(crate) has_keyboard_focus: bool,
+    /// Whether [`Self::run`] may bring this window to the foreground
+    /// when first shown. Seeded from `WindowConfig::activate_on_show`;
+    /// cleared by `apply_initial_placement` when the window restores
+    /// onto a non-active virtual desktop (activating it there would
+    /// switch the user's desktop). UI-thread-owned, read once at show.
+    pub(crate) activate_on_show: bool,
     /// β — `true` while this window is minimized. WM_PAINT returns
     /// early in that state so no compositing work happens for a
     /// surface the user can't see.

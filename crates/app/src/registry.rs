@@ -31,13 +31,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
-use std::time::SystemTime;
 
 use crate::error::Error;
 use crate::registry_closed_history::{archive_closed_window, smart_reopen_handler};
 use crate::registry_file_buffers::{
     make_open_file_window_handler, make_register_file_buffer_handler, FileBufferIndex,
 };
+use crate::registry_time::unix_ms_now;
 use continuity_buffer::{BufferId, WindowId};
 use continuity_command::{
     register_buffer_history_commands, register_clipboard_commands, register_diagnostics_commands,
@@ -86,6 +86,12 @@ pub(crate) struct SpawnRequest {
     /// Optional restored state (used at launch time when reopening
     /// a saved window). `None` means a brand-new window.
     pub restored: Option<(WindowId, RestoredState)>,
+    /// Whether a *restored* window may take the foreground when shown.
+    /// Launch-time session replay marks only the most-recently-seen
+    /// window `true` so a multi-window restore doesn't fight over
+    /// focus (and never yanks the user's virtual desktop). Ignored
+    /// when `restored` is `None` — brand-new windows always activate.
+    pub activate_on_restore: bool,
     /// Exact initial outer top-left in screen pixels. Runtime drag
     /// tear-off uses this so the spawned window lands where the tab was
     /// dropped. Ignored when restored placement takes over.
@@ -362,6 +368,9 @@ fn run_window(
             width: DEFAULT_WINDOW_WIDTH,
             height: DEFAULT_WINDOW_HEIGHT,
             initial_origin,
+            // Brand-new windows are user-initiated and take focus;
+            // restored windows only when launch marked them primary.
+            activate_on_show: req.restored.is_none() || req.activate_on_restore,
         },
         Arc::clone(&ctx.editor),
         req.initial_buffer_id,
@@ -445,6 +454,7 @@ fn build_registry(ctx: &RegistryCtx) -> Registry {
         let _ = tx_new.send(RegistryEvent::Spawn(SpawnRequest {
             initial_buffer_id: buffer_id,
             restored: None,
+            activate_on_restore: false,
             explicit_origin: None,
             cascade_from: ctx.current_window_rect(),
             recovery_notices: Vec::new(),
@@ -464,6 +474,7 @@ fn build_registry(ctx: &RegistryCtx) -> Registry {
         let _ = tx_tear.send(RegistryEvent::Spawn(SpawnRequest {
             initial_buffer_id: buffer_id,
             restored: None,
+            activate_on_restore: false,
             explicit_origin,
             cascade_from,
             recovery_notices: Vec::new(),
@@ -581,11 +592,4 @@ fn load_keymap(default_toml: &str, user_path: Option<&PathBuf>) -> Result<Keymap
     })?;
     let user = Keymap::from_toml(&user_toml)?;
     Ok(Keymap::layered(base, user))
-}
-
-fn unix_ms_now() -> i64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
-        .unwrap_or(0)
 }

@@ -117,11 +117,16 @@ pub(crate) unsafe fn paint_display_lines(
             // column each. Using bytes here makes tab-indented lines
             // wrap with a single-space-wide hanging indent per tab,
             // which is the "Tab only adds a space after wrap" bug.
-            FrameDisplay::leading_whitespace_advance_dip(
+            // List items additionally hang under their marker so the
+            // wrapped text aligns with the item content. Clamped to the
+            // text column so the offset + the row's budgeted width can
+            // never cross `content_right`.
+            FrameDisplay::hanging_indent_advance_dip(
                 rope,
                 source_line,
                 column_advance,
                 tab_advance,
+                (content_right - margins.left).max(0.0),
             )
         } else {
             0.0

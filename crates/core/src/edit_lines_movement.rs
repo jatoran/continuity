@@ -9,15 +9,14 @@
 //! callers (`selection_edit.rs`) keep their import paths.
 
 use continuity_buffer::Buffer;
-use continuity_text::{Position, Selection};
+use continuity_text::{Position, Selection, SelectionKind};
 
 use crate::edit_planning::{finalize_specs, line_content_end, EditSpec};
 use crate::selection_edit::SelectionEditPlan;
 use crate::Error;
 
-/// Collapse every line break within the lines covered by the selection into a
-/// single space, joining the whole covered block into one line (VS Code
-/// "Join Lines" semantics).
+/// Join the lines covered by the selection, one structural level per press
+/// (Ctrl+Shift+J semantics).
 ///
 /// Distinct from [`plan_join_lines`], which only folds the single line below
 /// each caret (Vim `J`). The covered lines are derived via
@@ -25,15 +24,24 @@ use crate::Error;
 /// selections merge into one contiguous `first..=last` block and produce a
 /// single [`EditSpec::replace`] — one undo group.
 ///
-/// Whitespace policy mirrors [`plan_join_lines`]: the first covered line is
-/// kept verbatim (its leading indentation is preserved); every subsequent
-/// line is `trim_start`ed and stripped of a trailing `\r`, then joined with a
-/// single space when it has remaining content (blank lines contribute
-/// nothing). A single trailing newline on the block is preserved so the line
-/// after the selection is not pulled into the join. Returns `Ok(None)` for a
-/// single covered line or when the rebuilt block equals the original (no-op,
-/// no undo group). The caret lands at the end of the joined content on line
-/// `first`, honouring "layout shifts preserve caret-line screen y".
+/// Per-press policy:
+/// - **Adjacent content lines** join with a single space. The continuation
+///   line is `trim_start`ed, stripped of a trailing `\r`, and stripped of a
+///   leading markdown list marker (`- ` / `* ` / `+ ` / `N. ` / `N) `, plus
+///   an optional task checkbox) so joining bullet items concatenates their
+///   content instead of embedding literal markers mid-line. A dash without
+///   a following space is ordinary text and survives.
+/// - **Blank-line separators** lose exactly one newline: `a\n\nb` becomes
+///   `a\nb` — the sections move together but stay on separate lines.
+///   Pressing again joins them with a space, so spamming the chord
+///   converges on one line while preserving deliberate section structure
+///   on the way.
+///
+/// The replacement selection covers the whole rebuilt block, which is what
+/// makes the spamming workflow possible. A single trailing newline on the
+/// block is preserved so the line after the selection is never pulled in.
+/// Returns `Ok(None)` for a single covered line or when the rebuilt block
+/// equals the original (no-op, no undo group).
 pub(crate) fn plan_join_selected_lines(
     buffer: &Buffer,
 ) -> Result<Option<SelectionEditPlan>, Error> {
@@ -68,12 +76,34 @@ pub(crate) fn plan_join_selected_lines(
     // Keep the first covered line verbatim so its leading indentation
     // survives; `body` is non-empty so at least one segment exists.
     let mut joined = covered.next().unwrap_or("").to_string();
+    let mut pending_blank_lines = 0usize;
     for fragment in covered {
-        let trimmed = fragment.trim_start().trim_end_matches('\r');
-        if !trimmed.is_empty() {
-            joined.push(' ');
-            joined.push_str(trimmed);
+        let raw = fragment.trim_end_matches('\r');
+        let trimmed = raw.trim_start();
+        if trimmed.is_empty() {
+            pending_blank_lines += 1;
+            continue;
         }
+        if pending_blank_lines > 0 {
+            // Section break: drop exactly one blank line, keep the rest,
+            // and keep this section on its own line (indentation intact).
+            for _ in 1..pending_blank_lines {
+                joined.push('\n');
+            }
+            joined.push('\n');
+            joined.push_str(raw);
+            pending_blank_lines = 0;
+            continue;
+        }
+        let content = strip_joined_line_marker(trimmed);
+        if !content.is_empty() {
+            joined.push(' ');
+            joined.push_str(content);
+        }
+    }
+    // Blank lines at the end of the block also lose exactly one newline.
+    for _ in 1..pending_blank_lines.max(1) {
+        joined.push('\n');
     }
     if trailing_newline {
         joined.push('\n');
@@ -82,15 +112,55 @@ pub(crate) fn plan_join_selected_lines(
         return Ok(None);
     }
 
-    let joined_first_line = match joined.find('\n') {
-        Some(newline_byte) => &joined[..newline_byte],
-        None => &joined[..],
+    // Keep the whole rebuilt block selected so the chord can be pressed
+    // repeatedly until everything sits on one line.
+    let joined_body = if trailing_newline {
+        &joined[..joined.len() - 1]
+    } else {
+        &joined[..]
     };
-    let caret = Position::new(first as u32, joined_first_line.len() as u32);
-    let selections_after = vec![Selection::caret_at(caret)];
+    let extra_lines = joined_body.matches('\n').count();
+    let last_line_text = joined_body.rsplit('\n').next().unwrap_or("");
+    let selections_after = vec![Selection::new(
+        Position::new(first as u32, 0),
+        Position::new((first + extra_lines) as u32, last_line_text.len() as u32),
+        SelectionKind::Caret,
+    )];
 
     let specs = vec![EditSpec::replace(rope, block_start, block_end, joined)?];
     Ok(finalize_specs(specs, selections_before, selections_after))
+}
+
+/// Strip a leading markdown list marker (`- `, `* `, `+ `, `N. `, `N) `)
+/// and an optional task checkbox (`[ ] ` / `[x] `) from a join
+/// continuation line. Text whose dash is not a list marker (no following
+/// space) is returned unchanged.
+fn strip_joined_line_marker(text: &str) -> &str {
+    let rest = if let Some(rest) = text
+        .strip_prefix("- ")
+        .or_else(|| text.strip_prefix("* "))
+        .or_else(|| text.strip_prefix("+ "))
+    {
+        rest
+    } else {
+        let bytes = text.as_bytes();
+        let digits = bytes.iter().take_while(|b| b.is_ascii_digit()).count();
+        if digits > 0
+            && digits + 1 < bytes.len()
+            && (bytes[digits] == b'.' || bytes[digits] == b')')
+            && bytes[digits + 1] == b' '
+        {
+            &text[digits + 2..]
+        } else {
+            return text;
+        }
+    };
+    for checkbox in ["[ ] ", "[x] ", "[X] "] {
+        if let Some(after) = rest.strip_prefix(checkbox) {
+            return after;
+        }
+    }
+    rest
 }
 
 pub(crate) fn plan_join_lines(buffer: &Buffer) -> Result<Option<SelectionEditPlan>, Error> {

@@ -46,6 +46,8 @@ Test before adding a modal: is this interruption *reversible*? If yes, it's a ba
 ## Launch + sessions
 
 - **Launch behavior**: restore last session (all windows, panes, tabs, virtual desktops).
+- **Single instance per data dir**: a second `continuity.exe` launch does **not** replay the persisted session (which would duplicate every open window). It forwards its command-line file/folder paths to the running instance over `WM_COPYDATA` and exits; a bare launch just activates the running instance's top-most window. Bypass with `--new-instance` (the e2e insert hook bypasses too). Keyed per database path so portable + installed instances coexist. See `architecture.md` § Process model.
+- **Restore without focus theft**: at launch only the most-recently-seen restored window takes the foreground; the rest show with `SW_SHOWNOACTIVATE`. A window restored onto a non-active virtual desktop never activates (activating it there would switch the user's desktop). Runtime-spawned windows (new window, tear-off, file open) and `Ctrl+Shift+T` reopen still activate.
 - **No empty panes** (D4).
 - Heavy multi-window + virtual-desktop user → `request_state_save` wiring (A8) is critical.
 
@@ -63,6 +65,7 @@ Test before adding a modal: is this interruption *reversible*? If yes, it's a ba
 - **Auto-pair off** (B8). Top user annoyance.
 - **Rainbow pair highlighting on** (B8).
 - **Trim trailing whitespace on save = on** (B14).
+- **Indentation = tabs** (`[editor].indent_type = "tabs"`). `Tab` inserts one tab character; `indent_width` / `tab_width` default 4. Switching `indent_type` at runtime does not retroactively convert existing indentation (`editor.spaces_to_tabs` / `editor.tabs_to_spaces` do that). `Shift+Tab` outdent strips a leading tab or up to one indent-width of leading spaces, so it works regardless of which the line actually uses.
 - **Indent folding on always** (H3).
 - **Macros dropped** — no `.` repeat-last, no record/replay.
 - **Smart paste with indent dropped** (B13 keeps URL/image smart-paste only).

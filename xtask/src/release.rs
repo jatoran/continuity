@@ -11,7 +11,7 @@ pub(crate) const APP_PACKAGE: &str = "continuity-app";
 pub(crate) const EXE_NAME: &str = "continuity.exe";
 pub(crate) const PORTABLE_ZIP: &str = "continuity-portable.zip";
 const RELEASE_PROFILE: &str = "release-small";
-const BINARY_SIZE_BUDGET_BYTES: u64 = 8 * 1024 * 1024;
+const BINARY_SIZE_BUDGET_BYTES: u64 = 9 * 1024 * 1024;
 
 /// Build the release executable and assemble portable artifacts.
 pub(crate) fn package() -> Result<()> {

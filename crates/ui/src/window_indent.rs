@@ -44,9 +44,9 @@ pub(crate) struct IndentConfig {
 
 impl Default for IndentConfig {
     fn default() -> Self {
-        // Matches `EditorConfig::default()` (spaces / 4 / 4).
+        // Matches `EditorConfig::default()` (tabs / 4 / 4).
         Self {
-            use_spaces: true,
+            use_spaces: false,
             indent_width: 4,
             tab_width: 4,
         }
@@ -175,12 +175,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn indent_config_default_is_spaces_four() {
+    fn indent_config_default_is_tabs_width_four() {
         let c = IndentConfig::default();
-        assert!(c.use_spaces);
+        assert!(!c.use_spaces);
         assert_eq!(c.indent_width, 4);
         assert_eq!(c.tab_width, 4);
-        assert_eq!(c.indent_unit(), IndentUnit::Spaces(4));
+        assert_eq!(c.indent_unit(), IndentUnit::Tab);
     }
 
     #[test]

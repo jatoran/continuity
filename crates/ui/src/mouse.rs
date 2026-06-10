@@ -77,6 +77,25 @@ pub(crate) struct MouseState {
     /// rendered fenced code block whose caret is outside the block,
     /// cleared on mouse-out or caret-entry.
     pub code_copy_hover: Option<CodeCopyHover>,
+    /// Active outline-sidebar edge-resize drag, if any. Set on
+    /// `WM_LBUTTONDOWN` over the sidebar's left-edge grab band (and
+    /// `SetCapture` called); cleared on `WM_LBUTTONUP` (release +
+    /// width persisted to `[ui].outline_sidebar_width_dip`).
+    pub outline_resize_drag: Option<OutlineResizeDrag>,
+    /// `true` while a Ctrl+drag is building an *additional* selection:
+    /// the drag extends only the newest selection and leaves the rest
+    /// alone (multi-range highlight). Set on Ctrl+`WM_LBUTTONDOWN` in
+    /// the body; cleared on `WM_LBUTTONUP` / capture loss.
+    pub multi_select_drag: bool,
+}
+
+/// In-flight outline-sidebar width drag.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct OutlineResizeDrag {
+    /// Client x where the drag started.
+    pub start_x: i32,
+    /// Sidebar width (DIPs) when the drag started.
+    pub start_width_dip: f32,
 }
 
 /// Hovered source line plus exact display row under the pointer.

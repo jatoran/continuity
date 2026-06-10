@@ -291,7 +291,8 @@ pub(crate) fn is_structural_edit(edit: &SelectionEdit) -> bool {
         | SelectionEdit::MarkdownInsertLink
         | SelectionEdit::MarkdownInsertImageRef
         | SelectionEdit::MarkdownInsertCodeFence
-        | SelectionEdit::MarkdownWrapInBlockquote => true,
+        | SelectionEdit::MarkdownWrapInBlockquote
+        | SelectionEdit::MarkdownStripFormatting => true,
     }
 }
 

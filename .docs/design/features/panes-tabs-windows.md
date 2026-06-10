@@ -40,6 +40,13 @@ missing core snapshot. A trace that still shows `active_tab=missing` or
 `projection_worker_early_dispatch … skip=skip_no_snapshot` after a focus switch
 now means a new coherence path was missed, not an expected cache state.
 
+## Window focus + caption
+
+- **Two focus flags**, both UI-thread-owned on `Window`: `is_window_focused` (the app-level foreground flag, toggled on `WM_ACTIVATEAPP`) and `has_keyboard_focus` (this HWND holds keyboard focus, toggled on `WM_SETFOCUS` / `WM_KILLFOCUS`). The second exists because switching between two continuity windows in the same process fires the focus messages but **not** `WM_ACTIVATEAPP`.
+- **Active-pane highlight requires focus.** `build_pane_chrome` flags a leaf `focused` only when it is the tree's focused pane **and** `is_window_focused` **and** `has_keyboard_focus`. A background window (other app focused, or another continuity window focused) paints no active-pane border.
+- **Focus-loss input reset.** On `WM_KILLFOCUS` and `WM_ACTIVATEAPP(false)`, `on_focus_lost_clear_input_state` clears held-modifier-derived UI state — the hold-modifier chord HUD, any pending chord leader, and the Ctrl+Tab tab-switcher chord — because the modifier key-up that would normally clear them is delivered to the newly focused window. Without this an alt-tab away leaves the hotkey HUD pinned "as if Alt were held". Lives in `crates/ui/src/window_focus.rs`.
+- **Window caption mirrors the active tab.** `sync_window_title` (in `window_titlebar.rs`, called each paint, guarded so the `SetWindowTextW` syscall only fires when the text changed) sets the OS caption / taskbar / Alt-Tab label to the active tab's resolved label (or `Untitled`), instead of a static `"continuity"`.
+
 ## Data model
 
 ```rs
@@ -162,8 +169,10 @@ Two stacks back `Ctrl+Shift+T`:
     3. **Otherwise** → install in the currently focused pane.
   - **Global path** (whole-window restore): the handler peeks the `closed_history` row, dispatches a `RegistryEvent::Spawn` reconstructing the window from the persisted pane-tree JSON, and only then pops the row. If `tx.send` fails, the row stays on the stack so the next press can retry.
   - Trace events: `event:tab_close`, `event:pane_close`, `event:tab_reopen outcome=… dest=…`, `event:smart_reopen outcome=…`, `event:closed_history_push/pop`. See [`trace-guide.md`](../../technical/trace-guide.md) "User actions + lifecycle".
-- **Tab labels** (Phase B15): user override → first non-empty trimmed line with leading `#`s stripped → `Untitled`. Derived labels are clipped to 20 chars with `…`; renderer chrome keeps the label one-line and clipped inside its tab slot.
+- **Tab labels** (Phase B15): user override → first non-empty trimmed line with leading `#`s stripped → `Untitled`. Derived labels are clipped to 20 chars with `…`; renderer chrome keeps the label one-line and clipped inside its tab slot. The same resolved label drives the OS window caption (see § Window focus + caption).
 - **Window placement**: `GetWindowPlacement` / `SetWindowPlacement` persists position; handles minimized / maximized / off-screen reposition across monitor reconfig. `WM_MOVE` triggers `request_state_save` (Phase A8).
+- **Single instance per data dir**: `app::single_instance` + `win::single_instance` hold a named mutex keyed by the database path. A second launch forwards its command-line paths to the running instance over a `WM_COPYDATA` message-only hub and exits (bare launch → activate top-most window); only when no instance is reachable does it run standalone. `--new-instance` bypasses. This prevents a second launch from replaying the whole persisted session and duplicating every window. See `architecture.md` § Process model and `defaults.md` § Launch + sessions.
+- **Restore activation gating**: `SpawnRequest.activate_on_restore` (set only on the most-recently-seen window at launch) → `WindowConfig.activate_on_show` → `Window::run` shows non-activating restored windows with `SW_SHOWNOACTIVATE`. `apply_initial_placement` additionally forces `activate_on_show = false` when the window restores onto a non-active virtual desktop, so launch never switches the user's desktop. Runtime spawns and `Ctrl+Shift+T` reopen activate normally.
 - **Virtual desktop** (Phase 14):
   - `IVirtualDesktopManager::GetWindowDesktopId(hwnd)` captures the GUID at save time.
   - `MoveWindowToDesktop` restores on launch.

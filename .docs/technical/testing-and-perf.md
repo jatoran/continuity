@@ -41,6 +41,7 @@ and perf-gate command hints, use
 | `snapshot-canary` | Runs the §D pixel canary in compare mode. |
 | `snapshot-update` | Re-runs the canary with `CONTINUITY_PIXEL_CANARY_UPDATE=1`; rewrites every `crates/render/tests/fixtures/*.hash`. Reviewer eye-balls the visual diff and commits. |
 | `e2e-smoke` | Runs `e2e_smoke` + `e2e_pane_split` (the two cheapest E2E targets). |
+| `e2e-stress` | Runs `e2e_stress` (`--nocapture`): a long-usage crash hunt — 3 hidden windows sharing one core, split panes, and a seeded random storm of typing / delete / paste / click / scroll / pane-churn / DPI-flip ops. Tune length with `CONTINUITY_STRESS_OPS` (default 800) and reproduce a failure from the printed `CONTINUITY_STRESS_SEED`. Survival-only (every op returns, every buffer snapshot stays walkable, every window still paints); not in any hook tier. |
 | `test-all` | `ci` + every named E2E + `snapshot-canary`. |
 | `check-all` | `test-all` + full `bench` + `perf-snapshot`. The "is this commit shippable?" one-shot. |
 | `agent-check` | `check-all` with a `CheckAllOutcome` JSON record on stdout. |
@@ -114,8 +115,10 @@ samples don't false-trigger regressions.
 
 `crates/test_support/src/win32_harness.rs::Win32Harness` spawns a real
 hidden `continuity_ui::Window` on a worker thread driving the
-production wndproc + Renderer. The four shipped tests live in
-`crates/ui/tests/`:
+production wndproc + Renderer. The harness keymap binds modifier-free
+chords (F1–F5, plus `backspace`/`delete`) so tests drive commands
+through the production dispatch path without modifier-state races. The
+shipped tests live in `crates/ui/tests/`:
 
 - `e2e_smoke` — typing produces text in the buffer.
 - `e2e_pane_split` — F1 chord splits panes; buffer count doubles.
@@ -123,6 +126,10 @@ production wndproc + Renderer. The four shipped tests live in
   edits made through the first.
 - `e2e_settings_live_reload` — `WindowControl::ConfigChanged` fired
   through the harness's control channel applies cleanly.
+- `e2e_stress` — long-usage crash hunt (`cargo xtask e2e-stress`): 3
+  windows + split panes + a seeded random op storm; asserts survival
+  (no panic, buffers stay walkable, windows still paint). Not in any
+  hook tier; run on demand when chasing intermittent crashes.
 
 The pixel canary deliberately does **not** use the C1 harness — it
 needs WARP for determinism, the harness drives hardware D3D for

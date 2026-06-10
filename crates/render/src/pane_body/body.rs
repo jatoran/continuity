@@ -229,11 +229,12 @@ pub(super) unsafe fn paint_pane_body(
         };
         let source_line = spec.source_line.raw() as usize;
         let leading_dip = if spec.is_wrap_continuation {
-            FrameDisplay::leading_whitespace_advance_dip(
+            FrameDisplay::hanging_indent_advance_dip(
                 body.rope,
                 source_line,
                 column_advance,
                 tab_advance,
+                (rw - margins.left - margins.right).max(0.0),
             )
         } else {
             0.0

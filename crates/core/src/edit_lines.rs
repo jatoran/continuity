@@ -85,6 +85,25 @@ pub(crate) fn plan_toggle_bullet_at_line_start(
     if covered.is_empty() {
         return Ok(None);
     }
+    // Multi-line toggles skip blank / whitespace-only lines: bulleting
+    // a selection that spans paragraph gaps must not mint `- ` markers
+    // on the gaps. A caret on a single blank line still toggles, so a
+    // writer can start a list from an empty line.
+    let covered: Vec<usize> = if covered.len() > 1 {
+        covered
+            .into_iter()
+            .filter(|&line| {
+                let start = rope.line_to_byte(line);
+                let end = line_content_end(rope, line);
+                end - start > leading_whitespace(rope, line).len()
+            })
+            .collect()
+    } else {
+        covered
+    };
+    if covered.is_empty() {
+        return Ok(None);
+    }
 
     // Pass 1: snapshot each covered line — its leading-whitespace
     // length, body, and whether it already starts with a bullet
@@ -388,204 +407,4 @@ fn leading_whitespace(rope: &Rope, line: usize) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use continuity_buffer::Buffer;
-    use continuity_text::{Position, Selection};
-
-    use crate::selection_edit::{apply_plan, plan, SelectionEdit};
-
-    fn at(line: u32, col: u32) -> Selection {
-        Selection::caret_at(Position::new(line, col))
-    }
-
-    fn build(text: &str, selections: Vec<Selection>) -> Buffer {
-        let mut buffer = Buffer::from_text(text);
-        buffer.set_selections(selections);
-        buffer
-    }
-
-    fn run(buffer: &mut Buffer, edit: SelectionEdit) {
-        let plan = plan(buffer, &edit).expect("plan ok").expect("plan some");
-        apply_plan(buffer, &plan).expect("apply ok");
-    }
-
-    #[test]
-    fn newline_above_inserts_blank_line() {
-        let mut b = build("hi", vec![at(0, 1)]);
-        run(&mut b, SelectionEdit::InsertNewlineAbove);
-        assert_eq!(b.rope().to_string(), "\nhi");
-    }
-
-    #[test]
-    fn newline_below_inserts_blank_line() {
-        let mut b = build("hi", vec![at(0, 0)]);
-        run(&mut b, SelectionEdit::InsertNewlineBelow);
-        assert_eq!(b.rope().to_string(), "hi\n");
-    }
-
-    #[test]
-    fn newline_smart_copies_indent() {
-        let mut b = build("    if x:", vec![at(0, 9)]);
-        run(&mut b, SelectionEdit::InsertNewlineSmart);
-        assert_eq!(b.rope().to_string(), "    if x:\n    ");
-    }
-
-    #[test]
-    fn newline_smart_list_continue_increment_end() {
-        // Phase B9 — three behaviours in one test.
-        let mut b = build("- foo", vec![at(0, 5)]);
-        run(&mut b, SelectionEdit::InsertNewlineSmart);
-        assert_eq!(b.rope().to_string(), "- foo\n- ");
-        let mut b = build("3. foo", vec![at(0, 6)]);
-        run(&mut b, SelectionEdit::InsertNewlineSmart);
-        assert_eq!(b.rope().to_string(), "3. foo\n4. ");
-        let mut b = build("- ", vec![at(0, 2)]);
-        run(&mut b, SelectionEdit::InsertNewlineSmart);
-        assert_eq!(b.rope().to_string(), "");
-    }
-
-    #[test]
-    fn toggle_bullet_at_line_start_adds_prefix_and_shifts_caret() {
-        // Caret at column 3 of `hello` → after toggle, line becomes
-        // `- hello` and caret sits at column 5 (same content character).
-        let mut b = build("hello", vec![at(0, 3)]);
-        run(&mut b, SelectionEdit::ToggleBulletAtLineStart);
-        assert_eq!(b.rope().to_string(), "- hello");
-        let head = b.selections()[0].head;
-        assert_eq!(head.line, 0);
-        assert_eq!(head.byte_in_line, 5);
-    }
-
-    #[test]
-    fn toggle_bullet_at_line_start_removes_prefix_and_shifts_caret_back() {
-        // Caret at column 5 of `- hello` (the 'l' before final 'o') →
-        // after toggle, line becomes `hello` and caret sits at column 3.
-        let mut b = build("- hello", vec![at(0, 5)]);
-        run(&mut b, SelectionEdit::ToggleBulletAtLineStart);
-        assert_eq!(b.rope().to_string(), "hello");
-        let head = b.selections()[0].head;
-        assert_eq!(head.byte_in_line, 3);
-    }
-
-    #[test]
-    fn toggle_bullet_at_line_start_respects_leading_whitespace() {
-        let mut b = build("    foo", vec![at(0, 6)]);
-        run(&mut b, SelectionEdit::ToggleBulletAtLineStart);
-        assert_eq!(b.rope().to_string(), "    - foo");
-        let head = b.selections()[0].head;
-        assert_eq!(head.byte_in_line, 8);
-    }
-
-    #[test]
-    fn toggle_bullet_at_line_start_strips_asterisk_too() {
-        let mut b = build("* item", vec![at(0, 4)]);
-        run(&mut b, SelectionEdit::ToggleBulletAtLineStart);
-        assert_eq!(b.rope().to_string(), "item");
-        let head = b.selections()[0].head;
-        assert_eq!(head.byte_in_line, 2);
-    }
-
-    #[test]
-    fn toggle_bullet_at_line_start_caret_in_leading_whitespace_stays_put() {
-        // Caret inside the leading whitespace itself shouldn't shift.
-        let mut b = build("    foo", vec![at(0, 2)]);
-        run(&mut b, SelectionEdit::ToggleBulletAtLineStart);
-        assert_eq!(b.rope().to_string(), "    - foo");
-        let head = b.selections()[0].head;
-        assert_eq!(head.byte_in_line, 2);
-    }
-
-    #[test]
-    fn toggle_bullet_multiline_none_bulleted_adds_to_all() {
-        // Selection spans three plain lines → all three get `- `.
-        let sel = Selection::new(
-            Position::new(0, 0),
-            Position::new(2, 3),
-            continuity_text::SelectionKind::Caret,
-        );
-        let mut b = build("foo\nbar\nbaz", vec![sel]);
-        run(&mut b, SelectionEdit::ToggleBulletAtLineStart);
-        assert_eq!(b.rope().to_string(), "- foo\n- bar\n- baz");
-    }
-
-    #[test]
-    fn toggle_bullet_multiline_some_bulleted_adds_to_missing_only() {
-        // Mixed state: lines 0 and 2 lack bullets, line 1 already has one.
-        // Result: bullets added to 0 and 2; line 1 left untouched.
-        let sel = Selection::new(
-            Position::new(0, 0),
-            Position::new(2, 3),
-            continuity_text::SelectionKind::Caret,
-        );
-        let mut b = build("foo\n- bar\nbaz", vec![sel]);
-        run(&mut b, SelectionEdit::ToggleBulletAtLineStart);
-        assert_eq!(b.rope().to_string(), "- foo\n- bar\n- baz");
-    }
-
-    #[test]
-    fn toggle_bullet_multiline_all_bulleted_strips_all() {
-        // Every line already bulleted → toggle strips them all.
-        let sel = Selection::new(
-            Position::new(0, 0),
-            Position::new(2, 5),
-            continuity_text::SelectionKind::Caret,
-        );
-        let mut b = build("- foo\n* bar\n+ baz", vec![sel]);
-        run(&mut b, SelectionEdit::ToggleBulletAtLineStart);
-        assert_eq!(b.rope().to_string(), "foo\nbar\nbaz");
-    }
-
-    #[test]
-    fn delete_to_line_start_keeps_other_lines() {
-        let mut b = build("ab\ncdef", vec![at(1, 3)]);
-        run(&mut b, SelectionEdit::DeleteToLineStart);
-        assert_eq!(b.rope().to_string(), "ab\nf");
-    }
-
-    #[test]
-    fn delete_to_line_end_drops_tail() {
-        let mut b = build("hello world", vec![at(0, 5)]);
-        run(&mut b, SelectionEdit::DeleteToLineEnd);
-        assert_eq!(b.rope().to_string(), "hello");
-    }
-
-    #[test]
-    fn duplicate_line_appends_copy() {
-        let mut b = build("first\nsecond", vec![at(0, 0)]);
-        run(&mut b, SelectionEdit::DuplicateLine);
-        assert_eq!(b.rope().to_string(), "first\nfirst\nsecond");
-    }
-
-    #[test]
-    fn duplicate_selection_repeats_span() {
-        let mut b = Buffer::from_text("ab");
-        b.set_selections(vec![Selection::new(
-            Position::new(0, 0),
-            Position::new(0, 2),
-            continuity_text::SelectionKind::Caret,
-        )]);
-        run(&mut b, SelectionEdit::DuplicateSelection);
-        assert_eq!(b.rope().to_string(), "abab");
-    }
-
-    #[test]
-    fn move_line_up_swaps_neighbors() {
-        let mut b = build("a\nb", vec![at(1, 0)]);
-        run(&mut b, SelectionEdit::MoveLineUp);
-        assert_eq!(b.rope().to_string(), "b\na");
-    }
-
-    #[test]
-    fn move_line_down_swaps_neighbors() {
-        let mut b = build("a\nb\nc", vec![at(0, 0)]);
-        run(&mut b, SelectionEdit::MoveLineDown);
-        assert_eq!(b.rope().to_string(), "b\na\nc");
-    }
-
-    #[test]
-    fn join_lines_compacts_whitespace() {
-        let mut b = build("hello\n   world", vec![at(0, 5)]);
-        run(&mut b, SelectionEdit::JoinLines);
-        assert_eq!(b.rope().to_string(), "hello world");
-    }
-}
+mod tests;

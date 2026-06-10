@@ -79,6 +79,7 @@ pub(crate) fn make_open_file_window_handler(ctx: &RegistryCtx) -> OpenFileWindow
         let _ = tx.send(RegistryEvent::Spawn(SpawnRequest {
             initial_buffer_id: buffer_id,
             restored: None,
+            activate_on_restore: false,
             explicit_origin: request.explicit_origin,
             cascade_from: request.cascade_from,
             recovery_notices: request.recovery_notices,

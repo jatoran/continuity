@@ -44,6 +44,7 @@ markdown_id!(MARKDOWN_TOGGLE_TASK, "markdown.toggle_task");
 markdown_id!(MARKDOWN_CYCLE_LIST_MARKER, "markdown.cycle_list_marker");
 markdown_id!(MARKDOWN_RENUMBER_LIST, "markdown.renumber_list");
 markdown_id!(MARKDOWN_WRAP_IN_BLOCKQUOTE, "markdown.wrap_in_blockquote");
+markdown_id!(MARKDOWN_STRIP_FORMATTING, "markdown.strip_formatting");
 markdown_id!(MARKDOWN_INSERT_CODE_FENCE, "markdown.insert_code_fence");
 markdown_id!(MARKDOWN_INSERT_LINK, "markdown.insert_link");
 markdown_id!(MARKDOWN_INSERT_IMAGE_REF, "markdown.insert_image_ref");
@@ -199,6 +200,11 @@ pub fn register_markdown_commands(registry: &mut Registry) {
         registry,
         MARKDOWN_TOGGLE_TASK,
         handler(|| SelectionEdit::MarkdownToggleTask),
+    );
+    bind(
+        registry,
+        MARKDOWN_STRIP_FORMATTING,
+        handler(|| SelectionEdit::MarkdownStripFormatting),
     );
     bind(
         registry,

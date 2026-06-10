@@ -20,7 +20,11 @@ use crate::window::Window;
 /// from poking past the visible text column. Below one character wide, so
 /// it does not visibly narrow the column. The paint geometry's right edge
 /// is unchanged — this only makes soft-wrap fire a hair earlier.
-const WRAP_SAFETY_MARGIN_EM: f32 = 0.25;
+///
+/// Shared with the spectator-pane wrap math (`window_paint_spectators`,
+/// `window_projection_spectator`): focused and spectator panes MUST
+/// budget the same wrap width, or focusing a pane rewraps its text.
+pub(crate) const WRAP_SAFETY_MARGIN_EM: f32 = 0.25;
 
 /// Projection geometry inputs shared by paint and prewarm.
 #[derive(Clone, Copy, Debug)]

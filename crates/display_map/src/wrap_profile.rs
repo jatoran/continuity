@@ -35,9 +35,19 @@ use crate::wrap_cache::{WrapCache, WrapCacheEntry, WrapCacheKey};
 /// Derive the soft-wrap row count from a populated [`WrapCacheEntry`]
 /// at the given `wrap_width_dip`, without re-measuring any glyphs.
 ///
+/// `continuation_budget_dip` is the reduced budget continuation rows
+/// get (the wrap width minus the line's hanging indent — see
+/// [`crate::wrap::continuation_wrap_budget_dip`]); the first row always
+/// budgets the full `wrap_width_dip`. Pass `wrap_width_dip as f32` for
+/// lines with no hanging indent.
+///
 /// See module docs for the contract on `Some` / `None`.
 #[must_use]
-pub fn row_count_from_profile(entry: &WrapCacheEntry, wrap_width_dip: u32) -> Option<u16> {
+pub fn row_count_from_profile(
+    entry: &WrapCacheEntry,
+    wrap_width_dip: u32,
+    continuation_budget_dip: f32,
+) -> Option<u16> {
     let breaks = &entry.break_points;
     let prefix = &entry.prefix_advances_bits;
     let pre_ws = &entry.pre_whitespace_advances_bits;
@@ -48,9 +58,9 @@ pub fn row_count_from_profile(entry: &WrapCacheEntry, wrap_width_dip: u32) -> Op
         return None;
     }
     let n = breaks.len();
-    let max_width = wrap_width_dip as f32;
+    let first_row_budget = wrap_width_dip as f32;
     let total_width = f32::from_bits(prefix[n - 1]);
-    if total_width <= max_width {
+    if total_width <= first_row_budget {
         return Some(1);
     }
 
@@ -60,6 +70,14 @@ pub fn row_count_from_profile(entry: &WrapCacheEntry, wrap_width_dip: u32) -> Op
     let mut i: usize = 0;
 
     while i < n {
+        // The row currently being filled: the first row budgets the
+        // full wrap width, every continuation row the hang-indent-
+        // reduced width (mirrors the slow path's `row_budget` switch).
+        let max_width = if rows == 1 {
+            first_row_budget
+        } else {
+            continuation_budget_dip
+        };
         let post_ws_advance = f32::from_bits(prefix[i]);
         let pre_ws_advance = f32::from_bits(pre_ws[i]);
         let row_through_pre_ws = pre_ws_advance - line_start_advance;
@@ -142,10 +160,11 @@ pub(crate) fn try_serve_via_profile(
     font_state: u64,
     locale: &str,
     wrap_width_dip: u32,
+    continuation_budget_dip: f32,
     key: WrapCacheKey,
 ) -> Option<u16> {
     let donor = wrap_cache.get_any_width(content_stamp, font_state, locale)?;
-    let rows = row_count_from_profile(&donor, wrap_width_dip)?;
+    let rows = row_count_from_profile(&donor, wrap_width_dip, continuation_budget_dip)?;
     wrap_cache.insert(
         key,
         WrapCacheEntry {
@@ -200,7 +219,7 @@ mod tests {
     #[test]
     fn empty_profile_returns_none() {
         let entry = WrapCacheEntry::row_count_only(1);
-        assert_eq!(row_count_from_profile(&entry, 10), None);
+        assert_eq!(row_count_from_profile(&entry, 10, 10.0), None);
     }
 
     #[test]
@@ -211,14 +230,14 @@ mod tests {
             prefix_advances_bits: Arc::from(vec![1.0_f32.to_bits()]),
             pre_whitespace_advances_bits: Arc::from(vec![1.0_f32.to_bits()]),
         };
-        assert_eq!(row_count_from_profile(&entry, 10), None);
+        assert_eq!(row_count_from_profile(&entry, 10, 10.0), None);
     }
 
     #[test]
     fn line_that_fits_in_one_row() {
         let entry = build_profile_unit_widths("AB CDE", 1);
-        assert_eq!(row_count_from_profile(&entry, 10), Some(1));
-        assert_eq!(row_count_from_profile(&entry, 6), Some(1));
+        assert_eq!(row_count_from_profile(&entry, 10, 10.0), Some(1));
+        assert_eq!(row_count_from_profile(&entry, 6, 6.0), Some(1));
     }
 
     /// Regression case from `P18.12a_populate_wrap_profile_20260522-160308.md`.
@@ -226,21 +245,21 @@ mod tests {
     #[test]
     fn overshoot_one_a_bb_ccc_max_4() {
         let entry = build_profile_unit_widths("A BB CCC", 2);
-        assert_eq!(row_count_from_profile(&entry, 4), Some(2));
+        assert_eq!(row_count_from_profile(&entry, 4, 4.0), Some(2));
     }
 
     /// Regression case from the same report.
     #[test]
     fn overshoot_two_aaaa_bb_cc_ddd_max_5() {
         let entry = build_profile_unit_widths("AAAA BB CC DDD", 3);
-        assert_eq!(row_count_from_profile(&entry, 5), Some(3));
+        assert_eq!(row_count_from_profile(&entry, 5, 5.0), Some(3));
     }
 
     /// Regression case from the same report.
     #[test]
     fn overshoot_three_aaaa_bb_cc_ddd_max_7() {
         let entry = build_profile_unit_widths("AAAA BB CC DDD", 2);
-        assert_eq!(row_count_from_profile(&entry, 7), Some(2));
+        assert_eq!(row_count_from_profile(&entry, 7, 7.0), Some(2));
     }
 
     #[test]
@@ -253,7 +272,7 @@ mod tests {
         // trailing whitespace produces a row of width 4 > 3), which
         // Option A correctly handles; see `overshoot_at_every_break`.
         let entry = build_profile_unit_widths("ABC DEF GHI", 6);
-        assert_eq!(row_count_from_profile(&entry, 2), None);
+        assert_eq!(row_count_from_profile(&entry, 2, 2.0), None);
     }
 
     #[test]
@@ -262,16 +281,16 @@ mod tests {
         // of the two whitespaces (rows are 4 wide each), producing 3
         // rows total. Profile must match.
         let entry = build_profile_unit_widths("ABC DEF GHI", 3);
-        assert_eq!(row_count_from_profile(&entry, 3), Some(3));
+        assert_eq!(row_count_from_profile(&entry, 3, 3.0), Some(3));
     }
 
     #[test]
     fn non_overshoot_matches() {
         // "ABC DEF GHI" widths=1 each at max_width=4: slow path = 3.
         let entry = build_profile_unit_widths("ABC DEF GHI", 3);
-        assert_eq!(row_count_from_profile(&entry, 4), Some(3));
-        assert_eq!(row_count_from_profile(&entry, 5), Some(3));
-        assert_eq!(row_count_from_profile(&entry, 7), Some(2));
+        assert_eq!(row_count_from_profile(&entry, 4, 4.0), Some(3));
+        assert_eq!(row_count_from_profile(&entry, 5, 5.0), Some(3));
+        assert_eq!(row_count_from_profile(&entry, 7, 7.0), Some(2));
     }
 
     #[test]
@@ -280,8 +299,8 @@ mod tests {
         // at the trailing whitespace, leaving a trailing empty row
         // → 2 rows.
         let entry = build_profile_unit_widths("AB ", 2);
-        assert_eq!(row_count_from_profile(&entry, 2), Some(2));
+        assert_eq!(row_count_from_profile(&entry, 2, 2.0), Some(2));
         // At max_width=3 the line fits in one row.
-        assert_eq!(row_count_from_profile(&entry, 3), Some(1));
+        assert_eq!(row_count_from_profile(&entry, 3, 3.0), Some(1));
     }
 }

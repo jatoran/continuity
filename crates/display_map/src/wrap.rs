@@ -101,6 +101,83 @@ pub trait WidthMeasure {
     }
 }
 
+/// Largest fraction of the wrap width the hanging indent of a wrap
+/// continuation row may consume when budgeting. Mirrored by the
+/// painter's indent clamp so a deeply indented line keeps at least a
+/// quarter of the column for content and the painted right edge stays
+/// inside the text column.
+pub const MAX_HANG_INDENT_FRACTION: f32 = 0.75;
+
+/// Rendered column count of a leading markdown list marker (`- ` /
+/// `* ` / `+ ` render as the two-column `• ` glyph; `12. ` / `3) `
+/// render their literal text), or `0` when `after_indent` is not a
+/// list item. Shared with the renderer's hanging-indent math — the
+/// painter and the soft-wrap budget must agree on the marker width.
+#[must_use]
+pub fn list_marker_display_columns(after_indent: &str) -> usize {
+    let bytes = after_indent.as_bytes();
+    match bytes.first() {
+        Some(b'-' | b'*' | b'+') if bytes.get(1) == Some(&b' ') => 2,
+        Some(b'0'..=b'9') => {
+            let digits = bytes.iter().take_while(|b| b.is_ascii_digit()).count();
+            match bytes.get(digits) {
+                Some(b'.' | b')') if bytes.get(digits + 1) == Some(&b' ') => digits + 2,
+                _ => 0,
+            }
+        }
+        _ => 0,
+    }
+}
+
+/// Hanging indent (DIPs) the painter applies to soft-wrap continuation
+/// rows of `line_text`: leading spaces and tabs at their rendered
+/// advances plus the rendered list-marker width. Uses the same
+/// per-char formula as the renderer's
+/// `FrameDisplay::hanging_indent_advance_dip` — `measure(" ")` is the
+/// painter's `column_advance` and `measure("\t")` is the resolved
+/// incremental tab stop, so budget and paint offset stay in lockstep.
+///
+/// Returns `0.0` without measuring when the line has no leading
+/// whitespace and no list marker (the common case).
+pub fn hanging_indent_dip(line_text: &str, measure: &mut dyn WidthMeasure) -> f32 {
+    let bytes = line_text.as_bytes();
+    let mut leading_spaces = 0usize;
+    let mut leading_tabs = 0usize;
+    let mut idx = 0usize;
+    while idx < bytes.len() {
+        match bytes[idx] {
+            b' ' => leading_spaces += 1,
+            b'\t' => leading_tabs += 1,
+            _ => break,
+        }
+        idx += 1;
+    }
+    let marker_columns = list_marker_display_columns(&line_text[idx..]);
+    if leading_spaces == 0 && leading_tabs == 0 && marker_columns == 0 {
+        return 0.0;
+    }
+    let body = SpanStyle::body();
+    let space_advance = measure.measure(" ", &body);
+    let tab_advance = if leading_tabs > 0 {
+        measure.measure("\t", &body)
+    } else {
+        0.0
+    };
+    (leading_spaces + marker_columns) as f32 * space_advance + leading_tabs as f32 * tab_advance
+}
+
+/// Soft-wrap budget for wrap *continuation* rows of a line whose
+/// hanging indent is `hang_indent_dip`: the painter shifts those rows
+/// right by the indent, so their usable width is the wrap column minus
+/// the indent — floored at `1 - MAX_HANG_INDENT_FRACTION` of the
+/// column so a pathologically deep indent cannot collapse the budget
+/// to zero. The first row of a line always budgets the full wrap
+/// width.
+#[must_use]
+pub fn continuation_wrap_budget_dip(max_width_dip: f32, hang_indent_dip: f32) -> f32 {
+    (max_width_dip - hang_indent_dip).max(max_width_dip * (1.0 - MAX_HANG_INDENT_FRACTION))
+}
+
 /// Deterministic measurer for tests / docs: every char counts as
 /// `char_width_dip` DIPs regardless of style. Default `char_width_dip` is
 /// `8.0`.

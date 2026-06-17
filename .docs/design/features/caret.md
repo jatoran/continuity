@@ -124,6 +124,14 @@ Horizontal autoscroll is intentionally out of scope today.
 - `interpolated_line(tween, progress)` — linear lerp between rows consumed by the renderer during paint.
 - Hooks: `Window::maybe_start_caret_tween(from_line)` from `jump_to_current_find_match`. Reduced motion clears the tween and produces no animation frames.
 
+### Caret-line highlight
+The caret's own line gets a distinct flat fill, separate from the mouse-hover band.
+
+- **Two keys, two bands.** The caret line is painted from theme key `editor.caret_line_highlight` (brush `caret_line_brush` in `crates/render/src/renderer_draw_main.rs`, painted by `chrome::paint_current_line_highlight`). The mouse-**hover** band still derives from `editor.line_highlight`, alpha-scaled per surface (0.42 body / 0.62 gutter via `line_bands::scaled_alpha`). Bundled themes set the caret-line color brighter / more saturated than the hover band, so "where I am" and "where the pointer is" read differently. Key/required-list narrative lives in [theme.md](theme.md) § "Required key namespaces".
+- **On by default.** `ViewOptions.current_line_highlight` defaults to `true` (`crates/ui/src/window_view_options.rs`). The renderer paints the caret line only when this flag is set.
+- **Toggle.** `view.toggle_current_line_highlight` (`Ctrl+Alt+L`), handled by `Window::toggle_current_line_highlight_impl` in `crates/ui/src/window_view_toggles.rs`.
+- Wrap-aware: under soft-wrap the highlight spans every display row of the caret's source line (`first_display_line_index_for_source` + `display_line_count_for_source`).
+
 ### Width + color
 - Bar width: `view_options.caret_width_px` (default 2 DIP). `caret_rect_for_shape(_, _, _, _, shape, bar_width_px)` consumes it. `0` falls back to the legacy 1.5 DIP.
 - Color override: `view_options.caret_color` / `caret_secondary_color`. Accepts `#rrggbb` / `#rrggbbaa` hex or a dotted theme-key reference. Empty string falls through to the theme's `editor.cursor.primary` / `secondary`. Paint integration at the brush layer is a follow-up (renderer still uses theme keys).
@@ -135,6 +143,8 @@ Horizontal autoscroll is intentionally out of scope today.
 
 ## Key files
 - caret rect: `crates/render/src/chrome_caret.rs`
+- caret-line highlight paint: `crates/render/src/chrome.rs::paint_current_line_highlight`, brush wiring in `crates/render/src/renderer_draw_main.rs`
+- caret-line highlight default + toggle: `crates/ui/src/window_view_options.rs`, `crates/ui/src/window_view_toggles.rs`
 - blink + run-loop timers: `crates/ui/src/window_runtime.rs`
 - sticky column: `crates/ui/src/selection.rs`, `crates/ui/src/selection_vertical.rs`
 - jump glow: `crates/ui/src/jump_glow.rs`
@@ -150,3 +160,4 @@ Horizontal autoscroll is intentionally out of scope today.
 - [Settings](settings.md) — all caret config flows through `[editor]`.
 - [Search](search.md) — find-jump triggers glow + tween.
 - [Overlays](overlays.md) — goto-line / goto-heading / quick-open confirm triggers glow.
+- [Theme](theme.md) — `editor.caret_line_highlight` (caret line) vs `editor.line_highlight` (mouse-hover band) are distinct required keys.

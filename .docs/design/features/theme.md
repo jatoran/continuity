@@ -9,15 +9,16 @@ TOML-loaded color sets keyed by stable name. Seventeen bundled themes ship with 
 ## Key concepts
 - **`Theme { name, colors: AHashMap<String, Color> }`** — flat key → color map.
 - **`Color`** — `Rgba { r, g, b, a }`; parsed from `#rrggbb` or `#rrggbbaa` hex.
-- **`REQUIRED_KEYS`** — flat array of dot-separated keys every theme must declare. `Theme::validate_required` runs at parse time so consumers can call typed accessors without `Option` plumbing.
+- **`REQUIRED_KEYS`** — flat array of dot-separated keys every theme must declare. `Theme::validate_required` runs at parse time so consumers can call typed accessors without `Option` plumbing. Full current list (with bundled coverage + accessor names) is the generated `.docs/generated/THEME_KEYS.md` — it now includes `editor.caret_line_highlight`.
 - **`ThemeMode`** — `Dark` | `Light` | `System` (default). `System` follows Windows.
 - **`ActiveTheme`** — Window-side state machine: mode + system-dark flag + currently resolved `Arc<Theme>`. `cycle_mode` walks `Dark → Light → System → Dark`.
 
 ## Required key namespaces
 - `window.*` — full-window chrome (window background, foreground).
-- `panel.*` — tab strip backgrounds, active/inactive tab fg/bg.
+- `panel.*` — tab strip backgrounds, active/inactive tab fg/bg. `panel.inactive_tab.background` is intentionally distinct from `panel.background` in every bundled theme (previously equal in most), and `panel.active_tab.background`'s offset is widened, so active / inactive / strip-gap tabs are all visually separable.
 - `pane.border` / `pane.border_active` — focused-pane accent.
 - `editor.*` — body fg/bg, cursor, selection, line highlight, line numbers, indent guides, search match colors, find-bar bg.
+- **`editor.line_highlight` vs `editor.caret_line_highlight` — two distinct keys, two distinct bands.** `editor.line_highlight` now drives **only** the mouse-hover band (the renderer scales its alpha down: 0.42 body / 0.62 gutter via `line_bands::scaled_alpha`). `editor.caret_line_highlight` is the distinct fill painted behind the **caret's own line**. Bundled TOMLs set the caret-line key slightly brighter / more saturated than the hover band so the caret line reads "where I am" while the hover band reads "where the pointer is." Caret-line presentation + default-on behavior lives in [caret.md](caret.md) § "Caret-line highlight".
 - `editor.caret_jump_glow` (Phase B6) — RGBA tint for the destination row after a long caret jump.
 - `editor.pair_rainbow.0..5` (Phase B8) — 6-level nested bracket palette.
 - `editor.soft_wrap_indicator` (Phase B17) — margin glyph color.
@@ -27,7 +28,7 @@ TOML-loaded color sets keyed by stable name. Seventeen bundled themes ship with 
 
 ## Typed accessors
 
-Themes expose `Theme::editor_background()`, `Theme::editor_cursor_primary()`, `Theme::editor_caret_jump_glow()`, `Theme::editor_pair_rainbow(level)`, `Theme::editor_soft_wrap_indicator()`, `Theme::markdown_heading(level)`, etc. Each typed accessor calls `self.required(KEY).expect("invariant: REQUIRED_KEYS")` — a panic here means the key was added to `REQUIRED_KEYS` but a bundled theme TOML wasn't updated, which the asset test catches.
+Themes expose `Theme::editor_background()`, `Theme::editor_cursor_primary()`, `Theme::editor_line_highlight()`, `Theme::editor_caret_line_highlight()`, `Theme::editor_caret_jump_glow()`, `Theme::editor_pair_rainbow(level)`, `Theme::editor_soft_wrap_indicator()`, `Theme::markdown_heading(level)`, etc. Each typed accessor calls `self.required(KEY).expect("invariant: REQUIRED_KEYS")` — a panic here means the key was added to `REQUIRED_KEYS` but a bundled theme TOML wasn't updated, which the asset test catches.
 
 ## Operations
 

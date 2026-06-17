@@ -29,6 +29,12 @@
 //! - `None` when the entry has no profile populated (e.g. it was
 //!   constructed via [`crate::wrap_cache::WrapCacheEntry::row_count_only`]).
 //!   The caller should fall back to the slow walker.
+//! - `None` in the degenerate regime where the continuation budget is
+//!   smaller than a single grapheme (a wrap column only a few graphemes
+//!   wide — never reached at production wrap widths). There the slow
+//!   path's "can't cut before a row's first grapheme" guard packs
+//!   overflowing graphemes in a way the break-candidate profile cannot
+//!   reconstruct, so the caller must fall back to the slow walker.
 
 use crate::wrap_cache::{WrapCache, WrapCacheEntry, WrapCacheKey};
 
@@ -107,14 +113,21 @@ pub fn row_count_from_profile(
             // Two sub-cases mirror the slow path's `byte_off >
             // line_start_byte` guard plus its end-of-line semantics:
             if pre_ws_advance == line_start_advance {
-                // The trailing whitespace is the first grapheme of
-                // this row. The slow path's guard suppresses the cut
-                // (running gains only the whitespace's width and we
-                // continue). For us: consume candidate `i` into the
-                // current row and advance.
-                candidates_in_current_row = candidates_in_current_row.saturating_add(1);
-                i += 1;
-                continue;
+                // `row_through_post_ws == ws_width` here (the candidate's
+                // own trailing whitespace is the *first* grapheme of the
+                // row), so this branch only fires when a single whitespace
+                // grapheme is itself wider than the row budget — the
+                // degenerate regime where `continuation_budget_dip` is
+                // smaller than one grapheme (needs a wrap column only a few
+                // graphemes wide; never reached at production wrap widths,
+                // where the budget is hundreds of DIPs). In that regime the
+                // slow path's "can't cut before a row's first grapheme"
+                // guard packs overflowing graphemes in a way the
+                // width-independent profile cannot reconstruct from break
+                // candidates alone (consecutive whitespace cuts diverge by a
+                // row). Bail to the slow walker rather than return a wrong
+                // count — the documented `None` fallback contract.
+                return None;
             }
             if i == n - 1 {
                 // Last candidate. If it is the end-of-line sentinel
@@ -291,6 +304,19 @@ mod tests {
         assert_eq!(row_count_from_profile(&entry, 4, 4.0), Some(3));
         assert_eq!(row_count_from_profile(&entry, 5, 5.0), Some(3));
         assert_eq!(row_count_from_profile(&entry, 7, 7.0), Some(2));
+    }
+
+    #[test]
+    fn degenerate_sub_grapheme_continuation_budget_bails_to_slow_path() {
+        // Regression (proptest `profile_independent_of_build_wrap_width`,
+        // seed cc 52d3824…): five spaces at wrap_width=1. The hang indent
+        // (5) collapses the continuation budget to wrap*0.25 = 0.25, which
+        // is smaller than a single grapheme. The slow path counts 3 rows;
+        // the profile cannot reconstruct that packing, so it must return
+        // `None` (fall back to the slow walker) rather than a wrong count.
+        let entry = build_profile_unit_widths("     ", 3);
+        // continuation budget = continuation_wrap_budget_dip(1.0, 5.0) = 0.25
+        assert_eq!(row_count_from_profile(&entry, 1, 0.25), None);
     }
 
     #[test]

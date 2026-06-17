@@ -65,6 +65,10 @@ if result.revision == window.last_known_revision(buffer_id) {
 
 This is the entirety of the "should I accept this result?" logic. No locks, no callbacks.
 
+### Rope-delta history is revision-truthful
+
+Every revision-advancing path also records its per-revision rope deltas so `EditorHandle::rope_deltas_since(buffer_id, since_revision)` returns a gap-free chain. Consumers (the decoration worker in `crates/ui/src/window_paint/decorations.rs`, the display-map projection classifier) walk that chain to decide incremental re-decoration / re-projection vs. a full rebuild; a missing revision forces the full path. Undo, redo, and redo-alternate advance the revision (they `buf.apply` inverse/replayed ops), so they MUST push delta history too — `core::dispatch::push_delta_history` is called from `core::undo::{undo, replay_group}` (the latter backing both `redo` and `redo_alternate`) against the pre-apply rope, matching the forward edit paths' byte-coordinate ordering. This closes the prior gap where undo bumped the revision without recording deltas, which left `rope_deltas_since` reporting an uncovered gap and silently downgrading consumers to a full rebuild after every undo.
+
 ## Locks of last resort
 
 Allowed only with a doc comment naming the region. Current allowlist:

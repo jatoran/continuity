@@ -226,7 +226,7 @@ impl Window {
             caret_anchor_capture_count: std::cell::Cell::new(0),
             resize_changed: false,
             pending_doc_end_scroll: false,
-            caret_was_on_screen_prior_frame: false,
+            geometry_anchor: crate::window_view::geometry_anchor::GeometryAnchorState::default(),
             pending_doc_end_scroll_attempts: 0,
             jump_offthread_polls: 0,
             background_paint_tick: 0,

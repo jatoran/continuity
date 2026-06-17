@@ -90,7 +90,8 @@ Stale decoration results that arrive with `revision < buffer.revision` are disca
 - Every cross-thread payload is an `Arc<…>` clone tagged with `Revision`. No `&'a` lifetimes crossing channels.
 - `Mutex` is allowed only where a doc comment names the contention region (theme cache, font cache). Hot paths are lock-free.
 - Channels are bounded outside startup; hot-path sends are `try_send` with explicit overflow policies (e.g. coalesce-on-full in persist).
-- A panic in any worker is caught at the crate boundary, logged, and the worker restarts. The UI thread is panic-quarantined.
+- A panic in any worker is caught at the crate boundary, logged, and the worker restarts.
+- **UI thread panic quarantine (implemented).** Win32 calls `crates/ui/src/window_dispatch.rs::wndproc` across an `extern "system"` FFI boundary; an unwind crossing it is UB that aborts the process, and the shipped `release-small` profile compiles `panic = "unwind"`. The routing body runs inside `std::panic::catch_unwind`; a caught panic is logged and converted to a safe `LRESULT` by `crates/ui/src/window_dispatch/panic_barrier.rs::recover_from_wndproc_panic` (`LRESULT(0)` for messages the dispatch treats as handled, else `DefWindowProcW`), so the window survives the faulting message instead of aborting. Best-effort: it preserves process survival over a single message, not transactional rollback — `Window` state may be left mid-mutation, so the conservative `is_handled_message` set falls unknown messages through to the OS default.
 
 ## Constraints + trade-offs
 - **Win32 raw, not winit** ⇒ full control over IME, VD, DPI, swap-chain present ⇒ Windows-only.

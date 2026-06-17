@@ -174,6 +174,7 @@ The active-cell outline is themed by the dedicated `markdown.table.active_cell_o
 - ui (click dispatch): `crates/ui/src/window_mouse.rs::on_left_button_down` / `on_left_button_dbl`
 - ui (right-click): `crates/ui/src/window_context_menu.rs::try_table_cell_context_menu`
 - ui (structural ops): `crates/ui/src/window_markdown_table_ops.rs`
+- ui (pasted-table block normalization): `crates/ui/src/window_markdown_table_ops/paste_normalize.rs`
 - ui (cell-scope nav: Tab / Enter / Shift+Enter / Ctrl+Enter / Up / Down): `crates/ui/src/window_markdown_table_nav.rs`
 - ui (`editor.in_table` predicate): `crates/ui/src/window_commanding/context.rs`
 - commands: `crates/command/src/markdown.rs`
@@ -214,6 +215,28 @@ A caret-in-cell still shows **raw source** (markers + literal `<br>` visible, so
 Both paths size each cell rect to the row's display-row count, but anchor differently:
 - **Focused pane** — `table_chrome_cache::record_table_chrome` stacks rows by `TableLayout::display_row_offset_within_table(row)` (cumulative `row_height`), recorded once into the command list and replayed at the table's first display row.
 - **Spectator panes** — `pane_body/table_chrome.rs::paint_spectator_table_chrome` runs as a **post-pass after the body-text loop** (mirroring the focused command-list replay), and anchors each row at the frame's *actual* `first_display_line_index_for_source(row)`, spanning the frame's *actual* `display_line_count_for_source(row)`. Following the frame (not `row_height`) keeps the chrome tiled exactly over the projected rows even when a promoted focused frame (after a focus switch) or a soft-wrapped raw table line allocates a source line a different row count than the cell-wrap reservation implies. An inline per-row spectator paint (the pre-fix shape) masked only a tall row's first display row, leaving the wrap-continuation glyphs bleeding over the cell grid.
+
+## Pasted-table block normalization
+
+A pasted GFM pipe table (from `Ctrl+V` — including a `CF_HTML` fragment converted to markdown; see [Clipboard](clipboard.md)) is normalized so tree-sitter-md classifies it as a `PipeTable`. GFM requires a pipe table to **begin a block**: when a table is inserted directly after a non-blank line with no preceding blank line, tree-sitter-md folds the header into the preceding paragraph and the snippet never becomes a `PipeTable` — so the visual-cell pipeline never engages and the user sees raw `| a | b |` pipes forever.
+
+The paste path (`Window::insert_paste_text` → `normalize_table_paste` in `crates/ui/src/window_clipboard.rs`) calls the pure helpers in `crates/ui/src/window_markdown_table_ops/paste_normalize.rs`:
+
+- **Detection** — `is_gfm_table_text` (header pipe row + delimiter row) or `is_pipe_table_missing_delimiter` (≥2-column header pipe row followed by a non-delimiter pipe row). Non-table pastes pass through unchanged. Conservative: a lone `|`-prefixed line and a single-column body are left alone (avoids treating incidental prose as a table).
+- **Leading-newline prefix** — when the primary caret is NOT at column 0 of a blank line (`primary_caret_at_blank_line_start`), `normalize_pasted_table` prefixes a `\n` so the table starts its own block. At column 0 of a blank line (or an empty buffer) no prefix is added.
+- **Missing-delimiter synthesis** — when the snippet looks like a table body that lost its delimiter row, `insert_missing_delimiter_row` inserts a `| --- | --- |` row (column count from `pipe_table_column_count`, escaped pipes not counted) immediately after the header.
+
+Reuses `super::is_delimiter_line` so the paste path agrees with the table-ops parser on what a delimiter row is.
+
+**Plain paste (`Ctrl+Shift+V`) bypasses this** — `insert_plain_clipboard_text` does not run `normalize_table_paste`, so a table pasted as plain text keeps its raw shape.
+
+### One-frame raw flash
+
+Immediately after the paste lands, the table can render as raw `| a | b |` for a single frame before the decorate worker reparses and `evaluated_tables` populates. This is decoration lag (the chrome painter keys off `evaluated_tables`), not a normalization bug — no code fix; it resolves on the next paint.
+
+### Tests
+
+- `crates/ui/src/window_markdown_table_ops/paste_normalize.rs::tests` — full-table vs missing-delimiter detection, lone-header / single-column conservatism, column counting (escaped pipe excluded), delimiter-row format, newline prefix gated on block-start, and combined synthesis + prefix.
 
 ## Out of scope (deferred)
 

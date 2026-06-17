@@ -79,6 +79,12 @@ impl CaretDisplayLineResolution {
 pub(crate) struct CaretDisplayLine {
     /// Absolute display row containing, or conservatively covering, the caret.
     pub display_row: u32,
+    /// First absolute display row of the caret's *source line* (i.e. the
+    /// prefix-sum of every display row above it). Unlike `display_row` this
+    /// excludes the caret's own soft-wrap continuation offset, so it tracks
+    /// only the geometry *above* the caret line — the quantity the
+    /// viewport geometry-shift anchor compensates.
+    pub source_line_first_display_row: u32,
     /// Total display rows in the projection's whole-document row index.
     pub total_display_rows: u32,
     /// Number of display rows occupied by the caret's source line.
@@ -414,11 +420,14 @@ fn compute_caret_display_line_from_frame(
     let index_is_partial = frame_display.row_index().is_partial();
     let source_line_rows = frame_display.display_line_count_for_source(source_line);
     if source_line_rows > 0 {
+        let source_line_first_display_row =
+            frame_display.first_display_line_index_for_source(source_line);
         if let Some(display_row) =
             frame_display.display_line_index_for_source_pos(source_line, byte_in_source_line)
         {
             return Some(CaretDisplayLine {
                 display_row,
+                source_line_first_display_row,
                 total_display_rows,
                 source_line_rows,
                 resolution: CaretDisplayLineResolution::RealizedSpec,
@@ -426,7 +435,8 @@ fn compute_caret_display_line_from_frame(
             });
         }
         return Some(CaretDisplayLine {
-            display_row: frame_display.first_display_line_index_for_source(source_line),
+            display_row: source_line_first_display_row,
+            source_line_first_display_row,
             total_display_rows,
             source_line_rows,
             resolution: CaretDisplayLineResolution::RowIndexOnly,
@@ -440,8 +450,10 @@ fn compute_caret_display_line_from_frame(
     while probe >= 0 {
         let rows = frame_display.display_line_count_for_source(probe as usize);
         if rows > 0 {
+            let first = frame_display.first_display_line_index_for_source(probe as usize);
             return Some(CaretDisplayLine {
-                display_row: frame_display.first_display_line_index_for_source(probe as usize),
+                display_row: first,
+                source_line_first_display_row: first,
                 total_display_rows,
                 source_line_rows: rows,
                 resolution: CaretDisplayLineResolution::FoldedFallback,
@@ -461,6 +473,7 @@ fn caret_display_line_from_source_floor(
     let display_row = (source_line as u32).min(total_source_lines.saturating_sub(1));
     CaretDisplayLine {
         display_row,
+        source_line_first_display_row: display_row,
         total_display_rows: total_source_lines,
         source_line_rows: 1,
         resolution: CaretDisplayLineResolution::SourceFloor,

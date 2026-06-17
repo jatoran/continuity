@@ -27,6 +27,12 @@ Mouse-wheel scrolling uses `[editor].mouse_wheel_scroll_speed = 2.0` by default:
 
 Test before adding a modal: is this interruption *reversible*? If yes, it's a banner. If no, consider whether the operation itself could be made reversible (trash + restore) — only fall to a modal when reversibility is genuinely impossible.
 
+**Banner lifetime (`crates/ui/src/window_file.rs::FileBanner`):**
+
+- **Transient (auto-dismiss)** — confirmation/info banners that announce a completed action ("Saved …", reload-applied, etc.). Auto-dismiss after `TRANSIENT_BANNER_MS = 2500` ms (`FileBanner::transient`); chrome doesn't linger past the action it announces.
+- **Sticky (decision-required)** — banners awaiting a user choice (external-change reload/keep/diff, deletion, encoding mismatch, recovery, persist failure). `FileBanner::new` leaves `expires_at_ms = None`; the banner stays until the user acts (button or `Esc`, via `Window::dismiss_priority_chain`).
+- **Placement** — the passive file banner paints below the tab ribbon (`TAB_STRIP_HEIGHT_DIP + RIBBON_GAP_DIP`, `Window::file_banner_overlay`) so it never overlaps the tab strip.
+
 ---
 
 ## Spell-check
@@ -67,8 +73,15 @@ Test before adding a modal: is this interruption *reversible*? If yes, it's a ba
 - **Trim trailing whitespace on save = on** (B14).
 - **Indentation = tabs** (`[editor].indent_type = "tabs"`). `Tab` inserts one tab character; `indent_width` / `tab_width` default 4. Switching `indent_type` at runtime does not retroactively convert existing indentation (`editor.spaces_to_tabs` / `editor.tabs_to_spaces` do that). `Shift+Tab` outdent strips a leading tab or up to one indent-width of leading spaces, so it works regardless of which the line actually uses.
 - **Indent folding on always** (H3).
+- **Caret-line highlight on by default** (`editor.caret_line_highlight`, `ViewOptions::current_line_highlight = true` in `crates/ui/src/window_view_options.rs`; toggle `view.toggle_current_line_highlight`, default chord `Ctrl+Alt+L`). This is the band painted behind the *caret* line and is distinct from the mouse-hover band (`editor.line_highlight`).
 - **Macros dropped** — no `.` repeat-last, no record/replay.
 - **Smart paste with indent dropped** (B13 keeps URL/image smart-paste only).
+
+### File save dialog defaults (`crates/ui/src/window_file_dialogs.rs`)
+
+- **Save defaults to the Markdown file type** — `wide_save_filter` lists "Markdown (\*.md, \*.markdown)" first and `nFilterIndex = 1` selects it.
+- **Extensionless names get `.md`** — `lpstrDefExt = "md"` appends `.md` to a name typed without an extension; an explicit extension (e.g. `notes.txt`) is respected.
+- **Untitled buffers pre-fill the file name from the tab title** — `sanitize_filename_stem` strips the pin-dot/ellipsis decorations, swaps Windows-reserved characters for spaces, caps the stem at 48 chars, and falls back to `"untitled"` when nothing usable remains.
 
 ---
 
@@ -88,6 +101,17 @@ Test before adding a modal: is this interruption *reversible*? If yes, it's a ba
 - Bottom of window, user-configurable segments.
 - Default segments: `line:col`, char count, word count, non-empty/total line count, selection stats, live numeric sum, encoding + line endings.
 - All segments are click-to-act (C2).
+
+---
+
+## Tab strip baseline
+
+Geometry constants and crowding behavior in `crates/render/src/pane_chrome_layout.rs`; close-button suppression in `crates/render/src/pane_chrome.rs`.
+
+- **Preferred tab width** `TAB_PREFERRED_WIDTH_DIP = 200`; one verbose title is capped here so it can't starve neighbours.
+- **Crowded strip shrinks small** — when preferred widths don't fit, slots shrink proportionally toward `TAB_SHRINK_MIN_WIDTH_DIP = 88` (`crowded = true`).
+- **Overflow scrolls horizontally** — when even the shrink minimum overflows, slots pin at the shrink minimum, the row scrolls, and `TAB_CHEVRON_WIDTH_DIP = 18` is reserved at each edge for the `‹` / `›` chevrons (`overflowing = true`).
+- **Close "x" hidden when crowded** — the per-tab close cell is suppressed while the strip is crowded-but-not-overflowing (`suppress_close_cell = crowded && !overflowing`) and on any tab below `TAB_CLOSE_MIN_TAB_WIDTH_DIP`; paint and hit-test mirror each other. Default close-button visibility is `TabCloseButton::Hover`.
 
 ---
 

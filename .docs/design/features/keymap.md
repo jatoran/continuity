@@ -4,6 +4,7 @@ TOML-driven chord → command-id bindings. The bundled default keymap (`crates/k
 
 ## What it is
 - TOML-driven chord → command-id bindings. Layered: defaults (bundled) + user overrides from the runtime config path (`%APPDATA%\continuity\keymap.toml`, or `<exe>\data\keymap.toml` in portable mode). Conflict checker reports collisions. Multi-key sequences (`Ctrl+K Ctrl+S`) are supported via a pending-chord accumulator on the window.
+- Full chord → command list (generated, authoritative): `.docs/generated/COMMANDS.md`. This doc covers the model, dispatch, and exceptions only; never re-enumerate every default chord here.
 
 ## Key concepts
 - **`KeyChord { vk: u16, modifiers: Modifiers }`** — one keypress; produced from `WM_KEYDOWN` (`vk`) + `GetKeyState` (`Modifiers`).
@@ -49,6 +50,8 @@ Chord syntax (parser in `keymap::parser`):
 - Keys: `a`..`z`, `0`..`9`, `f1`..`f24`, named (`escape`, `tab`, `enter`, `space`, `home`, `end`, `pgup`, `pgdn`, `up`, `down`, `left`, `right`, `backspace`, `delete`, `insert`), and printable symbols (`-`, `=`, `[`, `]`, `\\`, `;`, `'`, `,`, `.`, `/`, `` ` ``).
 - Multi-chord sequences: `["ctrl+k", "ctrl+s"]` (TOML array).
 
+**Exact-modifier match.** `lookup` matches the full `Modifiers` set, not a subset — `backspace` and `shift+backspace` are distinct chords. A binding for the bare key does **not** fire when an extra modifier is held; each modifier variant the writer expects to share a command needs its own `[[binding]]`. `default.toml` therefore mirrors `editor.delete_back` onto both `backspace` and `shift+backspace` (and `editor.delete_forward` onto `delete` + `shift+delete`), the same way `editor.insert_newline` rides both `enter` and `shift+enter`. Without the mirror, holding Shift over Backspace/Delete produces an unbound chord that is silently dropped.
+
 ## Operations
 
 ### Overlay-scoped defaults
@@ -83,7 +86,7 @@ Find-bar bindings are predicate-gated on `find_bar.visible`, so they are inert i
 ### Layered loading
 1. Load `crates/keymap/assets/default.toml` (bundled, `include_str!`).
 2. If the runtime `keymap.toml` exists, parse it and overlay — later entries take precedence over earlier. Normal launches use `%APPDATA%\continuity\keymap.toml`; portable launches use `<exe>\data\keymap.toml`.
-3. Settings watcher reloads on save; UI calls `keymap.reload` and refreshes conflicts.
+3. Settings watcher reloads on save; UI calls `keymap.reload` (chord `Ctrl+K Ctrl+M`, relocated off `Ctrl+Shift+R` which now drives `editor.toggle_bullet_indent_continuation`) and refreshes conflicts.
 
 ## API surface
 - `Keymap::from_toml(default_toml, user_toml: Option<&str>) -> Result<Keymap, Error>`

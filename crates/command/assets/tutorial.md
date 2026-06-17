@@ -26,7 +26,7 @@ Caret rendering: shape (bar / block / underline), blink behaviour, jump-glow ack
 
 ### Clipboard
 
-Cut, copy, and paste via `CF_UNICODETEXT`. Smart-paste rewrites a clipboard URL into a markdown link / image / autolink based on context. An in-memory paste-history ring lets the user reach back N entries; nothing is persisted to disk.
+Cut, copy, and paste via `CF_UNICODETEXT`. Paste also reads `CF_HTML` ("HTML Format") and converts pasted rich-text/browser HTML to markdown. Smart-paste rewrites a clipboard URL into a markdown link / image / autolink based on context. An in-memory paste-history ring lets the user reach back N entries; nothing is persisted to disk.
 
 ### Command system
 

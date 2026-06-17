@@ -135,10 +135,12 @@ unsafe {
     let bg_brush      = brushes.solid(params.colors.background)?;
     let fg_brush      = brushes.solid(params.colors.foreground)?;
     let line_highlight_brush = brushes.solid(params.colors.line_highlight)?;
+    // §6a: caret-line band uses its OWN key, not line_highlight.
+    let caret_line_brush     = brushes.solid(params.colors.caret_line_highlight)?;
     let line_number_brush    = brushes.solid(params.colors.line_number)?;
     // …
 
-    if params.view_options.current_line_highlight {
+    if params.view_options.current_line_highlight {   // default true
         // B16: spans every display row of the caret's source line
         let display_rows = selections.first().map(|s| {
             let l = s.head.line as usize;
@@ -146,8 +148,10 @@ unsafe {
              frame_display.display_line_count_for_source(l))
         });
         paint_current_line_highlight(&self.d2d_context, rope, selections,
-            line_height, scroll_y, viewport_w, margins, &line_highlight_brush, display_rows);
+            line_height, scroll_y, viewport_w, margins, &caret_line_brush, display_rows);
     }
+    // The mouse-hover line/gutter bands are painted separately by
+    // line_bands::paint_line_bands, which scales editor.line_highlight down.
 
     if params.view_options.trailing_whitespace { paint_trailing_whitespace(…); }
 
@@ -238,6 +242,18 @@ rows.
 ## Wrap paint
 
 `crates/render/src/wrap_paint.rs::paint_display_lines` walks focused-pane `DisplayLineSpec`s in display-row order; `crates/render/src/pane_body.rs` does the same for non-focused pane bodies. Each `DisplayLineSpec` produces one `IDWriteTextLayout`. Caret painting uses `display_byte_to_utf16` for hit-test conversion. Same `caret_rect_for_shape` is used; selection rects use `source_byte_in_line_to_display_utf16` to convert source-byte selection ranges into display utf16 coords. F3 inline-color and F4 table-formula overlays run against each concrete display spec so restored word-wrap sessions paint the same extensions as the non-wrap path.
+
+## Post-text chrome (gutter, fold ticks, indent guides)
+
+`crates/render/src/chrome_post.rs::paint_post_text_chrome` runs the body chrome after the glyph pass, installs the transforms (body-content for indent guides / whitespace markers, body-translate for the gutter), and forwards `params.line_hover` to the gutter and fold-tick painters:
+
+- **Gutter** — `chrome_line_numbers.rs::paint_line_number_gutter` takes a trailing `hovered_source_line: Option<usize>` arg (`params.line_hover.map(|h| h.source_line as usize)`). In `gutter_caret_line_only` mode the gutter stamps the caret line (active brush), the muted first/last viewport anchors, **and** the hovered line's number (muted, via `add_hover_anchor_label`); the full-numbers path ignores the hover. The display-row branch (`paint_gutter_display_rows`, taken whenever a `FrameDisplay` is passed) skips `is_wrap_continuation` rows so each wrapped paragraph labels only its first row.
+- **Fold ticks** — `chrome_fold.rs::paint_fold_triangles` takes a trailing `gutter_hovered: bool` (`params.line_hover.is_some_and(|h| h.in_gutter)`). `should_paint_fold_tick(is_folded, gutter_hovered)` gates: collapsed `▸` glyphs always paint; expanded `▾` glyphs paint only while the pointer is over the gutter. The painter early-returns when un-hovered and `folded_lines` is empty.
+- **Indent guides** — `chrome_indent_guides.rs::paint_indent_guides` takes `frame_display: &FrameDisplay` plus `active_caret_source_line` / `color` / `active_color`. It iterates the **display-row** grid (mapping each row back to its source line) rather than the source-line grid (which misaligned under soft-wrap), skips `is_wrap_continuation` rows, suppresses the `k == 0` body-left-edge guide (it duplicated the gutter↔body divider), and emphasizes the caret source line's deepest guide column with `active_color` (`indent_guide_active` theme key).
+
+## Minimap pass
+
+`crates/render/src/renderer_draw_main/minimap_pass.rs::paint_minimap_pass` drives the scaled-text minimap off the editor's display-row content height: it computes `content_height_dip` via `scrollbar::content_height_for_scrollbar(frame_display, line_height)` (the same value the scrollbar uses) and passes it to `minimap::compute_minimap_layout(pane_rect, scroll_y, line_height, total_lines, content_height_dip, right_inset_dip)`. The added `content_height_dip` parameter puts the strip's viewport indicator and click resolution in display-row space so they stay consistent with editor scroll under soft-wrap / folds / reserved rows.
 
 ## Projection worker latency
 
@@ -346,7 +362,12 @@ Segment hits first query the shared P18 `SegmentCache` with the same line-projec
 | Renderer | `crates/render/src/renderer.rs::Renderer::draw_buffer` |
 | Layout cache | `crates/layout/src/cache.rs::LayoutCache` |
 | Caret rect | `crates/render/src/chrome_caret.rs::caret_rect_for_shape` |
-| Current-line band | `crates/render/src/chrome.rs::paint_current_line_highlight` |
+| Current-line band | `crates/render/src/chrome.rs::paint_current_line_highlight` (own `editor.caret_line_highlight` brush) |
+| Post-text chrome orchestration | `crates/render/src/chrome_post.rs::paint_post_text_chrome` |
+| Line-number gutter | `crates/render/src/chrome_line_numbers.rs::paint_line_number_gutter` (`hovered_source_line` arg) |
+| Fold ticks | `crates/render/src/chrome_fold.rs::paint_fold_triangles` (`gutter_hovered` arg) |
+| Indent guides | `crates/render/src/chrome_indent_guides.rs::paint_indent_guides` (display-row grid via `FrameDisplay`) |
+| Minimap | `crates/render/src/renderer_draw_main/minimap_pass.rs::paint_minimap_pass` → `crates/render/src/minimap.rs::compute_minimap_layout` (`content_height_dip` arg) |
 | Wrap-mode body | `crates/render/src/wrap_paint.rs::paint_display_lines` |
 | Spell squiggles | `crates/render/src/spell.rs::paint_spell_spans` |
 | Pane chrome | `crates/render/src/pane_chrome.rs::paint_pane_chrome` |

@@ -11,6 +11,7 @@ Recursive pane tree inside each window; positional tabs per pane leaf with an MR
 - **`Group`** — leaf pane; holds tabs in positional + MRU orders.
 - **`Tab { id, buffer_id, created_at_ms, label_override }`** — one tab.
 - **`PerPaneState`** — non-focused pane runtime state (buffer id, view, language, decoration revision). The focused pane mirrors into the scalar window fields.
+- **`TabSessionState`** — UI-thread session-only sub-state on `Window` (`tab_session`), never persisted. Holds `scroll_by_pane: HashMap<PaneId, f32>` (per-pane horizontal tab-strip scroll offset, DIPs from content left), `view_bookmarks: HashMap<TabId, TabViewBookmark>` (per-tab scroll_y + primary selection), and `adopted_tab: Option<TabId>` (which tab the focused scalar mirror represents — used to detect a switch). Lives in `crates/ui/src/window_tab_strip_scroll.rs`.
 - **Pane/tab chrome motion** — `ChromeMotionState` compares focused pane and active tab ids during paint and annotates `PaneStripDraw` with the shared 160 ms ease-out-cubic focus/activation motion. Focus changes crossfade *both* directions on the same `MotionSpan`: the focus-in pane carries `focus_motion` with a rising active-border α, the focus-out pane carries the complementary falling α, and the renderer blends `pane.border` ↔ `pane.border_active` (plus border thickness) by that value regardless of the static `focused` flag. Tab activation projects an `active_tab_motion` progress plus `previous_active_tab_index` onto the changing pane; the renderer paints a 3 DIP underline (`active_tab_fg` color) lerped from the previous-active tab's rect to the current-active tab's rect along the strip's x-axis. Reduced motion clears all three projections and schedules no frames.
 - **Virtual desktop** — `IVirtualDesktopManager` (COM) captured at state-save time; restored on launch by GUID. Missing desktop ⇒ fall back to active desktop.
 
@@ -156,7 +157,27 @@ Two stacks back `Ctrl+Shift+T`:
     the tab currently under the pointer. The same UI-thread hover slot
     gates close-glyph hit-testing, so an unpainted close cell cannot
     close a tab.
+  - **Crowded suppression** (item 17): when the strip is crowded
+    (slots shrunk below preferred width but still above the small floor,
+    i.e. `crowded && !overflowing`), the per-tab close `×` cell is
+    suppressed in **both** paint and hit-test (`suppress_close_cell` in
+    `pane_chrome`; the same `crowded && !overflowing` gate in
+    `window_mouse_tabs`) so a mis-aimed crowded click can't close a tab.
+    The dirty dot still paints; middle-click-close still works; the
+    close cell returns once tabs hit the small floor / overflow-scroll
+    case.
   - `Ctrl+W` closes a tab (buffer → trash if not file-associated; just closes if file-associated).
+  - **Close-confirm gate** (item 9, `window_close_confirm.rs`): an
+    unsaved *ephemeral* tab (untitled, non-file-associated, with typed
+    content — rope has bytes or revision advanced past 0) now arms a
+    one-shot confirm banner on first `Ctrl+W` (`"Press Ctrl+W again to
+    close. Unsaved — kept in trash (recoverable)."`, 3 s window) instead
+    of closing silently; a second `Ctrl+W` within the window commits.
+    An **empty** untitled tab still closes immediately
+    (`tab_close_needs_confirmation` returns `false`). File-associated
+    dirty buffers follow the same arm via the strict file-hash dirty
+    check. Any change to the buffer between presses clears the arm
+    (`clear_unsaved_close_arm`).
   - `Ctrl+Shift+W` closes a pane.
   - Closing the last tab in a pane closes the pane (D4); closing the last pane closes the window; closing the last window saves session state and quits (`AppSessionEnding`).
   - Every closed tab pushes a [`ClosedTab`](#close-reopen-history) record onto the window's `recently_closed` stack (cap 32) capturing `buffer_id`, label, close timestamp, the originating pane id, **and** the parent split's axis + first sibling leaf — the shape hints reopen needs to restore the pane when this close collapses it. Pane-collapse cascades (`pane_layout::close_pane`) push one record per tab in the collapsing pane.
@@ -169,7 +190,14 @@ Two stacks back `Ctrl+Shift+T`:
     3. **Otherwise** → install in the currently focused pane.
   - **Global path** (whole-window restore): the handler peeks the `closed_history` row, dispatches a `RegistryEvent::Spawn` reconstructing the window from the persisted pane-tree JSON, and only then pops the row. If `tx.send` fails, the row stays on the stack so the next press can retry.
   - Trace events: `event:tab_close`, `event:pane_close`, `event:tab_reopen outcome=… dest=…`, `event:smart_reopen outcome=…`, `event:closed_history_push/pop`. See [`trace-guide.md`](../../technical/trace-guide.md) "User actions + lifecycle".
-- **Tab labels** (Phase B15): user override → first non-empty trimmed line with leading `#`s stripped → `Untitled`. Derived labels are clipped to 20 chars with `…`; renderer chrome keeps the label one-line and clipped inside its tab slot. The same resolved label drives the OS window caption (see § Window focus + caption).
+- **Tab labels** (Phase B15): user override → first non-empty trimmed line with leading `#`s stripped → `Untitled`. The base title is **no longer pre-clipped to 20 chars**; `resolve_label` caps it only at the generous `MAX_BASE_TITLE_CHARS` (~60, in `pane_tree_label.rs`) so a pathological first line cannot balloon per-frame DirectWrite layout cost. Ellipsis fitting to the tab's **real painted slot width** happens at render time (`pane_chrome`), so a wide tab shows more of its title and a crowded one shows less. Renderer chrome keeps the label one-line and clipped inside its slot. The same resolved label drives the OS window caption (see § Window focus + caption).
+- **Tab-strip slot sizing + overflow scroll** (item 8): one strip row, three regimes from `compute_tab_strip_metrics` (`pane_chrome_layout.rs`) — paint (`pane_chrome`) and hit-test (`window_mouse_tabs`) call it with the **same `(labels, strip_w, scroll_offset)` so they stay byte-identical**:
+  1. **Fits** — every slot takes its desired width up to `TAB_PREFERRED_WIDTH_DIP` (200). Not crowded, no scroll.
+  2. **Crowded** — slots shrink proportionally toward `TAB_SHRINK_MIN_WIDTH_DIP` (88), trimming overshoot from the widest slots; `crowded = true`, no scroll. (Gates close-cell suppression; see § Close.)
+  3. **Overflowing** — even at the shrink minimum the row exceeds the strip: every slot sits at the minimum, the row scrolls horizontally between `‹`/`›` chevrons (`pane_chrome_chevron.rs`, `TAB_CHEVRON_WIDTH_DIP` = 18 reserved per edge). `overflowing = true`; `content_x0 = chevron inset − clamped scroll offset` (negative once scrolled); content clipped to the band between chevrons. A chevron dims (0.4 α) when there is no room to scroll that way but stays a click target (the hit-test clamps a no-op scroll).
+  - **Scroll inputs**: clicking a chevron pages by 0.75 viewport (`try_tab_strip_chevron_click`); **Shift+mouse-wheel** over an overflowing strip scrolls it (`try_tab_strip_wheel_scroll` in `window_scroll.rs`, wheel-up → rightward content scroll). Offset is stored clamped per-pane in `Window::tab_session.scroll_by_pane`; the entry is removed when it falls to zero so a non-overflowing strip leaves no residue.
+- **Double-click empty ribbon → new tab** (item 11): `WM_LBUTTONDBLCLK` over a pane's tab-strip band but **not** over any tab focuses that pane and dispatches `tab.new` (`try_tab_strip_empty_area_dbl`). Mirrors the empty-area branch of middle-click-new-tab. A double-click on a tab keeps its existing behavior.
+- **Per-tab session view state** (item 18): switching tabs restores that tab's cursor + scroll. An in-memory `TabViewBookmark` (scroll_y_dip + primary selection) is keyed by `TabId`, **session-scoped (NOT persisted across restart)**, kept in `tab_session.view_bookmarks`. `adopt_focused_tab` detects a switch via `tab_session.adopted_tab != active`, calls `save_tab_view_bookmark_for_adopted` **before** swapping the scalar mirror and `restore_tab_view_bookmark` **after** — the restore deliberately does NOT re-anchor the caret into view, so the restored scroll sticks even when the caret sits outside it. Bookmarks are independent per `TabId` even when one buffer is open in two tabs. A switch to a never-visited tab whose buffer changed starts at top; a pure pane-focus switch that just loaded scalars from the pane's own `PerPaneState` keeps that scroll.
 - **Window placement**: `GetWindowPlacement` / `SetWindowPlacement` persists position; handles minimized / maximized / off-screen reposition across monitor reconfig. `WM_MOVE` triggers `request_state_save` (Phase A8).
 - **Single instance per data dir**: `app::single_instance` + `win::single_instance` hold a named mutex keyed by the database path. A second launch forwards its command-line paths to the running instance over a `WM_COPYDATA` message-only hub and exits (bare launch → activate top-most window); only when no instance is reachable does it run standalone. `--new-instance` bypasses. This prevents a second launch from replaying the whole persisted session and duplicating every window. See `architecture.md` § Process model and `defaults.md` § Launch + sessions.
 - **Restore activation gating**: `SpawnRequest.activate_on_restore` (set only on the most-recently-seen window at launch) → `WindowConfig.activate_on_show` → `Window::run` shows non-activating restored windows with `SW_SHOWNOACTIVATE`. `apply_initial_placement` additionally forces `activate_on_show = false` when the window restores onto a non-active virtual desktop, so launch never switches the user's desktop. Runtime spawns and `Ctrl+Shift+T` reopen activate normally.
@@ -208,6 +236,12 @@ Virtual-desktop GUID is captured at save time via `current_desktop_guid`; no sep
 - pane tree codec: `crates/ui/src/pane_tree_codec.rs`
 - pane-tree live-buffer repair: `crates/ui/src/window_buffer_tab_repair.rs`
 - per-pane state: `crates/ui/src/pane_state.rs`
+- session tab state (scroll-by-pane + per-tab view bookmarks) + strip scroll/chevron-click/empty-ribbon-dbl: `crates/ui/src/window_tab_strip_scroll.rs`
+- tab-label resolution (base cap, ellipsis at render): `crates/ui/src/pane_tree_label.rs`
+- tab-strip slot/crowding/scroll metrics: `crates/render/src/pane_chrome_layout.rs`
+- overflow scroll chevrons paint: `crates/render/src/pane_chrome_chevron.rs`
+- tab-close confirm gate (ephemeral arm + banner): `crates/ui/src/window_close_confirm.rs`
+- tab-strip mouse hit-test (close-cell suppression mirror): `crates/ui/src/window_mouse_tabs.rs`
 - pane layout commands: `crates/ui/src/pane_layout.rs`
 - pane mouse/shortcuts: `crates/ui/src/pane_shortcuts.rs`
 - Window aggregate: `crates/ui/src/window.rs`

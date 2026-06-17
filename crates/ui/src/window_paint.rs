@@ -36,38 +36,9 @@ pub(crate) use crate::window_paint_viewport_rows::{
 
 impl Window {
     pub(crate) fn on_paint(&mut self, hwnd: HWND) -> Result<(), Error> {
-        // Keep the OS-drawn title bar matched to the active theme. Cheap
-        // and guarded — only issues a syscall when the light/dark cast
-        // changed — so it runs before the background-paint skip to ensure
-        // a theme flip that lands on a throttled frame still recolors the
-        // caption.
-        self.sync_titlebar_theme();
-        // Keep the caption text matched to the active tab — same
-        // cheap-and-guarded contract as the theme sync above.
-        self.sync_window_title();
-        if self.should_skip_background_paint() {
+        if !self.begin_paint_frame(hwnd)? {
             return Ok(());
         }
-        // Deferred font-swap: if a `view.pick_font`/`view.set_font_size`
-        // commit is pending and the worker has just delivered a result
-        // for the target font_state, swap the live font state *before*
-        // `ensure_renderer` so the rebuilt `text_format` is built for
-        // the new family. The peek is non-consuming — the regular
-        // `take_latest_result_for_target` later in the same paint
-        // drains the entry and hits because the post-swap stamp now
-        // matches it. See `window_font_swap`.
-        self.try_apply_pending_font_swap(self.tree.focused);
-        self.ensure_renderer(hwnd)?;
-        // ε.5b — lazy-spawn the projection worker the first paint that
-        // has a live `text_format`. No-op on subsequent paints.
-        self.ensure_projection_worker();
-        // §I2: when the dedicated metrics buffer is the active tab,
-        // the metrics overlay paints *after* the regular pipeline runs
-        // (chrome + empty-rope body) — between `draw_buffer_no_present`
-        // and `Present` — so it sits over the body but under the tab
-        // strip and status bar.
-        self.prepare_paint_frame();
-        self.drain_spectator_projection_worker_results();
         let Some(snap) = self.snapshot_for_paint()? else {
             return Ok(());
         };
@@ -309,7 +280,7 @@ impl Window {
             &trace,
         );
         let frame_resolution::FrameResolutionOutputs {
-            frame_display,
+            mut frame_display,
             frame_source,
             worker_miss_reason,
             projection_kind,
@@ -343,6 +314,26 @@ impl Window {
             decorations_owned.as_ref(),
             current_decoration_parse_revision,
             should_skip_cache_seed,
+        );
+        // Hold the caret's source line at the same screen y across an
+        // implicit per-paint geometry reflow (a block above the caret
+        // revealing / collapsing as the served frame alternates between
+        // cache/worker/inline geometries while typing). Runs after the
+        // frame is resolved and the row index is cached, so it can shift
+        // scroll and cheaply re-realize the corrected viewport with no
+        // gap. See `window_view::geometry_anchor`.
+        self.apply_geometry_anchor(
+            &mut frame_display,
+            &display_query,
+            rope_for_projection,
+            revision_for_projection,
+            decorations,
+            &caret_bytes_for_projection,
+            &folds_for_projection,
+            &image_reservations,
+            &suppressed_table_blocks,
+            projection_metrics.wrap_width_dip,
+            projection_char_width,
         );
         let doc_end_snap_action =
             self.apply_pending_doc_end_scroll_after_projection(&frame_display);

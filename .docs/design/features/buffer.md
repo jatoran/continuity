@@ -40,6 +40,10 @@ Positions are `(line, byte_in_line)` — byte-based at the storage layer, line-a
 - Each `EditRecord` carries `op`, `inverse_op`, `revision_before`, `revision_after`, `selections_before`, `selections_after`.
 - Groups are minted via `UndoOrchestrator::mint_or_coalesce_group`; consecutive keystrokes within a coalesce window merge into one group.
 
+### Undo/redo record delta history (invariant)
+- **Invariant: every revision-advancing path records rope delta history.** `UndoOrchestrator::{undo, redo, replay_group}` (`crates/core/src/undo.rs`) capture each applied inverse/replayed op's byte delta via `delta_with_points_for_op` against the pre-apply rope, then `push_delta_history` against the resulting revision — exactly as the forward edit paths in `crates/core/src/dispatch.rs` do.
+- **Failure mode (Ctrl+Z crash, fixed 2026-06-16):** an undo that advances the rope revision but records no delta makes `rope_deltas_since(old_rev)` return `(empty, covered=true)` — a false "nothing changed". The UI projection classifier then reuses the pre-undo display map against the post-undo rope and slices an out-of-bounds byte range on paint. The fix is structural: the invariant above; the projection classifier carries a defense-in-depth backstop (see [Display map](display-map.md)).
+
 ## API surface
 - Public crate API: `Buffer::{empty, from_text, id, rope, revision, selections, set_selections, apply, capture_removed_text, undo_tree, undo_tree_mut, file_association, set_file_association, snapshot}`.
 - All mutation paths *outside* the buffer crate go through `core::EditorHandle::*` — there is no `Mutex<Buffer>` anywhere.

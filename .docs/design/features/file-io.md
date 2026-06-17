@@ -12,7 +12,7 @@ Open, save, save-as, drag-drop import, bounded directory listing, external-chang
 - **`FileIoEvent`** — `Opened | DirectoryListed | Saved | Reloaded | ExternalChanged | Deleted | EncodingNotice | Failed`.
 - **`StartupOpenedFile`** — sync startup-read result: decoded content + `FileAssociation` + optional encoding notice.
 - **`FileAssociation { path, mtime_ms, hash, content_hash }`** — link between a buffer and a real file on disk; `hash` fingerprints raw file bytes, `content_hash` fingerprints decoded rope text.
-- **`FileBanner`** — non-blocking status banner. Used for external-change notification, save confirmation, file-I/O errors.
+- **`FileBanner`** — non-blocking status banner painted below the tab ribbon. Transient (auto-dismiss) for confirm/info text (save / reload); sticky for decision-required prompts (external-change, deletion, encoding, failures, recovery). See [Banner placement and lifetime](#banner-placement-and-lifetime).
 - **`DirectoryEntry`** — one bounded child entry for the file-tree pane; carries relative path, display name, kind, optional size.
 
 ## Operations
@@ -58,9 +58,14 @@ Rules:
 3. UI snapshots the rope, sends `FileIoRequest::SaveBuffer { buffer_id, path, content }`.
 4. File-I/O writes atomically (temp file + rename), updates mtime + raw-byte hash + decoded-content hash.
 5. File-I/O sends `FileIoEvent::Saved { buffer_id, file }`.
-6. UI updates the `FileAssociation` on the buffer (via `SetFileAssociation`) and shows `FileBanner::new("Saved <path>")`.
+6. UI updates the `FileAssociation` on the buffer (via `SetFileAssociation`) and shows a transient `FileBanner::transient("Saved <path>")` (auto-dismisses; see [Banner placement and lifetime](#banner-placement-and-lifetime)).
 
-`file.save_as` opens `IFileSaveDialog`; on commit, the buffer becomes file-associated and the regular save path runs. `Ctrl+S` on an ephemeral buffer falls through to `save_as` (Phase D8).
+`file.save_as` (`window_file.rs::file_save_as_impl`) opens the `GetSaveFileNameW` common dialog via `window_file_dialogs.rs::save_file_dialog`; on commit the buffer becomes file-associated and the regular save path runs. `Ctrl+S` on an ephemeral buffer falls through to `save_as` (Phase D8).
+
+#### Save-dialog defaults (Markdown-first)
+- **`lpstrDefExt = "md"`** — a name typed without an extension is saved as `.md`. An explicit extension (`notes.txt`) is respected verbatim.
+- **Save-specific type filter** (`save_file_dialog::wide_save_filter`) lists `Markdown (*.md, *.markdown)` first with `nFilterIndex = 1`, so the dialog opens defaulting to the Markdown type. Text and All-files remain selectable. (This is a distinct filter from the open-dialog `wide_filter`.)
+- **Untitled-buffer seed** — for a buffer with no `FileAssociation`, the file-name box is seeded with the active tab's title (`file_save_as_impl` passes `tab_label` as `default_title`) sanitized to a legal Windows filename stem by `save_file_dialog::sanitize_filename_stem` (strips the pin-dot prefix / trailing ellipsis, swaps reserved chars `\ / : * ? " < > |` for spaces, drops control chars, trims trailing dots/spaces, caps at `MAX_DEFAULT_STEM_CHARS = 48`, falls back to `"untitled"`). The common dialog pre-selects the seeded name so typing replaces it.
 
 ### External change watcher
 1. UI calls `FileIoClient::watch_file(buffer_id, file)` when a buffer becomes file-associated.
@@ -71,6 +76,18 @@ Rules:
 
 ### Reload
 - User clicks "Reload" → UI sends `FileIoRequest::ReloadBuffer` for that path; on `FileIoEvent::Reloaded`, the UI replaces the buffer content through a whole-buffer edit and refreshes the file association.
+
+### Banner placement and lifetime
+
+`FileBanner` (`window_file.rs`) paints a passive panel via `Window::file_banner_overlay`. Two orthogonal axes:
+
+**Placement** — the panel sits *below* the tab ribbon, offset by `TAB_STRIP_HEIGHT_DIP` (`pane_layout::metrics`, 28 DIP) plus a 6 DIP gap, so it never overlaps the tab strip. The text field is `FIELD_HEIGHT_DIP = 26` so descenders clear the `paint_focus_field` inset (no clipping).
+
+**Lifetime** — `expires_at_ms: Option<u64>` distinguishes transient from sticky:
+- **Transient** (`FileBanner::transient`, default `TRANSIENT_BANNER_MS = 2500`) — confirm/info banners whose action already completed auto-dismiss. Used for `Saved …` and `Reloaded …`. `is_expired(now_ms)` gates removal; `has_deadline()` keeps the file-I/O poll timer alive until the deadline.
+- **Sticky** (`FileBanner::new` / `FileBanner::external*`, `expires_at_ms == None`) — decision-required banners stay until user action (Esc / reload / keep-mine / show-diff). Used for external-change, external-deletion, encoding-notice, write/open/reload/list `Failed`, and recovery prompts.
+
+`transient_for(text, now_ms, duration_ms)` is the caller-duration variant reused by the dirty-tab close arm below.
 
 ### Dirty-tab close confirmation (Ctrl+W)
 

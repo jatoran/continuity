@@ -21,6 +21,21 @@ pub(super) fn estimate_from_frame(
     continuation: u32,
     source: &'static str,
 ) -> Option<CaretVisibilityEstimate> {
+    // A partial (viewport-priority) row index holds placeholder counts for
+    // source lines outside its walked range, so `first_display_line_index_
+    // for_source` under-counts the caret's absolute display row whenever a
+    // wrapped line above the caret has not been measured yet. Returning a
+    // confident, projection-backed estimate from that under-count makes the
+    // reveal think an on-screen caret is above the viewport and scroll up —
+    // then the background fill corrects the count and it snaps back. That is
+    // the "viewport jumps while typing in a long file" bug. Refuse to
+    // estimate from a partial index; the caller falls through to the
+    // measured path (`try_resolve_caret_display_row_exact`), which patches
+    // the index prefix and scrolls only when the caret is genuinely off
+    // screen.
+    if frame.row_index().is_partial() {
+        return None;
+    }
     let frame_source_lines = frame.row_index().source_line_count() as usize;
     if source_line < frame_source_lines && frame_source_lines == total_source_lines {
         let source_line_rows = frame.display_line_count_for_source(source_line);
@@ -112,6 +127,44 @@ mod tests {
     fn approximate_continuation_is_zero_without_wrap() {
         let rope = Rope::from_str("abcdefghi\n");
         assert_eq!(approximate_caret_continuation_row(&rope, 0, 8, 0, 10.0), 0);
+    }
+
+    #[test]
+    fn partial_index_frame_refuses_to_estimate() {
+        use std::sync::Arc;
+
+        use continuity_display_map::{
+            DisplayMap, DisplayRowIndex, IndexStamps, PartialRowIndexState,
+        };
+
+        // 5 source lines; only line 2 was walked at viewport-priority time.
+        // Outside the walked range `row_counts` holds placeholder 1s, so the
+        // prefix sum to the caret line under-counts whenever a line above it
+        // actually soft-wraps. A partial index must NOT yield a confident
+        // (scroll-driving) estimate — the caller falls through to the
+        // measured path instead (the fix for the "viewport jumps while
+        // typing in a long file" bug).
+        let stamps = IndexStamps {
+            rope_revision: 1,
+            decoration_revision: 1,
+            wrap_width_dip: 100,
+            font_state: 0,
+            fold_signature: 0,
+        };
+        let partial = PartialRowIndexState {
+            walked_source_range: 2..3,
+            scrollbar_estimate: 5,
+            full_revision_target: 1,
+        };
+        let index = DisplayRowIndex::from_partial_row_counts(vec![1, 1, 1, 1, 1], stamps, partial);
+        assert!(index.is_partial());
+        let map = DisplayMap::from_parts_viewport(1, 100, Arc::new(index), Vec::new(), 0);
+        let frame = FrameDisplay::from_display_map(Arc::new(map));
+
+        assert!(
+            estimate_from_frame(&frame, 3, 5, 0, "partial").is_none(),
+            "a partial row index must not produce a confident caret-visibility estimate",
+        );
     }
 
     #[test]

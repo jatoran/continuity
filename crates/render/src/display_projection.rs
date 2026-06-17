@@ -30,3 +30,15 @@ mod whitespace;
 pub struct FrameDisplay {
     map: Arc<DisplayMap>,
 }
+
+impl FrameDisplay {
+    /// Wrap an already-built [`DisplayMap`]. The map carries its own
+    /// (possibly partial) [`continuity_display_map::DisplayRowIndex`]; the
+    /// other constructors build the map first, this one adopts one the
+    /// caller already has (diagnostics, tests, and any path that holds a
+    /// prebuilt projection).
+    #[must_use]
+    pub fn from_display_map(map: Arc<DisplayMap>) -> Self {
+        Self { map }
+    }
+}

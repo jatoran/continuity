@@ -16,6 +16,7 @@ use crate::{Error, Window};
 
 mod caret_reveal;
 mod caret_visibility;
+pub(crate) mod geometry_anchor;
 
 impl Window {
     /// Toggle soft wrap. Invalidates layouts for the now-stale wrap width.

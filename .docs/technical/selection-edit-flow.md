@@ -124,6 +124,8 @@ pub(crate) fn plan_indent(buffer, unit) -> Result<Option<SelectionEditPlan>, Err
 
 The planner returns a `SelectionEditPlan { ops, selections_before, selections_after }` with ops in **descending byte order** so each `Buffer::apply` keeps pre-edit offsets valid.
 
+Most planners are stateless line/range rewrites like the above, but a few branch on document structure inside the single returned plan (still one undo group): `MoveLineUp/Down` reorders **and** renumbers a contiguous ordered run when the move stays inside it (`edit_lines_movement::try_move_within_ordered_run`, else verbatim block move); `InsertNewlineSmart` with a single caret continuing an ordered run renumbers that run (`edit_list::renumber::try_ordered_continue_with_renumber`) and continues a task line with a fresh `- [ ] `; `MarkdownToggleEmphasis` strips the enclosing delimiter pair when a bare caret is inside a span (`edit_markdown::emphasis::enclosing_delimiter_runs`) rather than inserting an empty pair. See [`selection-edits.md`](../design/features/selection-edits.md) for the per-variant behavior and [`.docs/generated/SELECTION_EDITS.md`](../generated/SELECTION_EDITS.md) for the full variant→planner table.
+
 ### 8. Apply + undo group
 `crates/core/src/undo.rs::UndoOrchestrator::apply_planner_group` mints (or coalesces into) one undo group:
 
@@ -176,7 +178,8 @@ UI threads subscribe to `EditEvent` via `EditorHandle::events()`. On `EditApplie
 | Editor handle | `crates/core/src/handle.rs::EditorHandle::apply_selection_edit` |
 | Core dispatch | `crates/core/src/dispatch.rs::apply_selection_edit` |
 | Planner entry | `crates/core/src/selection_edit.rs::plan` |
-| Per-family planners | `crates/core/src/edit_*.rs` |
+| Per-family planners | `crates/core/src/edit_*.rs` (some split into responsibility submodules: `edit_lines/toggle_bullet.rs`, `edit_lines_movement.rs`, `edit_line_text/trim.rs`, `edit_list/renumber.rs`, `edit_markdown/emphasis.rs`) |
+| Mouse multi-cursor adds | `crates/ui/src/selection/region_select.rs` (`select_word_on_last`) + `crates/ui/src/window_mouse.rs` |
 | Undo orchestrator | `crates/core/src/undo.rs::UndoOrchestrator` |
 | Buffer apply + auto-transform | `crates/buffer/src/buffer.rs::Buffer::{apply, SelectionTransform}` |
 | Coalesce | `crates/core/src/selection_coalesce.rs::coalesce_selections` |

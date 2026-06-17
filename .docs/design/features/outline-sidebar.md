@@ -8,7 +8,7 @@ Right-docked per-pane sidebar listing the active buffer's heading tree, plus two
 - Drag-resize: dragging the sidebar's left edge (a ±4 DIP grab band, `IDC_SIZEWE` cursor) resizes it live, clamped to `120..=min(600, 80 % of body)` DIP; the settled width persists to `[ui].outline_sidebar_width_dip` on release and prewarms the projection at the new wrap width (the sidebar consumes body width, so resizing reflows text). Drag state is `MouseState.outline_resize_drag`; logic in `window_outline_resize.rs`. Routed before the row hit-test so a grab on the band never doubles as a heading jump.
 - TOC commands: `markdown.insert_toc` writes a fresh marker-delimited bullet list at the caret line. `markdown.refresh_toc` re-runs the formatter in place against the existing `<!-- toc --> … <!-- /toc -->` pair; no-op when the markers are absent.
 - Theme keys: `editor.outline.{background, foreground, foreground_active, separator}`. Required on every bundled theme + the neutral fallback.
-- Click target: a click anywhere inside a sidebar row scrolls the heading line to the viewport top and places the caret at column 0 of that line. Hit-test consults a layout the paint pass caches in `view_options.outline_layout`.
+- Click target: a click anywhere inside a sidebar row places the caret at column 0 of the heading line and top-pins it in the viewport. The pin uses the heading's **true display row** (`Window::resolve_caret_display_line` through the display-map projection), not `source_line * line_height` — the latter put the caret right but the viewport wrong under soft-wrap / folds, since every wrapped or folded line above the heading shifts its display row. Falls back to the source-line estimate only when the projection can't resolve the row. Hit-test consults a layout the paint pass caches in `view_options.outline_layout`.
 
 ## Pipeline
 
@@ -51,7 +51,11 @@ Slugs follow GFM rules (`slugify` in `decorate::toc`): lowercase, strip non-alph
 
 ## Layout, clipping, scrolling
 
-Outline rows use a fixed `OUTLINE_ROW_HEIGHT_DIP` stride. The renderer
+Outline rows use a fixed `OUTLINE_ROW_HEIGHT_DIP` stride (26 DIP — taller
+than the body line height for breathing room; the row glyph is vertically
+centered inside the row by `outline_paint.rs`). Row text starts at
+`OUTLINE_ROW_INDENT_DIP` (12 DIP), plus `OUTLINE_LEVEL_INDENT_DIP` (12 DIP)
+per heading level past level 1 (`indent_for_level`). The renderer
 pushes a D2D axis-aligned clip around the sidebar rect; partial top /
 bottom rows are clipped rather than bleeding into the editor body.
 Long headings set `DWRITE_WORD_WRAPPING_NO_WRAP` and clip horizontally

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1
+
+- Fixed the viewport jumping and warping while you type in large documents.
+  The 0.4.0 fix for this was incomplete — on long files (especially with a
+  big table above where you're typing) the view could still lurch around or
+  snap your current line to the top of the screen. Typing on a line that's
+  already on screen now keeps the view steady.
+
 ## 0.4.0
 
 - Fixed a frequent crash when pressing `Ctrl+Z` (undo), especially after

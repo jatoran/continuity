@@ -431,8 +431,8 @@ pub struct Window {
     /// with images or stale decorations. See
     /// `crate::window_paint::cold_deferred` siblings for the snap.
     pub(crate) pending_doc_end_scroll: bool,
-    /// Whether the primary caret was on-screen at the previous painted frame's end; lets layout-shift scroll anchoring skip re-targeting an already-off-screen caret. UI-thread-owned.
-    pub(crate) caret_was_on_screen_prior_frame: bool,
+    /// Per-paint geometry-shift anchor and reveal handoff. UI-thread-owned.
+    pub(crate) geometry_anchor: crate::window_view::geometry_anchor::GeometryAnchorState,
     /// Consecutive paints the document-end snap has re-armed itself
     /// while the projection's whole-document row index was still partial
     /// (offscreen soft-wrap rows held as placeholders, so the total

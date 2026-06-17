@@ -9,12 +9,13 @@ Find bar with X-of-N count, compact mode toggles, find-and-replace, find-in-all 
 - **Find bar** — overlay attached to the focused pane (`Overlays::Find(FindBar)`). Holds the query, replacement, mode flags (case / word / regex / preserve-case / scope), the current match list, the active match index, and the target label shown beside the counter.
 - **Find target** — `(PaneId, BufferId, Revision)` stamp recorded on the current match list. Navigation / replace / matches-to-cursors refresh before consuming byte ranges when the focused pane, buffer, or revision differs.
 - **Compact controls** — find-bar buttons use dense labels: `Aa` case-sensitive, `|w|` whole-word, `.*` regex, `AB` preserve-case, `All` / `Sel` scope, `Cur` matches-to-cursors. Hover rows show the command name + default hotkey.
-- **Regex snippets** — hover the `.*` control to show common syntax rows (`.`, `\d+`, `\w+`, `\s+`, `^`, `$`, `.*?`, `(one|two)`). Clicking a row enables regex and inserts the syntax at the query caret.
+- **Regex snippets** — hover the `.*` control to show common syntax rows (`.`, `\d+`, `\w+`, `\s+`, `^`, `$`, `.*?`, `(one|two)`, `\n` "a newline (match across lines)", `(?s).` "any char, incl. newlines"). Clicking a row enables regex and inserts the syntax at the query caret.
 - **Find scope** — `Buffer` searches the whole buffer; `Selection` filters matches to non-empty selection byte ranges captured from the active buffer.
-- **`MatchRange`** — `{ start_byte, end_byte, line }`; produced by `find_match_ranges`.
+- **`MatchRange`** — `{ start_byte, end_byte, line }`; produced by `find_match_ranges` (line-oriented) or `find_match_ranges_multiline` (whole-buffer). `line` is the 1-indexed line of the match *start*; a multi-line match reports its starting line and its byte span may cross newlines.
 - **`find_match_ranges_dispatch`** — chooses `PatternPath::Literal` or `PatternPath::Regex` for one query and returns `DispatchResult { matches, path, elapsed_us }`.
 - **`LiteralMatcher`** — `memchr::memmem` matcher for literal-mode queries. Supports ASCII case-insensitive search, non-overlapping matches, whole-word post-filtering, and chunk-boundary-safe scanning substrate.
-- **`find_match_ranges`** — `grep-regex`-based `RegexMatcher` branch; still used when the regex toggle is on or Unicode case-folding is required.
+- **`find_match_ranges_multiline`** — whole-buffer `grep-regex` `RegexMatcher` with `multi_line(true)`, run via `find_iter` over the full source bytes. The dispatcher routes the user-toggled regex find through this path so a match can cross line boundaries; the query reaches the engine verbatim (not escaped).
+- **`find_match_ranges`** — legacy line-oriented `grep-searcher` sink branch. After the multi-line switch it is used only for the non-ASCII case-insensitive *literal* fallback (query pre-escaped via `escape_literal`); its per-line sink cannot match a newline.
 - **`fuzzy_match`** — palette / quick-open subsequence scoring (for the still-supported palette modes).
 
 ## Operations
@@ -30,6 +31,7 @@ Find bar with X-of-N count, compact mode toggles, find-and-replace, find-in-all 
 - **Replace** (`editor.replace` → `Overlays::Find` with replace focus):
   - Re-dispatching `editor.replace` while the bar is open shows the replace field and focuses it, preserving query / replacement text.
   - `Ctrl+Enter` / `replace_one` replaces the current match + steps; `Ctrl+Shift+Enter` or `Ctrl+Alt+Enter` / `replace_all` replaces every match in one undo group.
+  - In **regex mode** the replacement field honors `\n` / `\t` / `\r` / `\\` escapes (see § Multi-line regex find / replace); in literal mode the replacement is verbatim.
   - Preserve-case (`AB`, `Alt+P`) adapts the replacement to the matched text shape: all-uppercase, all-lowercase, and title-case matches transform the replacement; mixed-case matches use the raw replacement.
   - δ.3 — `replace_all` raises a transient `FileBanner` on completion. Text: `"Replaced N matches (Ctrl+Z to undo)"` (singular for N=1) or `"No matches to replace"` for the zero-match case. The formatter is the free function `window_find_replace::replace_all_banner_text` so it is unit-testable without spinning up a Window.
 - **Goto line** (`editor.goto_line` → `Overlays::GotoLine`):
@@ -44,6 +46,18 @@ Find bar with X-of-N count, compact mode toggles, find-and-replace, find-in-all 
 Per-buffer: last query, replacement, mode flags, scope. Restored when the bar opens in that buffer. While the bar stays open, pane/tab focus changes keep the active query/replacement/modes and retarget only the match set; per-buffer mementos do not hot-swap into the live search session. Setting `find.persist_per_buffer` (default `true`) disables. The bar does **not** auto-fill from the word under the caret (decisions §G2 override) — but it *does* seed from an explicit highlighted selection (§ Find), and it select-alls the focused field on every open so the restored memento query is fully highlighted and overtypable.
 
 Selection scope is recaptured from the newly focused buffer whenever the find target changes. Old selection byte ranges never cross buffers.
+
+## Multi-line regex find / replace
+
+Regex-mode queries (regex toggle on, `PatternPath::Regex`) run a **whole-buffer** matcher, not the line-oriented sink: `find_match_ranges_multiline` compiles a `RegexMatcher` with `multi_line(true)` and walks the full source bytes with `find_iter`. Consequences:
+
+- A pattern containing a literal `\n` (the user types the two-char escape `\` + `n` into the single-line find field; the engine treats `\n` as a newline), `(?s).`, or any other cross-line construct matches **across** line boundaries. The resulting `MatchRange` byte span can cross newlines.
+- `^` / `$` anchor to the **start / end of each line** (Sublime/ripgrep `m` semantics), not the whole input.
+- The query reaches the engine **verbatim** — the regex path does not escape it — so the engine's own `\n` / `(?s)` handling applies. (The line-oriented `find_match_ranges` survives only for the non-ASCII case-insensitive *literal* fallback, where the query is escaped first and never contains anchors or newline constructs.)
+
+**Literal (non-regex) search is unchanged** — the `memchr` literal path still scans for the verbatim bytes and never matches across a newline.
+
+Replace honors C-style escapes **only in regex mode** (`interpret_replacement_escapes`, gated on `FindBar::regex`): a typed two-char `\n` inserts a newline, `\t` a tab, `\r` a carriage return, `\\` a single backslash; any other `\x` is preserved verbatim (backslash kept). In literal mode the replacement is inserted as-is, so `\n` stays two characters. Both `replace_one` and `replace_all` apply this. A multi-line match span replaces correctly via its byte-range positions in `build_replace_all_plan`.
 
 ## δ.3 — Regex compile feedback
 
@@ -62,12 +76,12 @@ The choice to surface this *inside* the find bar (rather than as a `FileBanner`)
 - find-in-files — removed.
 - FTS5 cross-buffer content search — removed (`fts_buffers` virtual table dropped from schema).
 
-`grep-regex` + `grep-searcher` stay for the regex branch.
+`grep-regex` stays for the regex branch (whole-buffer `find_match_ranges_multiline`); `grep-searcher`'s line-oriented sink (`find_match_ranges`) is now used only for the non-ASCII case-insensitive literal fallback.
 
 ## API surface
 - `crates/search/src/dispatcher.rs::{find_match_ranges_dispatch, classify_pattern, DispatchResult, PatternPath}`.
 - `crates/search/src/literal.rs::{LiteralMatcher, LiteralMatchIter, is_ascii_word_boundary}`.
-- `crates/search/src/regex.rs::{find_match_ranges, escape_literal, MatchRange, MatchError}`.
+- `crates/search/src/regex.rs::{find_match_ranges, find_match_ranges_multiline, escape_literal, MatchRange, MatchError}`.
 - `crates/search/src/fuzzy.rs::fuzzy_match` (palette + goto-heading scoring).
 - `crates/search/src/index.rs` — was the FTS5 index; reduced to a no-op stub after G6 (legacy module retained for future title search).
 - UI overlays: `crates/ui/src/find_bar.rs`, `find_regex_help.rs`, `find_replace_plan.rs`, `find_scope.rs`, `window_find_replace.rs`, `window_find_scope.rs`, `window_find_target.rs`, `overlay_render_find.rs`, `goto_overlay.rs`, `quick_open.rs` (kept for the palette mode framework; legacy quick-open binding deleted).

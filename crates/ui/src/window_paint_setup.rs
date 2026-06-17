@@ -10,9 +10,33 @@
 //! Thread ownership: UI thread of one window. Mutates UI-thread-owned
 //! state only (`spell_state`, `tree`, `buffer_id`, decoration cache).
 
-use crate::Window;
+use windows::Win32::Foundation::HWND;
+
+use crate::{Error, Window};
 
 impl Window {
+    /// Run the guarded frame-entry setup before snapshot selection.
+    /// Returns `false` when the background paint throttle intentionally
+    /// skips this frame.
+    pub(crate) fn begin_paint_frame(&mut self, hwnd: HWND) -> Result<bool, Error> {
+        // Keep cheap OS chrome sync before the background-paint skip so
+        // throttled frames still pick up theme/title changes.
+        self.sync_titlebar_theme();
+        self.sync_window_title();
+        if self.should_skip_background_paint() {
+            return Ok(false);
+        }
+
+        // Deferred font-swap: if the worker has delivered the target
+        // font_state, swap before `ensure_renderer` rebuilds text_format.
+        self.try_apply_pending_font_swap(self.tree.focused);
+        self.ensure_renderer(hwnd)?;
+        self.ensure_projection_worker();
+        self.prepare_paint_frame();
+        self.drain_spectator_projection_worker_results();
+        Ok(true)
+    }
+
     /// Run the per-frame setup that must happen before snapshotting the
     /// rope: drain pending decoration results, request fresh decorations
     /// for spectator panes, ensure spell errors are fresh, refresh the

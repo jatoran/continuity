@@ -6,7 +6,7 @@
 //!
 //! Thread ownership: UI-thread-only. These methods read the editor
 //! snapshot, the projection caches, and `self.view`, and mutate
-//! `self.view.scroll_y_dip` plus the `caret_was_on_screen_prior_frame`
+//! `self.view.scroll_y_dip` plus the geometry-anchor hysteresis
 //! hysteresis flag (UI-thread-owned).
 
 use continuity_decorate::Decorations;
@@ -84,6 +84,33 @@ impl Window {
         } else {
             0.0
         }
+    }
+
+    /// True when this whole pre-paint reveal should be deferred to the
+    /// paint-time geometry anchor + visibility clamp. The caret is still on
+    /// the same source line it occupied at the previous paint, and that line
+    /// was on screen — i.e. the user is typing on a visible line.
+    ///
+    /// In that case any pre-paint scroll is *harmful*: the reveal estimates
+    /// the caret's display row against `last_painted_frame_display`, whose
+    /// whole-document geometry swings between paints while the decoration
+    /// parse catches up (`window_view::geometry_anchor` documents the
+    /// swing). When that estimate disagrees with the frame the paint will
+    /// actually resolve, the reveal scrolls toward the *wrong* geometry and
+    /// the anchor then has to undo it — a double-count that snaps the caret
+    /// to the viewport edge. Deferring is safe in both directions because
+    /// the anchor holds the caret line's screen y across the swing and the
+    /// visibility clamp (measured against the resolved frame) guarantees the
+    /// caret is on screen — so neither an upward nor a downward pre-paint
+    /// scroll is needed. A genuine reveal (the caret moved to a *different*
+    /// line, or its line was scrolled off screen) fails this predicate and
+    /// keeps the proven pre-paint reveal path.
+    fn should_defer_reveal_to_anchor(&self, caret_source_line: usize) -> bool {
+        self.geometry_anchor.caret_was_on_screen_prior_frame
+            && self
+                .geometry_anchor
+                .previous_paint_caret_line_anchor
+                .is_some_and(|(line, _)| line as usize == caret_source_line)
     }
 
     fn estimate_caret_visibility_row(
@@ -219,7 +246,7 @@ impl Window {
                     self.view.viewport_height_dip,
                 ) {
                     // EOF caret parked in the overscroll zone is on screen.
-                    self.caret_was_on_screen_prior_frame = true;
+                    self.geometry_anchor.caret_was_on_screen_prior_frame = true;
                     return;
                 }
             }
@@ -253,9 +280,23 @@ impl Window {
                 self.pending_doc_end_scroll = true;
                 self.pending_doc_end_scroll_attempts = 0;
                 // The doc-end snap converges the caret to the bottom row.
-                self.caret_was_on_screen_prior_frame = true;
+                self.geometry_anchor.caret_was_on_screen_prior_frame = true;
                 return;
             }
+        }
+        // Request a paint-time visibility floor against the resolved frame.
+        // The authoritative "is the caret actually on screen" decision is
+        // made in `apply_geometry_anchor` using the frame that will be drawn.
+        self.geometry_anchor.pending_caret_reveal = true;
+        // Typing on a visible line: skip the pre-paint scroll entirely and
+        // let the anchor hold the line + clamp it visible. A pre-paint
+        // estimate scroll here races the resolved-frame geometry and the
+        // anchor has to undo it, snapping the caret to the viewport edge —
+        // the "it warps me to the top while typing" bug. The clamp covers
+        // both scroll directions, so deferring never strands the caret.
+        if self.should_defer_reveal_to_anchor(caret_source_line) {
+            self.geometry_anchor.caret_was_on_screen_prior_frame = true;
+            return;
         }
         let revision = snap.rope_snapshot().revision().0;
         let decorations = self
@@ -291,7 +332,7 @@ impl Window {
         // index); it forces one viewport-bounded build of the caret
         // region (O(visible+overscan)) before giving up.
         let exact = self.try_resolve_caret_display_row_exact(sel.head);
-        let was_on_screen_prior_frame = self.caret_was_on_screen_prior_frame;
+        let was_on_screen_prior_frame = self.geometry_anchor.caret_was_on_screen_prior_frame;
         let Some(caret_display_line) = exact else {
             // We have only an estimate. Do NOT scroll on it. If the caret
             // was already on screen last frame, hold the viewport
@@ -315,7 +356,7 @@ impl Window {
             }
             // Conservatively assume on-screen so a transient estimate miss
             // does not later license an estimate-driven jump.
-            self.caret_was_on_screen_prior_frame = true;
+            self.geometry_anchor.caret_was_on_screen_prior_frame = true;
             return;
         };
 
@@ -336,6 +377,9 @@ impl Window {
         // The row is measured, so the reveal is exact in both directions:
         // scroll up when the caret row is above the viewport, down when it
         // is below, and leave the viewport alone when it is already inside.
+        // (Same-line-on-screen typing already returned early above, deferring
+        // to the paint anchor; this path is a genuine reveal of a moved or
+        // off-screen caret line.)
         let action = if line_top < viewport_top {
             self.view.jump_to(line_top, content_h);
             "scroll_up"
@@ -359,7 +403,7 @@ impl Window {
         // The caret now sits inside the viewport (either it already did or
         // we just scrolled it there), so the next frame may rely on the
         // hysteresis hold.
-        self.caret_was_on_screen_prior_frame = true;
+        self.geometry_anchor.caret_was_on_screen_prior_frame = true;
     }
 
     fn apply_caret_visibility_estimate(
@@ -415,7 +459,7 @@ impl Window {
         // The fast estimate path either revealed the caret or left it
         // inside the viewport; record on-screen so the hysteresis hold in
         // the measured path can trust the prior frame.
-        self.caret_was_on_screen_prior_frame = true;
+        self.geometry_anchor.caret_was_on_screen_prior_frame = true;
     }
 
     /// Scroll so the primary caret's display row is roughly vertically

@@ -61,41 +61,13 @@ pub(crate) fn plan_shuffle_lines(
     })
 }
 
-pub(crate) fn plan_trim_trailing_whitespace(
-    buffer: &Buffer,
-) -> Result<Option<SelectionEditPlan>, Error> {
-    let lines = lines_covered(buffer);
-    plan_trim_lines(buffer, &lines)
-}
-
-/// Phase B14 — trim trailing whitespace on every line in the buffer.
-pub(crate) fn plan_trim_trailing_whitespace_all(
-    buffer: &Buffer,
-) -> Result<Option<SelectionEditPlan>, Error> {
-    let total = buffer.rope().len_lines();
-    let lines: Vec<usize> = (0..total).collect();
-    plan_trim_lines(buffer, &lines)
-}
-
-fn plan_trim_lines(buffer: &Buffer, lines: &[usize]) -> Result<Option<SelectionEditPlan>, Error> {
-    let rope = buffer.rope();
-    let selections_before = buffer.selections().to_vec();
-    let mut specs = Vec::new();
-    for &line in lines {
-        let start = rope.line_to_byte(line);
-        let end = line_content_end(rope, line);
-        let slice = rope.byte_slice(start..end).to_string();
-        let trimmed = slice.trim_end_matches([' ', '\t']);
-        if trimmed.len() < slice.len() {
-            specs.push(EditSpec::delete(rope, start + trimmed.len(), end)?);
-        }
-    }
-    Ok(finalize_specs(
-        specs,
-        selections_before.clone(),
-        selections_before,
-    ))
-}
+// Whitespace-trimming planners (trailing-only and leading+trailing) live in
+// `edit_line_text/trim.rs` so this file stays under the 600-line cap.
+// Re-exported so `selection_edit.rs` keeps its import paths.
+mod trim;
+pub(crate) use trim::{
+    plan_trim_trailing_whitespace, plan_trim_trailing_whitespace_all, plan_trim_whitespace_all,
+};
 
 pub(crate) fn plan_indent(
     buffer: &Buffer,

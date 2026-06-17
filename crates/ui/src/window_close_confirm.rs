@@ -9,7 +9,8 @@ use crate::window_file::FileBanner;
 use crate::Window;
 
 const UNSAVED_CLOSE_CONFIRM_MS: u64 = 3_000;
-const UNSAVED_CLOSE_CONFIRM_BANNER: &str = "Press Ctrl+W again to close. Unsaved changes.";
+const UNSAVED_CLOSE_CONFIRM_BANNER: &str =
+    "Press Ctrl+W again to close. Unsaved — kept in trash (recoverable).";
 
 /// One-shot close confirmation for a dirty buffer in a pane.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,13 +39,20 @@ impl Window {
             .iter()
             .find_map(|(id, group)| group.tabs.contains(&tab_id).then_some(*id))
             .unwrap_or(self.tree.focused);
-        let is_dirty = crate::window_paint_builders::is_tab_dirty(self, &tab);
+        // Item 9 — the close gate arms not only for file-associated dirty
+        // buffers but also for untitled (non-file-associated) buffers that
+        // carry typed content. `is_tab_dirty` keeps strict file-hash
+        // semantics for the gutter/title dot (it returns `false` for
+        // untitled buffers because they auto-persist and are never "dirty"
+        // against a file), so confirmation needs the broader predicate
+        // below. An empty untitled tab still closes immediately.
+        let needs_confirm = self.tab_close_needs_confirmation(&tab);
         let now_ms = self.now_ms();
         match compute_close_confirm_decision(
             &mut self.unsaved_close_arm,
             pane_id,
             tab.buffer_id,
-            is_dirty,
+            needs_confirm,
             now_ms,
         ) {
             CloseConfirmDecision::Close => {
@@ -76,6 +84,32 @@ impl Window {
     /// 30-day trash; recovery is via the Recently Closed browser.
     pub(crate) fn confirm_close_window(&self) -> bool {
         true
+    }
+
+    /// Item 9 — whether closing `tab` should arm the one-shot confirmation
+    /// banner.
+    ///
+    /// A file-associated buffer follows the strict file-hash dirty check
+    /// ([`crate::window_paint_builders::is_tab_dirty`]). A non-file-
+    /// associated (ephemeral / untitled) buffer is never "dirty" against a
+    /// file, but losing typed content without a prompt is still a footgun —
+    /// so a non-empty untitled buffer (rope has bytes, or its revision has
+    /// advanced past the initial empty state) also arms the gate. An empty
+    /// untitled tab returns `false` and closes immediately.
+    fn tab_close_needs_confirmation(&self, tab: &crate::pane_tree::Tab) -> bool {
+        if crate::window_paint_builders::is_tab_dirty(self, tab) {
+            return true;
+        }
+        if tab.file_associated {
+            return false;
+        }
+        let Some(snap) = self.editor.snapshot(tab.buffer_id) else {
+            return false;
+        };
+        let rope_snapshot = snap.rope_snapshot();
+        let has_content = rope_snapshot.rope().len_bytes() > 0;
+        let edited = rope_snapshot.revision().get() > 0;
+        has_content || edited
     }
 
     pub(crate) fn clear_unsaved_close_arm(&mut self) {
@@ -132,12 +166,21 @@ mod tests {
 
     use super::{
         clear_unsaved_close_arm_slot, compute_close_confirm_decision, CloseConfirmDecision,
-        UnsavedCloseArm, UNSAVED_CLOSE_CONFIRM_MS,
+        UnsavedCloseArm, UNSAVED_CLOSE_CONFIRM_BANNER, UNSAVED_CLOSE_CONFIRM_MS,
     };
     use crate::pane_tree::PaneId;
 
     fn target() -> (PaneId, BufferId) {
         (PaneId(7), BufferId::new())
+    }
+
+    #[test]
+    fn confirm_banner_notes_trash_recovery() {
+        // Item 9 — the banner must tell the user the buffer survives in the
+        // trash and is recoverable, so a second Ctrl+W is not data loss.
+        assert!(UNSAVED_CLOSE_CONFIRM_BANNER.contains("trash"));
+        assert!(UNSAVED_CLOSE_CONFIRM_BANNER.contains("recoverable"));
+        assert!(UNSAVED_CLOSE_CONFIRM_BANNER.contains("Ctrl+W"));
     }
 
     #[test]

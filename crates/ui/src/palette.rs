@@ -512,6 +512,46 @@ mod tests {
     }
 
     #[test]
+    fn theme_query_floats_pick_theme_above_management_commands() {
+        let mut p = Palette::new();
+        p.set_candidates(vec![
+            entry("theme.clone", true),
+            entry("theme.duplicate", true),
+            entry("theme.rename", true),
+            entry("theme.delete", true),
+            entry("view.pick_theme", true),
+        ]);
+        p.input.set_text("theme");
+        p.refilter();
+        assert_eq!(p.selected_entry().unwrap().command, "view.pick_theme");
+    }
+
+    #[test]
+    fn theme_query_recency_can_still_float_a_management_command() {
+        // The pick-theme bias is a score delta, not a hard filter, so a
+        // command the user actually picks must still be able to float on
+        // the recency tiebreaker when scores end up equal. Use two
+        // secondary commands whose `theme` scores tie; the recently-used
+        // one must win the tiebreak.
+        let mut p = Palette::new();
+        p.set_candidates(vec![
+            entry("theme.clone", true),
+            entry("theme.delete", true),
+        ]);
+        p.input.set_text("theme");
+        p.refilter();
+        let first_default = p.selected_entry().unwrap().command.clone();
+        let other = if first_default == "theme.clone" {
+            "theme.delete"
+        } else {
+            "theme.clone"
+        };
+        p.note_command_used(other);
+        p.refilter();
+        assert_eq!(p.selected_entry().unwrap().command, other);
+    }
+
+    #[test]
     fn keyboard_step_keeps_selection_inside_visible_window() {
         let mut p = Palette::new();
         p.set_candidates(

@@ -17,6 +17,12 @@ use crate::pane_tree::{resolve_label, PaneId, SplitAxis, Tab, TabId};
 use crate::window::Window;
 use crate::Error;
 
+// Items 8 + 18 — the session tab state type (`TabSessionState`) and the
+// bookmark save/restore helpers live in `crate::window_tab_strip_scroll`
+// so this file stays under the 600-line cap. `adopt_focused_tab` below
+// calls those helpers.
+pub(crate) use crate::window_tab_strip_scroll::TabSessionState;
+
 impl Window {
     /// Outer rect of the entire pane tree.
     ///
@@ -413,7 +419,16 @@ impl Window {
             Some(t) => t.buffer_id,
             None => return,
         };
-        if buffer_id != self.buffer_id {
+        // Item 18 — detect a tab switch independent of buffer identity (the
+        // same buffer may be open in two tabs, which must still keep
+        // independent scroll + selection). On a switch, bookmark the
+        // outgoing tab's scroll + primary selection BEFORE swapping.
+        let is_tab_switch = self.tab_session.adopted_tab != Some(active);
+        if is_tab_switch {
+            self.save_tab_view_bookmark_for_adopted();
+        }
+        let buffer_changed = buffer_id != self.buffer_id;
+        if buffer_changed {
             self.cancel_scroll_inertia();
             self.save_current_right_edge_chrome_state();
             // Reset per-tab scalars; preserve view (per spec §6 tabs share
@@ -434,6 +449,14 @@ impl Window {
             // sibling code path already set `self.buffer_id` and an
             // additional dispatch would just duplicate work.
             let _ = self.try_dispatch_projection_worker_early("adopt_focused_tab", "focus_change");
+        }
+        // Item 18 — AFTER the swap, restore the incoming tab's bookmark (if
+        // any). `restore_tab_view_bookmark` deliberately does NOT force
+        // `ensure_primary_caret_visible` so the restored scroll sticks even
+        // when the caret sits outside the restored viewport.
+        if is_tab_switch {
+            self.tab_session.adopted_tab = Some(active);
+            self.restore_tab_view_bookmark(active, buffer_changed);
         }
         self.retarget_find_bar_to_focused_pane();
         if repaired {

@@ -68,7 +68,7 @@ pub(crate) type DeltaHistory = AHashMap<BufferId, BufferDeltaHistory>;
 /// requires. Called at edit time so the decoration worker can
 /// reconstruct `InputEdit` later without re-walking the pre-edit
 /// rope.
-fn delta_with_points_for_op(buf: &Buffer, op: &EditOp) -> RopeEditDeltaWithPoints {
+pub(crate) fn delta_with_points_for_op(buf: &Buffer, op: &EditOp) -> RopeEditDeltaWithPoints {
     let rope = buf.rope();
     match op {
         EditOp::Insert { at, text } => {
@@ -91,7 +91,11 @@ fn delta_with_points_for_op(buf: &Buffer, op: &EditOp) -> RopeEditDeltaWithPoint
     }
 }
 
-fn push_delta_history(history: &mut DeltaHistory, buffer_id: BufferId, entry: DeltaHistoryEntry) {
+pub(crate) fn push_delta_history(
+    history: &mut DeltaHistory,
+    buffer_id: BufferId,
+    entry: DeltaHistoryEntry,
+) {
     let h = history.entry(buffer_id).or_default();
     h.entries.push_back(entry);
     while h.entries.len() > DELTA_HISTORY_CAP {

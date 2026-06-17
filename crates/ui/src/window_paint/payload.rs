@@ -172,6 +172,7 @@ impl Window {
             self.view.scroll_y_dip,
             self.effective_line_height(),
             snap_rope.len_lines().max(1) as u64,
+            self.estimated_content_height(),
             outline_inset,
         ));
     }

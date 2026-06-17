@@ -1,8 +1,7 @@
-//! Phase-15 file command, drag/drop, and banner handling.
+//! File command, drag/drop, and banner handling.
 //!
-//! UI methods in this module only show dialogs, route HWND drop messages,
-//! and enqueue work to the file-I/O worker. Disk reads/writes happen on
-//! `file_io`.
+//! Methods here show dialogs, route HWND drop messages, and enqueue work
+//! to the file-I/O worker. Disk reads/writes happen on `file_io`.
 
 use std::path::PathBuf;
 
@@ -181,43 +180,75 @@ impl Window {
     }
 
     /// Build a passive banner overlay when no input overlay is active.
+    ///
+    /// Layout (item [13b]/[13c]): the panel sits *below* the tab ribbon
+    /// (`TAB_STRIP_HEIGHT_DIP` + a small gap) so it never overlaps the
+    /// tab strip, and the text field is tall enough (`FIELD_HEIGHT_DIP`)
+    /// that descenders are not clipped by the `paint_focus_field` inset.
     pub(crate) fn file_banner_overlay(&self, width: f32) -> Option<OverlayDraw> {
+        use crate::pane_layout::metrics::TAB_STRIP_HEIGHT_DIP;
+
         let banner = self.file_banner.as_ref()?;
+
+        // Drop the panel below the tab ribbon with a small breathing gap.
+        const RIBBON_GAP_DIP: f32 = 6.0;
+        let panel_top = TAB_STRIP_HEIGHT_DIP + RIBBON_GAP_DIP;
+        // Panel left/right insets and the text-field box inside it.
+        const PANEL_LEFT_DIP: f32 = 12.0;
+        const FIELD_INSET_X_DIP: f32 = 12.0;
+        // The text field must clear the unscaled base prose font's
+        // descenders. `paint_focus_field` insets the field by (8, 4)
+        // before drawing, leaving `FIELD_HEIGHT_DIP - 8` DIP of vertical
+        // room; 26 DIP leaves ~18 DIP, enough for a ~15-16 DIP glyph plus
+        // descenders. The panel grows to wrap the field with padding.
+        const FIELD_HEIGHT_DIP: f32 = 26.0;
+        const FIELD_PAD_TOP_DIP: f32 = 8.0;
+        const FIELD_PAD_BOTTOM_DIP: f32 = 8.0;
+        let panel_height = FIELD_PAD_TOP_DIP + FIELD_HEIGHT_DIP + FIELD_PAD_BOTTOM_DIP;
+        let field_top = panel_top + FIELD_PAD_TOP_DIP;
+
+        let panel_width = (width - 2.0 * PANEL_LEFT_DIP).clamp(240.0, 760.0);
+        let field_left = PANEL_LEFT_DIP + FIELD_INSET_X_DIP;
+        let field_width = (panel_width - 2.0 * FIELD_INSET_X_DIP).clamp(200.0, 720.0);
+
         Some(OverlayDraw {
             panel: PanelStyle {
-                rect: DrawRect::new(12.0, 8.0, (width - 24.0).clamp(240.0, 760.0), 42.0),
+                rect: DrawRect::new(PANEL_LEFT_DIP, panel_top, panel_width, panel_height),
                 corner_radius: 6.0,
+                // Slightly darker fill + brighter, fully opaque accent
+                // border than the surrounding chrome so the banner stands
+                // out a touch (item [13c]).
                 bg: Rgba {
-                    r: 0.12,
-                    g: 0.13,
-                    b: 0.15,
-                    a: 0.96,
+                    r: 0.10,
+                    g: 0.11,
+                    b: 0.13,
+                    a: 0.98,
                 },
                 border: Rgba {
-                    r: 0.42,
-                    g: 0.47,
-                    b: 0.55,
+                    r: 0.55,
+                    g: 0.62,
+                    b: 0.72,
                     a: 1.0,
                 },
                 shadow: Rgba {
                     r: 0.0,
                     g: 0.0,
                     b: 0.0,
-                    a: 0.35,
+                    a: 0.45,
                 },
-                shadow_offset: 3.0,
+                shadow_offset: 4.0,
             },
             input_focused: false,
             focus_field: Some(FocusField {
-                rect: DrawRect::new(24.0, 17.0, (width - 48.0).clamp(200.0, 720.0), 20.0),
+                rect: DrawRect::new(field_left, field_top, field_width, FIELD_HEIGHT_DIP),
                 text: banner.text.clone(),
                 placeholder: None,
                 caret_byte: banner.text.len(),
                 selection_range: None,
                 fg: Rgba {
-                    r: 0.92,
-                    g: 0.94,
-                    b: 0.98,
+                    r: 0.94,
+                    g: 0.96,
+                    b: 0.99,
                     a: 1.0,
                 },
                 selection_bg: Rgba::TRANSPARENT,
@@ -229,7 +260,7 @@ impl Window {
             list_rows: Vec::new(),
             scrollbar: None,
             footer: Some(FooterText {
-                rect: DrawRect::new(24.0, 32.0, 1.0, 1.0),
+                rect: DrawRect::new(field_left, panel_top + panel_height - 1.0, 1.0, 1.0),
                 text: String::new(),
                 fg: Rgba::TRANSPARENT,
             }),
@@ -324,7 +355,14 @@ impl Window {
             .editor
             .snapshot(self.buffer_id)
             .ok_or(CommandError::UnsupportedContext("file_save_as"))?;
-        let Some(path) = save_file_dialog(self.hwnd, snap.file.as_ref()) else {
+        // Default the save name to the active tab's title (sanitized inside
+        // the dialog helper), falling back to "untitled".
+        let default_title = self
+            .tree
+            .active_tab()
+            .map(|tab| self.tab_label(tab))
+            .unwrap_or_default();
+        let Some(path) = save_file_dialog(self.hwnd, snap.file.as_ref(), &default_title) else {
             return Ok(());
         };
         let content = snap.rope_snapshot().rope().to_string();

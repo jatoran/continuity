@@ -25,6 +25,8 @@ use crate::Error;
 pub(crate) struct PostTextBrushes<'a> {
     /// Indent-guide rules.
     pub indent_guide: &'a ID2D1SolidColorBrush,
+    /// Emphasized indent-guide rule for the caret's indent column.
+    pub indent_guide_active: &'a ID2D1SolidColorBrush,
     /// Default gutter foreground.
     pub line_number: &'a ID2D1SolidColorBrush,
     /// Active-line gutter foreground.
@@ -88,18 +90,24 @@ pub(crate) unsafe fn paint_post_text_chrome(
     ctx.SetTransform(&body_content_translate);
     let indent_started = Instant::now();
     if params.view_options.indent_guides {
+        // §25 — drive the guides off the display-row grid so they align
+        // with the body under soft-wrap and respect folds. The caret's
+        // source line is emphasized via the active brush.
+        let active_caret_source_line = selections.first().map(|s| s.head.line as usize);
         paint_indent_guides(
             ctx,
             rope,
+            params.frame_display,
             line_height,
             scroll_y,
+            viewport_h,
             zero_left,
             params.view_options.indent_size,
             column_advance,
             tab_advance,
-            first_visible,
-            last_visible,
+            active_caret_source_line,
             brushes.indent_guide,
+            brushes.indent_guide_active,
         );
     }
     if params.view_options.whitespace_markers {
@@ -131,6 +139,10 @@ pub(crate) unsafe fn paint_post_text_chrome(
             params.view_options.folded_lines,
             params.view_options.markdown_headings,
         );
+        // §6b — in caret-only mode also stamp the hovered line's number
+        // (muted, like the anchors) so the user can read which line the
+        // pointer is on without turning on all numbers.
+        let hovered_source_line = params.line_hover.map(|hover| hover.source_line as usize);
         let _ = paint_line_number_gutter(
             ctx,
             factory,
@@ -149,6 +161,7 @@ pub(crate) unsafe fn paint_post_text_chrome(
             &fold_headers,
             Some(params.frame_display),
             true,
+            hovered_source_line,
         );
         // §H3 — fold triangles share the gutter strip; painted after
         // the line numbers so the glyphs land on top of any current-
@@ -159,6 +172,9 @@ pub(crate) unsafe fn paint_post_text_chrome(
             .iter()
             .map(|(l, _)| *l)
             .collect();
+        // §10 — only show the expanded ▾ ticks when the gutter is hovered;
+        // collapsed ▸ ticks always paint (handled inside the painter).
+        let gutter_hovered = params.line_hover.is_some_and(|hover| hover.in_gutter);
         let _ = paint_fold_triangles(
             ctx,
             factory,
@@ -172,6 +188,7 @@ pub(crate) unsafe fn paint_post_text_chrome(
             last_visible,
             brushes.line_number,
             brushes.line_number_active,
+            gutter_hovered,
         );
     }
     timings.line_numbers_us = elapsed_us(gutter_started);

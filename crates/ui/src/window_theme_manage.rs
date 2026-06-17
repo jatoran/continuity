@@ -80,6 +80,19 @@ impl Window {
         invalidate_hwnd(self.hwnd);
     }
 
+    /// Confirmation/info banner that auto-dismisses after the standard
+    /// transient window. Used for "created / deleted / restored" notices
+    /// where the action already completed — keeps the chrome from
+    /// lingering past the change it announces. Errors (write failed,
+    /// rename failed, name rejected, …) stay on the sticky `set_banner`
+    /// path so the user can read and acknowledge them.
+    fn set_transient_banner(&mut self, message: impl Into<String>) {
+        let now = self.now_ms();
+        self.file_banner = Some(FileBanner::transient(message.into(), now));
+        self.start_file_io_poll(self.hwnd);
+        invalidate_hwnd(self.hwnd);
+    }
+
     /// δ.5 — clone the currently active theme into a new custom theme.
     pub(crate) fn theme_clone_active_impl(
         &mut self,
@@ -256,11 +269,11 @@ impl Window {
                 }
                 self.active_theme.set_installed(set);
             }
-            self.set_banner(format!(
+            self.set_transient_banner(format!(
                 "deleted `{target}`; restored bundled `{FALLBACK_THEME}` (recover from themes/.trash/)",
             ));
         } else {
-            self.set_banner(format!("deleted `{target}` (recover from themes/.trash/)",));
+            self.set_transient_banner(format!("deleted `{target}` (recover from themes/.trash/)",));
         }
         invalidate_hwnd(self.hwnd);
         Ok(())
@@ -364,7 +377,7 @@ impl Window {
             }
         }
         invalidate_hwnd(self.hwnd);
-        self.set_banner(format!("created custom theme `{name}`"));
+        self.set_transient_banner(format!("created custom theme `{name}`"));
         Ok(())
     }
 }

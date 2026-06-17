@@ -218,7 +218,7 @@ mod tests {
     /// buffer and that constants are wired through.
     #[test]
     fn layout_is_consumed_well_formed() {
-        let l = compute_minimap_layout((0.0, 0.0, 800.0, 600.0), 0.0, 18.0, 5, 0.0);
+        let l = compute_minimap_layout((0.0, 0.0, 800.0, 600.0), 0.0, 18.0, 5, 5.0 * 18.0, 0.0);
         assert!(l.rect.2 > 0.0);
         assert_eq!(l.line_height_dip, MINIMAP_LINE_HEIGHT_DIP);
         assert_eq!(l.font_size_dip, MINIMAP_FONT_SIZE_DIP);

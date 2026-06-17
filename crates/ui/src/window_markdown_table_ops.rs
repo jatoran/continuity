@@ -29,6 +29,7 @@ use crate::window_helpers::invalidate_hwnd;
 use crate::window_view_context::map_ui_to_command_error;
 
 mod cell_selection;
+pub(crate) mod paste_normalize;
 
 /// One source-line worth of parsed pipe-table row geometry. All byte
 /// offsets are document-absolute.
@@ -165,7 +166,7 @@ fn parse_table_row(rope: &ropey::Rope, line_idx: u32, len_lines: usize) -> Optio
 
 /// `true` when every non-whitespace byte is `:`, `-`, or `|`, and at
 /// least one `-` appears. Same predicate the renderer uses.
-fn is_delimiter_line(line: &str) -> bool {
+pub(crate) fn is_delimiter_line(line: &str) -> bool {
     let mut saw_dash = false;
     let mut saw_content = false;
     for byte in line.bytes() {

@@ -5,9 +5,7 @@
 //! These methods are called from `window_mouse.rs`; pulling them out
 //! keeps that file under the 600-line cap.
 
-use continuity_render::{
-    close_button_rect, tab_index_at, tab_slot_widths, TAB_CLOSE_MIN_TAB_WIDTH_DIP,
-};
+use continuity_render::{close_button_rect, tab_index_at_with_origin, TAB_CLOSE_MIN_TAB_WIDTH_DIP};
 use windows::Win32::Foundation::{LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetCapture;
@@ -119,33 +117,21 @@ impl Window {
             return false;
         }
         self.switch_focus(pane);
-        // Borrow the tabs immutably first to compute the strip layout
-        // exactly the way the renderer paints it. Variable-width slots
-        // matter: the previous equal-slot hit-test routed clicks to the
-        // wrong tab once labels diverged in length.
-        let (tab_ids, labels): (Vec<_>, Vec<_>) = {
-            let Some(group) = self.tree.groups.get(&pane) else {
-                return false;
-            };
-            if group.tabs.is_empty() {
-                return false;
-            }
-            let labels: Vec<String> = group
-                .tabs
-                .iter()
-                .map(|tid| {
-                    self.tree
-                        .tabs
-                        .get(tid)
-                        .map(|t| self.tab_label(t))
-                        .unwrap_or_default()
-                })
-                .collect();
-            (group.tabs.clone(), labels)
+        // Compute the strip layout exactly the way the renderer paints it
+        // (variable-width slots + horizontal scroll offset) so a click on
+        // the rendered tab N actually picks tab N.
+        let Some((strip_metrics, tab_ids)) = self.tab_strip_metrics_for_pane(pane, outer.w) else {
+            return false;
         };
-        let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-        let widths = tab_slot_widths(&label_refs, outer.w);
-        let Some(idx) = tab_index_at(&widths, xf - outer.x) else {
+        // Item 8 — a click on an overflow chevron scrolls the strip instead
+        // of selecting a tab. Checked before the tab hit-test because the
+        // chevron cells overlay the strip edges.
+        if self.try_tab_strip_chevron_click(pane, &strip_metrics, xf - outer.x) {
+            return true;
+        }
+        let widths = strip_metrics.widths.clone();
+        let Some(idx) = tab_index_at_with_origin(&widths, strip_metrics.content_x0, xf - outer.x)
+        else {
             self.clear_unsaved_close_arm();
             return true;
         };
@@ -155,7 +141,7 @@ impl Window {
         // close button is painted under the current mode, dispatch
         // `tab.close` for that tab instead of switching to it.
         let strip_h = metrics::TAB_STRIP_HEIGHT_DIP;
-        let tab_x_local: f32 = widths.iter().take(idx).sum();
+        let tab_x_local: f32 = strip_metrics.content_x0 + widths.iter().take(idx).sum::<f32>();
         let tab_w = widths.get(idx).copied().unwrap_or(0.0);
         let close_visible = crate::tab_hover::is_tab_close_visible(
             self.view_options.tab_close_button,
@@ -163,7 +149,11 @@ impl Window {
             pane,
             tab,
         );
-        if close_visible && tab_w >= TAB_CLOSE_MIN_TAB_WIDTH_DIP {
+        // Item 17 — the close cell is suppressed (paint AND hit-test) while
+        // the strip is crowded but above the small floor. Mirror the
+        // painter's `suppress_close_cell = crowded && !overflowing`.
+        let close_cell_painted = !strip_metrics.crowded || strip_metrics.overflowing;
+        if close_visible && close_cell_painted && tab_w >= TAB_CLOSE_MIN_TAB_WIDTH_DIP {
             let rect = close_button_rect(outer.x + tab_x_local, tab_w, outer.y, strip_h);
             if xf >= rect.left && xf < rect.right && yf >= rect.top && yf < rect.bottom {
                 // Briefly route through focus so `tab.close` operates on
@@ -305,26 +295,21 @@ impl Window {
         if yf >= outer.y + metrics::TAB_STRIP_HEIGHT_DIP {
             return false;
         }
-        let (tab_ids, labels): (Vec<_>, Vec<_>) = {
-            let Some(group) = self.tree.groups.get(&pane) else {
-                return false;
-            };
-            let labels: Vec<String> = group
-                .tabs
-                .iter()
-                .map(|tid| {
-                    self.tree
-                        .tabs
-                        .get(tid)
-                        .map(|t| self.tab_label(t))
-                        .unwrap_or_default()
-                })
-                .collect();
-            (group.tabs.clone(), labels)
+        let Some((strip_metrics, tab_ids)) = self.tab_strip_metrics_for_pane(pane, outer.w) else {
+            // Empty pane (no tabs) — middle-click opens a fresh tab.
+            self.switch_focus(pane);
+            let _ = self.dispatch_command("tab.new", &serde_json::Value::Null);
+            return true;
         };
-        let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-        let widths = tab_slot_widths(&label_refs, outer.w);
-        match tab_index_at(&widths, xf - outer.x) {
+        // A middle-click on an overflow chevron scrolls rather than closing.
+        if self.try_tab_strip_chevron_click(pane, &strip_metrics, xf - outer.x) {
+            return true;
+        }
+        match tab_index_at_with_origin(
+            &strip_metrics.widths,
+            strip_metrics.content_x0,
+            xf - outer.x,
+        ) {
             Some(idx) => {
                 let tab = tab_ids[idx];
                 self.switch_focus(pane);
@@ -362,25 +347,13 @@ impl Window {
         if yf >= outer.y + metrics::TAB_STRIP_HEIGHT_DIP {
             return None;
         }
-        let group = self.tree.groups.get(&pane)?;
-        if group.tabs.is_empty() {
-            return None;
-        }
-        let labels: Vec<String> = group
-            .tabs
-            .iter()
-            .map(|tid| {
-                self.tree
-                    .tabs
-                    .get(tid)
-                    .map(|t| self.tab_label(t))
-                    .unwrap_or_default()
-            })
-            .collect();
-        let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-        let widths = tab_slot_widths(&label_refs, outer.w);
-        let idx = tab_index_at(&widths, xf - outer.x)?;
-        Some((pane, group.tabs[idx]))
+        let (strip_metrics, tab_ids) = self.tab_strip_metrics_for_pane(pane, outer.w)?;
+        let idx = tab_index_at_with_origin(
+            &strip_metrics.widths,
+            strip_metrics.content_x0,
+            xf - outer.x,
+        )?;
+        Some((pane, tab_ids[idx]))
     }
 
     /// Refresh the hover slot from a fresh `(x, y)`. Returns true when
@@ -414,21 +387,11 @@ impl Window {
         if group.tabs.is_empty() {
             return Some(DropIndicator { pane, slot: 0 });
         }
-        let labels: Vec<String> = group
-            .tabs
-            .iter()
-            .map(|tid| {
-                self.tree
-                    .tabs
-                    .get(tid)
-                    .map(|t| self.tab_label(t))
-                    .unwrap_or_default()
-            })
-            .collect();
-        let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-        let widths = tab_slot_widths(&label_refs, outer.w);
-        let x_in_strip = xf - outer.x;
-        let slot = tab_drop_slot(&widths, x_in_strip);
+        let (strip_metrics, _tab_ids) = self.tab_strip_metrics_for_pane(pane, outer.w)?;
+        // Run the drop-slot split in content-local coordinates so the
+        // insertion bar tracks the painted (scrolled) tab positions.
+        let x_in_content = (xf - outer.x) - strip_metrics.content_x0;
+        let slot = tab_drop_slot(&strip_metrics.widths, x_in_content);
         Some(DropIndicator { pane, slot })
     }
 

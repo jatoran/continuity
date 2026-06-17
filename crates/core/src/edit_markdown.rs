@@ -8,13 +8,14 @@
 //! shared helpers re-exported from this module.
 
 use continuity_buffer::Buffer;
-use continuity_text::{Selection, SelectionKind};
+use continuity_text::{Position, Selection, SelectionKind};
 
 use crate::edit_planning::{advance_position, finalize_specs, line_content_end, EditSpec};
 use crate::selection_edit::SelectionEditPlan;
 use crate::EmphasisKind;
 use crate::Error;
 
+mod emphasis;
 mod sections;
 pub(crate) use sections::{
     enclosing_heading_line, heading_level, leading_whitespace_len, line_text, lines_in,
@@ -35,7 +36,27 @@ pub(crate) fn plan_markdown_toggle_emphasis(
         let start = range.start.to_byte_offset(rope)?;
         let end = range.end.to_byte_offset(rope)?;
         if start == end {
-            // Insert empty pair, caret between markers.
+            // Caret with no selection. Before inserting a fresh empty pair,
+            // look outward on the current line for an enclosing paired
+            // delimiter run (`**…**` for bold, `*…*` for italic, `~~…~~`
+            // for strikethrough, `` `…` `` for inline code) with the caret
+            // between the markers — if found, strip the emphasis instead of
+            // nesting a redundant empty pair.
+            if let Some((delete_open, delete_close)) =
+                emphasis::enclosing_delimiter_runs(rope, start, open, close)?
+            {
+                // Delete the closing run first (higher byte offset) so the
+                // opening-run delete keeps valid offsets. The caret follows
+                // the content: it shifts left by the opening run's length.
+                specs.push(EditSpec::delete(rope, delete_close.0, delete_close.1)?);
+                specs.push(EditSpec::delete(rope, delete_open.0, delete_open.1)?);
+                let shifted = start - (delete_open.1 - delete_open.0);
+                selections_after.push(Selection::caret_at(Position::from_byte_offset(
+                    rope, shifted,
+                )?));
+                continue;
+            }
+            // No enclosing span — insert empty pair, caret between markers.
             let inserted = format!("{open}{close}");
             specs.push(EditSpec::insert(rope, start, inserted)?);
             let head = advance_position(range.start, open);

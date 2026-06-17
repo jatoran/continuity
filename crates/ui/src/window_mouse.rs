@@ -195,6 +195,20 @@ impl Window {
             });
             match click_count {
                 2 => {
+                    // Item 2 — Ctrl+double-click (without Shift) APPENDS a
+                    // word range to the existing multi-selection instead of
+                    // replacing it: drop a fresh caret at the click point
+                    // and expand only that newest selection to a word. The
+                    // drag then extends only that range
+                    // (`multi_select_drag`), matching Ctrl+single-click.
+                    if is_key_down(VK_CONTROL.0) && !is_key_down(VK_SHIFT.0) {
+                        let added = self.add_cursor_at_pixel(x, y);
+                        if added {
+                            let _ = Window::select_word_on_last(self);
+                        }
+                        self.mouse_state.multi_select_drag = added;
+                        return added;
+                    }
                     // Inside a table cell: double-click enters edit
                     // mode at the click position (no word selection).
                     // Outside a cell: standard double-click selects
@@ -268,6 +282,14 @@ impl Window {
             return true;
         }
         self.clear_unsaved_close_arm();
+        // Item 11 — a double-click in the empty (no-tab) area of a pane's
+        // tab ribbon opens a fresh empty tab in that pane, mirroring the
+        // empty-area branch of `try_tab_strip_middle_down`. Runs before
+        // the body word-select so a double-click on the strip never falls
+        // through to caret placement / word selection in the editor body.
+        if self.try_tab_strip_empty_area_dbl(x, y) {
+            return true;
+        }
         let click_line = self
             .client_to_buffer_position(x, y)
             .map(|p| p.line as i32)
@@ -275,6 +297,18 @@ impl Window {
         let now_ms = wall_clock_ms();
         let _ = self.mouse_state.register_click(now_ms, click_line);
         self.begin_selection_drag(x, y);
+        // Item 2 — Ctrl+double-click (without Shift) APPENDS a word range
+        // to the existing multi-selection instead of replacing it (same
+        // behavior as the click_count==2 branch in `on_left_button_down`;
+        // Win32 fires both messages for a double-click).
+        if is_key_down(VK_CONTROL.0) && !is_key_down(VK_SHIFT.0) {
+            let added = self.add_cursor_at_pixel(x, y);
+            if added {
+                let _ = Window::select_word_on_last(self);
+            }
+            self.mouse_state.multi_select_drag = added;
+            return added;
+        }
         let in_cell = self.try_cell_hit_at_pixel(x, y).is_some();
         let placed = self.place_caret_at_pixel(x, y, false);
         if !in_cell {

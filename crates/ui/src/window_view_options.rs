@@ -211,7 +211,9 @@ impl Default for ViewOptions {
             line_numbers: true,
             gutter_caret_line_only: true,
             relative_line_numbers: false,
-            current_line_highlight: false,
+            // §6a — the caret line gets its own highlight (editor.caret_line_highlight)
+            // distinct from the mouse-hover band; on by default. Toggle: Ctrl+Alt+L.
+            current_line_highlight: true,
             indent_guides: true,
             whitespace_markers: false,
             trailing_whitespace: false,

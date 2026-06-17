@@ -431,6 +431,8 @@ pub struct Window {
     /// with images or stale decorations. See
     /// `crate::window_paint::cold_deferred` siblings for the snap.
     pub(crate) pending_doc_end_scroll: bool,
+    /// Whether the primary caret was on-screen at the previous painted frame's end; lets layout-shift scroll anchoring skip re-targeting an already-off-screen caret. UI-thread-owned.
+    pub(crate) caret_was_on_screen_prior_frame: bool,
     /// Consecutive paints the document-end snap has re-armed itself
     /// while the projection's whole-document row index was still partial
     /// (offscreen soft-wrap rows held as placeholders, so the total
@@ -588,11 +590,11 @@ pub struct Window {
     /// it. UI-thread-owned.
     pub(crate) mouse_hit_test_frame_cache: RefCell<Option<MouseHitTestFrameCacheEntry>>,
     /// Cross-pane row-index cache. Keyed by `(BufferId, rope_rev,
-    /// decoration_rev, wrap_width_dip, font_state, fold_signature)`
-    /// so any pane / tab / layout showing the same buffer at the
-    /// same geometry can skip the `DisplayRowIndex` walker on cold
-    /// viewport builds. The walker dominates the per-frame cost on
-    /// large markdown buffers (~400 ms for 9 k lines in release).
-    /// See [`crate::window_row_index_cache`] for the contract.
+    /// decoration_rev, wrap_width_dip, font_state, fold_signature)` so any
+    /// pane / tab / layout showing the same buffer at the same geometry can
+    /// skip the `DisplayRowIndex` walker on cold viewport builds (the walker
+    /// dominates per-frame cost on large markdown buffers — ~400 ms / 9 k
+    /// lines in release). See [`crate::window_row_index_cache`].
     pub(crate) row_index_cache: RefCell<crate::window_row_index_cache::RowIndexCache>,
+    pub(crate) tab_session: crate::window_panes::TabSessionState, // items 8 + 18 (see window_panes)
 }

@@ -286,7 +286,7 @@ pub(super) fn core_loop(
                 let now = clock.now_ms();
                 let result = match state.get_mut(buffer_id) {
                     None => Err(Error::UnknownBuffer),
-                    Some(buf) => undo.undo(buf, now, persist),
+                    Some(buf) => undo.undo(buf, now, persist, delta_history),
                 };
                 broadcast_revision(event_tx, buffer_id, &result);
                 run_snapshot_policy(
@@ -305,7 +305,7 @@ pub(super) fn core_loop(
                 let now = clock.now_ms();
                 let result = match state.get_mut(buffer_id) {
                     None => Err(Error::UnknownBuffer),
-                    Some(buf) => undo.redo(buf, now, persist),
+                    Some(buf) => undo.redo(buf, now, persist, delta_history),
                 };
                 broadcast_revision(event_tx, buffer_id, &result);
                 run_snapshot_policy(
@@ -324,7 +324,7 @@ pub(super) fn core_loop(
                 let now = clock.now_ms();
                 let result = match state.get_mut(buffer_id) {
                     None => Err(Error::UnknownBuffer),
-                    Some(buf) => undo.redo_alternate(buf, now, persist),
+                    Some(buf) => undo.redo_alternate(buf, now, persist, delta_history),
                 };
                 broadcast_revision(event_tx, buffer_id, &result);
                 run_snapshot_policy(

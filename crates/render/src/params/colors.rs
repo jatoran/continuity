@@ -25,8 +25,13 @@ pub struct EditorColors {
     pub selection: Rgba,
     /// `editor.selection_inactive`.
     pub selection_inactive: Rgba,
-    /// `editor.line_highlight`.
+    /// `editor.line_highlight` — drives the mouse-hover line band (the
+    /// renderer scales its alpha down for the hover overlay).
     pub line_highlight: Rgba,
+    /// `editor.caret_line_highlight` — distinct fill painted behind the
+    /// caret's own line, independent of the hover band derived from
+    /// [`Self::line_highlight`].
+    pub caret_line_highlight: Rgba,
     /// `editor.line_number`.
     pub line_number: Rgba,
     /// `editor.line_number_active`.

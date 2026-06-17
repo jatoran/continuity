@@ -10,7 +10,7 @@
 
 use std::ffi::c_void;
 
-use continuity_render::{pane_chrome, tab_slot_widths, Rgba};
+use continuity_render::{pane_chrome, tab_slot_widths, Rgba, TAB_MIN_WIDTH_DIP};
 use continuity_win::WindowClass;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
@@ -199,8 +199,8 @@ impl Window {
         let width_dip = tab_slot_widths(&labels, 4096.0)
             .first()
             .copied()
-            .unwrap_or(pane_chrome::TAB_MIN_WIDTH_DIP)
-            .max(pane_chrome::TAB_MIN_WIDTH_DIP);
+            .unwrap_or(TAB_MIN_WIDTH_DIP)
+            .max(TAB_MIN_WIDTH_DIP);
         let scale = self.dpi_scale().max(0.01);
         let width_px = (width_dip * scale).round().max(1.0) as i32;
         let height_px = (metrics::TAB_STRIP_HEIGHT_DIP * scale).round().max(1.0) as i32;

@@ -151,7 +151,9 @@ _Auto-extracted from `crates/keymap/assets/default.toml`, grouped by command pre
 | `ctrl+shift+c` | `editor.copy_rendered_text` |
 | `ctrl+x` | `editor.cut` |
 | `backspace` | `editor.delete_back` |
+| `shift+backspace` | `editor.delete_back` |
 | `delete` | `editor.delete_forward` |
+| `shift+delete` | `editor.delete_forward` |
 | `ctrl+shift+m` | `editor.delete_to_bracket` |
 | `ctrl+shift+delete` | `editor.delete_to_line_end` |
 | `ctrl+shift+backspace` | `editor.delete_to_line_start` |
@@ -232,9 +234,11 @@ _Auto-extracted from `crates/keymap/assets/default.toml`, grouped by command pre
 | `ctrl+shift+'` | `editor.surround_double_quotes` |
 | `ctrl+shift+9` | `editor.surround_parens` |
 | `ctrl+r` | `editor.toggle_bullet_at_line_start` |
+| `ctrl+shift+r` | `editor.toggle_bullet_indent_continuation` |
 | `ctrl+shift+alt+t` | `editor.transpose_chars` |
 | `alt+t` | `editor.transpose_words` |
 | `ctrl+alt+t` | `editor.trim_trailing_whitespace` |
+| `ctrl+k → ctrl+s` | `editor.trim_whitespace` |
 | `ctrl+z` | `editor.undo` |
 | `ctrl+k → ctrl+u` | `editor.undo_tree_pick` |
 | `ctrl+alt+u` | `editor.unique_lines` |
@@ -251,7 +255,7 @@ _Auto-extracted from `crates/keymap/assets/default.toml`, grouped by command pre
 
 | Keys | Command |
 |---|---|
-| `ctrl+shift+r` | `keymap.reload` |
+| `ctrl+k → ctrl+m` | `keymap.reload` |
 | `ctrl+shift+k` | `keymap.show_conflicts` |
 
 ### `markdown.*`
@@ -388,7 +392,6 @@ _Auto-extracted from `crates/keymap/assets/default.toml`, grouped by command pre
 | `ctrl+shift+h` | `view.buffer_history` |
 | `ctrl+k → ctrl+c` | `view.cycle_caret_style` |
 | `ctrl+k → ctrl+9` | `view.cycle_focus` |
-| `ctrl+k → ctrl+t` | `view.cycle_theme` |
 | `ctrl+k → ctrl+1` | `view.focus_line` |
 | `ctrl+k → ctrl+0` | `view.focus_off` |
 | `ctrl+k → ctrl+3` | `view.focus_paragraph` |
@@ -464,8 +467,8 @@ _Every command registered by `continuity_command::default_registry`, grouped by 
 | `editor.copy_rendered_text` | `ctrl+shift+c` |  |  |
 | `editor.copy_source_text` |  |  |  |
 | `editor.cut` | `ctrl+x` |  |  |
-| `editor.delete_back` | `backspace` |  |  |
-| `editor.delete_forward` | `delete` |  |  |
+| `editor.delete_back` | `backspace, shift+backspace` |  |  |
+| `editor.delete_forward` | `delete, shift+delete` |  |  |
 | `editor.delete_to_bracket` | `ctrl+shift+m` |  |  |
 | `editor.delete_to_line_end` | `ctrl+shift+delete` |  |  |
 | `editor.delete_to_line_start` | `ctrl+shift+backspace` |  |  |
@@ -566,9 +569,11 @@ _Every command registered by `continuity_command::default_registry`, grouped by 
 | `editor.tab_width_increase` |  | yes | Increase tab width |
 | `editor.tabs_to_spaces` |  |  |  |
 | `editor.toggle_bullet_at_line_start` | `ctrl+r` |  |  |
+| `editor.toggle_bullet_indent_continuation` | `ctrl+shift+r` |  |  |
 | `editor.transpose_chars` | `ctrl+shift+alt+t` |  |  |
 | `editor.transpose_words` | `alt+t` |  |  |
 | `editor.trim_trailing_whitespace` | `ctrl+alt+t` |  |  |
+| `editor.trim_whitespace` | `ctrl+k → ctrl+s` |  |  |
 | `editor.undo` | `ctrl+z` |  |  |
 | `editor.undo_tree_pick` | `ctrl+k → ctrl+u` |  |  |
 | `editor.unique_lines` | `ctrl+alt+u` |  |  |
@@ -596,7 +601,7 @@ _Every command registered by `continuity_command::default_registry`, grouped by 
 
 | Command | Keys | Palette | Description |
 |---|---|---|---|
-| `keymap.reload` | `ctrl+shift+r` |  |  |
+| `keymap.reload` | `ctrl+k → ctrl+m` |  |  |
 | `keymap.reload_layered` |  |  |  |
 | `keymap.show_conflicts` | `ctrl+shift+k` |  |  |
 
@@ -778,7 +783,6 @@ _Every command registered by `continuity_command::default_registry`, grouped by 
 | `view.buffer_history` | `ctrl+shift+h` | yes | Open the buffer-history tab — a horizontal swimlane chart with one row per persisted buffer and snapshot dots along a shared time axis |
 | `view.cycle_caret_style` | `ctrl+k → ctrl+c` |  |  |
 | `view.cycle_focus` | `ctrl+k → ctrl+9` |  |  |
-| `view.cycle_theme` | `ctrl+k → ctrl+t` |  |  |
 | `view.focus_line` | `ctrl+k → ctrl+1` |  |  |
 | `view.focus_off` | `ctrl+k → ctrl+0` |  |  |
 | `view.focus_paragraph` | `ctrl+k → ctrl+3` |  |  |

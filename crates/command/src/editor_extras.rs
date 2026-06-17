@@ -71,6 +71,13 @@ pub const EDITOR_UNIQUE_LINES: CommandId = CommandId("editor.unique_lines");
 pub const EDITOR_SHUFFLE_LINES: CommandId = CommandId("editor.shuffle_lines");
 /// Trim trailing whitespace from each covered line.
 pub const EDITOR_TRIM_TRAILING_WHITESPACE: CommandId = CommandId("editor.trim_trailing_whitespace");
+/// Strip leading and trailing whitespace from every line in the buffer.
+/// Per-line leading strip removes indentation by design.
+pub const EDITOR_TRIM_WHITESPACE: CommandId = CommandId("editor.trim_whitespace");
+/// Toggle a `- ` bullet on the highlighted lines and, for a multi-line
+/// selection, indent every line after the first by one indent unit.
+pub const EDITOR_TOGGLE_BULLET_INDENT_CONTINUATION: CommandId =
+    CommandId("editor.toggle_bullet_indent_continuation");
 /// Hard-wrap covered paragraphs at column 80.
 pub const EDITOR_WRAP_AT_COLUMN: CommandId = CommandId("editor.wrap_at_column");
 /// Reflow covered paragraphs at column 80, preserving leading indent.
@@ -247,6 +254,23 @@ pub fn register_rich_editing(registry: &mut Registry) {
         // selection-scoped variant remains available via
         // `SelectionEdit::TrimTrailingWhitespace` for internal use.
         handler(|| SelectionEdit::TrimTrailingWhitespaceAll),
+    );
+    bind(
+        registry,
+        EDITOR_TRIM_WHITESPACE,
+        // Strip leading + trailing whitespace on every line, one undo
+        // group. Per-line leading strip removes indentation by design.
+        handler(|| SelectionEdit::TrimWhitespaceAll),
+    );
+    // Toggle bullet + indent continuation lines. Reads the live indent unit
+    // off the dispatch context exactly as `editor.indent` does.
+    bind(
+        registry,
+        EDITOR_TOGGLE_BULLET_INDENT_CONTINUATION,
+        Arc::new(|_, ctx| {
+            let unit = ctx.indent_unit();
+            ctx.apply_selection_edit(SelectionEdit::ToggleBulletWithContinuationIndent { unit })
+        }),
     );
     bind(
         registry,
@@ -467,6 +491,12 @@ mod tests {
             }),
             (EDITOR_TRIM_TRAILING_WHITESPACE, |e| {
                 matches!(e, SelectionEdit::TrimTrailingWhitespaceAll)
+            }),
+            (EDITOR_TRIM_WHITESPACE, |e| {
+                matches!(e, SelectionEdit::TrimWhitespaceAll)
+            }),
+            (EDITOR_TOGGLE_BULLET_INDENT_CONTINUATION, |e| {
+                matches!(e, SelectionEdit::ToggleBulletWithContinuationIndent { .. })
             }),
             (EDITOR_WRAP_AT_COLUMN, |e| {
                 matches!(e, SelectionEdit::WrapAtColumn(_))

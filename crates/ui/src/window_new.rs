@@ -226,6 +226,7 @@ impl Window {
             caret_anchor_capture_count: std::cell::Cell::new(0),
             resize_changed: false,
             pending_doc_end_scroll: false,
+            caret_was_on_screen_prior_frame: false,
             pending_doc_end_scroll_attempts: 0,
             jump_offthread_polls: 0,
             background_paint_tick: 0,
@@ -251,6 +252,7 @@ impl Window {
             ),
             mouse_hit_test_frame_cache: RefCell::new(None),
             row_index_cache: RefCell::new(crate::window_row_index_cache::RowIndexCache::new()),
+            tab_session: crate::window_panes::TabSessionState::default(),
         });
         // §H3 — install the persisted fold set into PaneModesState
         // *before* settings load runs (settings load may touch

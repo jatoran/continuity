@@ -109,7 +109,10 @@ impl ActiveTheme {
     }
 
     /// Cycle through `dark` → `light` → `system` → `dark` … and re-resolve.
-    /// Returns the new mode.
+    /// Returns the new mode. Test-only: the `view.cycle_theme` command was
+    /// removed in favour of the theme picker, so nothing in production
+    /// calls this — it survives solely to cover the mode-walk invariant.
+    #[cfg(test)]
     pub(crate) fn cycle_mode(&mut self) -> Mode {
         let next = match self.mode {
             Mode::Dark => Mode::Light,
@@ -215,6 +218,7 @@ pub(crate) fn editor_colors_from(t: &Theme) -> EditorColors {
         selection: rgba_from_color(t.editor_selection()),
         selection_inactive: rgba_from_color(t.editor_selection_inactive()),
         line_highlight: rgba_from_color(t.editor_line_highlight()),
+        caret_line_highlight: rgba_from_color(t.editor_caret_line_highlight()),
         line_number: rgba_from_color(t.editor_line_number()),
         line_number_active: rgba_from_color(t.editor_line_number_active()),
         indent_guide: rgba_from_color(t.editor_indent_guide()),

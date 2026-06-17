@@ -321,9 +321,30 @@ impl Window {
         let line = rope.byte_to_line(byte);
         let line_start = rope.line_to_byte(line);
         let byte_in_line = (byte - line_start) as u32;
+        // Item 5: clicking a rendered checkbox must NOT leave the caret on
+        // the toggled line. A lingering caret there feeds
+        // `caret_bytes_for_projection`, which reveals the raw `[ ]`
+        // brackets and un-renders the checkbox glyph the moment the toggle
+        // lands. Snapshot the user's real selections, drop a single caret
+        // on the target line only for the duration of the toggle command,
+        // then restore the original selections so nothing lingers.
+        //
+        // The toggle itself remains one undo group (one
+        // `markdown.toggle_checkbox` dispatch). The two `set_selections`
+        // calls are non-undoable selection updates that bracket it.
+        let original_selections: Vec<Selection> = snap.selections().to_vec();
         let caret = Selection::caret_at(Position::new(line as u32, byte_in_line));
         let _ = self.editor.set_selections(self.buffer_id, vec![caret]);
-        self.dispatch_command("markdown.toggle_checkbox", &serde_json::Value::Null)
+        let toggled = self.dispatch_command("markdown.toggle_checkbox", &serde_json::Value::Null);
+        // Restore the caller's selections regardless of toggle outcome so a
+        // no-op toggle (e.g. the line was not actually a task item) does not
+        // strand the caret on the checkbox line either.
+        if !original_selections.is_empty() {
+            let _ = self
+                .editor
+                .set_selections(self.buffer_id, original_selections);
+        }
+        toggled
     }
 
     fn jump_to_source_range(&mut self, range: &std::ops::Range<SourceByte>) -> bool {

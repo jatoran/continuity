@@ -19,11 +19,13 @@ impl Window {
     /// Replace the current find-bar match with the replace text.
     pub(crate) fn find_replace_one_impl(&mut self) -> Result<(), Error> {
         self.ensure_find_matches_current_for_focused_pane();
-        let (replacement, preserve_case, range) = match self.overlays.find_bar() {
+        let (replacement, preserve_case, interpret_escapes, range) = match self.overlays.find_bar()
+        {
             Some(fb) if fb.replace_visible => match fb.current_match() {
                 Some(m) => (
                     fb.replace().to_owned(),
                     fb.preserve_case,
+                    fb.regex,
                     (m.start_byte, m.end_byte),
                 ),
                 None => return Ok(()),
@@ -43,6 +45,7 @@ impl Window {
             range,
             &replacement,
             preserve_case,
+            interpret_escapes,
         );
         let _ = self.editor.apply_edit(
             self.buffer_id,
@@ -56,10 +59,12 @@ impl Window {
     /// Replace every current find-bar match as one undo group.
     pub(crate) fn find_replace_all_impl(&mut self) -> Result<(), Error> {
         self.ensure_find_matches_current_for_focused_pane();
-        let (replacement, preserve_case, ranges) = match self.overlays.find_bar() {
+        let (replacement, preserve_case, interpret_escapes, ranges) = match self.overlays.find_bar()
+        {
             Some(fb) if fb.replace_visible => (
                 fb.replace().to_owned(),
                 fb.preserve_case,
+                fb.regex,
                 fb.matches
                     .iter()
                     .map(|m| (m.start_byte, m.end_byte))
@@ -85,6 +90,7 @@ impl Window {
             &ranges,
             &replacement,
             preserve_case,
+            interpret_escapes,
         );
         if ops.is_empty() {
             return Ok(());

@@ -26,6 +26,7 @@ use crate::render_stats::chrome_overlay_breakdown::RendererChromeOverlayBreakdow
 use crate::renderer::Renderer;
 use crate::Error;
 
+mod minimap_pass;
 mod timing;
 use timing::elapsed_us;
 
@@ -156,6 +157,9 @@ pub(crate) fn render_frame(
         let formula_value_brush = mkb(params.markdown_colors.formula_value)?;
         let formula_error_brush = mkb(params.markdown_colors.formula_error)?;
         let line_highlight_brush = mkb(params.colors.line_highlight)?;
+        // §6a — caret line uses its own key (distinct from the hover band,
+        // which still derives from `editor.line_highlight`).
+        let caret_line_brush = mkb(params.colors.caret_line_highlight)?;
         let hover_line_brush = mkb(crate::line_bands::scaled_alpha(
             params.colors.line_highlight,
             0.42,
@@ -167,6 +171,7 @@ pub(crate) fn render_frame(
         let line_number_brush = mkb(params.colors.line_number)?;
         let line_number_active_brush = mkb(params.colors.line_number_active)?;
         let indent_guide_brush = mkb(params.colors.indent_guide)?;
+        let indent_guide_active_brush = mkb(params.colors.indent_guide_active)?;
         breakdown.decoration_us = breakdown
             .decoration_us
             .saturating_add(elapsed_us(brushes_started));
@@ -189,7 +194,7 @@ pub(crate) fn render_frame(
                 scroll_y,
                 viewport_w,
                 margins,
-                &line_highlight_brush,
+                &caret_line_brush,
                 display_rows,
             );
             breakdown.selection_bars_us = breakdown
@@ -469,6 +474,7 @@ pub(crate) fn render_frame(
             last_visible,
             crate::chrome_post::PostTextBrushes {
                 indent_guide: &indent_guide_brush,
+                indent_guide_active: &indent_guide_active_brush,
                 line_number: &line_number_brush,
                 line_number_active: &line_number_active_brush,
             },
@@ -478,36 +484,15 @@ pub(crate) fn render_frame(
 
         renderer.d2d_context.PopAxisAlignedClip();
 
-        if params.view_options.minimap {
-            let started = Instant::now();
-            let outline_inset = if params.view_options.show_outline_sidebar {
-                params.view_options.outline_sidebar_width_dip.max(0.0)
-            } else {
-                0.0
-            };
-            let pane_rect = (0.0, 0.0, viewport_w, viewport_h);
-            let layout = crate::minimap::compute_minimap_layout(
-                pane_rect,
-                scroll_y,
-                line_height,
-                rope.len_lines() as u64,
-                outline_inset,
-            );
-            let colors = crate::minimap::MinimapColors {
-                bg: params.colors.minimap_bg,
-                fg: params.colors.minimap_fg,
-                viewport_indicator: params.colors.minimap_viewport_indicator,
-            };
-            let _ = crate::minimap_paint::paint_minimap_scaled(
-                &renderer.d2d_context,
-                &renderer.dwrite_factory,
-                params.format,
-                rope,
-                &layout,
-                colors,
-            );
-            breakdown.minimap_us = elapsed_us(started);
-        }
+        breakdown.minimap_us = minimap_pass::paint_minimap_pass(
+            renderer,
+            rope,
+            params,
+            viewport_w,
+            viewport_h,
+            line_height,
+            scroll_y,
+        );
 
         if let Some(draw) = params.search_minimap {
             let started = Instant::now();

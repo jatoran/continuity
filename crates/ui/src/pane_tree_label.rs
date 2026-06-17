@@ -5,16 +5,31 @@
 //! No state of its own — pure functions over [`crate::pane_tree::Tab`]
 //! plus a candidate first-line snippet. Spec §6 precedence: explicit
 //! `label_override` → first non-empty trimmed line of the buffer
-//! (truncated to 20 chars + `…`, with leading `#` markers stripped)
+//! (leading `#` markers stripped, capped at [`MAX_BASE_TITLE_CHARS`])
 //! → `Untitled`.
+//!
+//! Item 8 — the label is no longer hard-clipped to 20 chars *before*
+//! layout. The renderer now performs ellipsis fitting against the tab's
+//! actual painted slot width (`pane_chrome`), so a wide tab shows more
+//! of its title and a crowded tab shows less. We still cap the base
+//! title at a generous [`MAX_BASE_TITLE_CHARS`] so a pathological
+//! first line (e.g. a 50 KB single line) does not balloon every
+//! per-frame DirectWrite layout.
 
 use crate::pane_tree::Tab;
+
+/// Generous upper bound on the characters carried in a tab's base title.
+/// The renderer fits an ellipsis against the real slot width below this;
+/// the cap only guards against pathologically long first lines inflating
+/// the per-frame text layout cost.
+pub(crate) const MAX_BASE_TITLE_CHARS: usize = 60;
 
 /// Resolve a tab's display label.
 ///
 /// Precedence per spec §6: explicit `label_override` → first non-empty
-/// trimmed line of the buffer (truncated to 20 chars + `…`, leading
-/// `#` heading markers stripped) → `Untitled`.
+/// trimmed line of the buffer (leading `#` heading markers stripped,
+/// capped at [`MAX_BASE_TITLE_CHARS`]) → `Untitled`. Ellipsis fitting to
+/// the painted slot width happens at render time, not here.
 pub(crate) fn resolve_label(tab: &Tab, first_line: Option<&str>) -> String {
     let base = base_label(tab, first_line);
     if tab.pinned {
@@ -29,14 +44,14 @@ pub(crate) fn resolve_label(tab: &Tab, first_line: Option<&str>) -> String {
 fn base_label(tab: &Tab, first_line: Option<&str>) -> String {
     if let Some(s) = tab.label_override.as_deref() {
         if !s.is_empty() {
-            return s.to_string();
+            return clip_with_ellipsis(s, MAX_BASE_TITLE_CHARS);
         }
     }
     if let Some(line) = first_line {
         let trimmed = line.trim();
         if !trimmed.is_empty() {
             let stripped = strip_heading_prefix(trimmed);
-            return clip_with_ellipsis(stripped, 20);
+            return clip_with_ellipsis(stripped, MAX_BASE_TITLE_CHARS);
         }
     }
     "Untitled".to_string()
@@ -118,11 +133,25 @@ mod tests {
     }
 
     #[test]
-    fn label_truncates_long_first_line() {
+    fn label_caps_long_first_line_at_base_limit() {
+        // Item 8 — the base title is capped at the generous
+        // MAX_BASE_TITLE_CHARS (not the old 20), with ellipsis fitting to
+        // the painted slot deferred to the renderer.
         let tab = Tab::new(BufferId::new(), 0);
         let long = "a".repeat(200);
         let s = resolve_label(&tab, Some(&long));
         assert!(s.ends_with('…'));
-        assert!(s.len() <= 20 + '…'.len_utf8());
+        assert_eq!(s.chars().count(), MAX_BASE_TITLE_CHARS);
+    }
+
+    #[test]
+    fn label_under_cap_is_carried_verbatim() {
+        // A 40-char first line is well under the 60-char cap, so it is
+        // carried whole — the renderer decides how much fits.
+        let tab = Tab::new(BufferId::new(), 0);
+        let medium = "b".repeat(40);
+        let s = resolve_label(&tab, Some(&medium));
+        assert_eq!(s, medium);
+        assert!(!s.ends_with('…'));
     }
 }

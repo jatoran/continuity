@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.4.0
+
+- Fixed a frequent crash when pressing `Ctrl+Z` (undo), especially after
+  pasting and typing — the editor no longer dies on undo, and a UI panic no
+  longer takes down the whole app.
+- Markdown lists are smarter: pressing Enter on a checkbox line continues a
+  checkbox, ordered lists auto-renumber when you insert or reorder items, and
+  `Ctrl+R` on a numbered list converts it to bullets.
+- `Ctrl+B` (and italic/strikethrough/code) now *removes* the formatting when
+  the caret is already inside it, instead of inserting empty markers.
+- New `Ctrl+Shift+R`: toggle bullets on the selected lines and indent the
+  continuation lines. (`Reload keymap` moved to `Ctrl+K Ctrl+M`.)
+- New `Ctrl+K Ctrl+S`: strip leading and trailing whitespace.
+- `Shift+Backspace` and `Shift+Delete` now delete instead of doing nothing.
+- Tabs: titles now use the available width and shrink only when crowded, with
+  `<>` scroll arrows (and Shift+mouse-wheel) when they overflow; the close
+  button hides when tabs get small so you can't hit it by accident;
+  double-clicking empty ribbon space opens a new tab; `Ctrl+W` on an unsaved
+  untitled tab now warns (and notes the content stays recoverable); and each
+  tab remembers its cursor and scroll position when you switch away and back.
+- Clicking a rendered checkbox toggles it without moving the caret; `Ctrl` +
+  double-click adds another word to a multi-selection.
+- The current cursor line now has its own highlight, and the line you hover
+  shows its number in the gutter.
+- Fold markers in the gutter only appear on hover or where something is
+  collapsed; indent guides, minimap click/drag, and outline-heading clicks now
+  line up correctly; typing in large documents no longer makes the view jump;
+  active vs inactive tabs are easier to tell apart in every theme.
+- Paste: rich text / HTML copied from a browser is converted to Markdown, and
+  pasted Markdown tables render correctly.
+- Find & Replace: regex can now match across line breaks (use `\n`).
+- The status bar no longer wraps; notifications dismiss on their own, sit below
+  the tab bar, and no longer clip their text.
+- Command palette: removed the "cycle theme" command; typing "theme" now
+  surfaces "pick theme" first.
+- Save dialog: defaults to Markdown and appends `.md` automatically, and
+  pre-fills the file name from the tab's title (selected, so you can just type
+  to replace it).
+
 ## 0.3.0
 
 - Single instance: opening a file or launching the shortcut while Continuity is

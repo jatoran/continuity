@@ -41,9 +41,6 @@ impl continuity_command::ViewContext for Window {
         Ok(())
     }
 
-    fn cycle_theme(&mut self) -> Result<(), continuity_command::Error> {
-        self.cycle_theme_impl().map_err(map_ui_to_command_error)
-    }
     fn reload_theme(&mut self) -> Result<(), continuity_command::Error> {
         self.reload_theme_impl().map_err(map_ui_to_command_error)
     }

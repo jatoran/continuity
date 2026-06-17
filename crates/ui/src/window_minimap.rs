@@ -12,20 +12,6 @@ use windows::Win32::UI::Input::KeyboardAndMouse::SetCapture;
 use crate::window::Window;
 use crate::window_helpers::invalidate_hwnd;
 
-/// Map a minimap hit line to an editor scroll target that centers the
-/// clicked line in the viewport when there is enough content.
-#[must_use]
-pub(crate) fn compute_minimap_target_scroll(
-    line: u64,
-    viewport_height_dip: f32,
-    line_height_dip: f32,
-    content_height_dip: f32,
-) -> f32 {
-    let target = line as f32 * line_height_dip - viewport_height_dip * 0.5;
-    let max_scroll = (content_height_dip - viewport_height_dip.max(0.0)).max(0.0);
-    target.clamp(0.0, max_scroll)
-}
-
 impl Window {
     /// `WM_LBUTTONDOWN` hit-test against the scaled-text minimap. On a
     /// hit, scroll the editor so the clicked line is roughly centered
@@ -77,19 +63,23 @@ impl Window {
         if yf < body.y || yf >= body.y + body.h {
             return false;
         }
-        let Some(hit) = continuity_render::minimap_hit_test(&layout, xf - body.x, yf - body.y)
-        else {
+        // §28 — resolve the click in display-row space so it matches the
+        // editor scroll under soft-wrap. The hit carries a pre-clamped
+        // target scroll computed proportionally against the same
+        // content-height/viewport pair the editor clamps against.
+        let content_height_dip = self.estimated_content_height();
+        let Some(hit) = continuity_render::minimap_hit_test(
+            &layout,
+            xf - body.x,
+            yf - body.y,
+            content_height_dip,
+            self.view.viewport_height_dip,
+        ) else {
             return false;
         };
-        let content_height_dip = self.estimated_content_height();
         let line_height = self.effective_line_height();
         let target_buffer_y = hit.line as f32 * line_height;
-        let target_dip = compute_minimap_target_scroll(
-            hit.line,
-            self.view.viewport_height_dip,
-            line_height,
-            content_height_dip,
-        );
+        let target_dip = hit.target_scroll_dip;
         let before = self.view.scroll_y_dip;
         self.view.jump_to(target_dip, content_height_dip);
         let scrolled = (self.view.scroll_y_dip - before).abs() > f32::EPSILON;
@@ -111,20 +101,43 @@ impl Window {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use continuity_render::compute_minimap_layout;
 
+    /// §28 — the scroll target now comes from
+    /// [`continuity_render::minimap_hit_test`], resolved in display-row
+    /// space. A click at the vertical midpoint of the strip centers the
+    /// viewport on the middle of the (display-row) content height.
     #[test]
-    fn minimap_target_scroll_centers_clicked_line() {
-        let target = compute_minimap_target_scroll(100, 400.0, 20.0, 4_000.0);
-        assert_eq!(target, 1_800.0);
+    fn midpoint_click_centers_viewport_on_content() {
+        let content_h = 4_000.0;
+        let layout =
+            compute_minimap_layout((0.0, 0.0, 800.0, 600.0), 0.0, 20.0, 200, content_h, 0.0);
+        let (rx, ry, rw, rh) = layout.rect;
+        let hit = continuity_render::minimap_hit_test(
+            &layout,
+            rx + rw * 0.5,
+            ry + rh * 0.5,
+            content_h,
+            400.0,
+        )
+        .expect("click lands in strip");
+        let expected = (content_h * 0.5 - 200.0).clamp(0.0, content_h - 400.0);
+        assert!((hit.target_scroll_dip - expected).abs() < 1.0);
     }
 
     #[test]
-    fn minimap_target_scroll_clamps_to_scroll_range() {
-        assert_eq!(compute_minimap_target_scroll(1, 400.0, 20.0, 4_000.0), 0.0);
-        assert_eq!(
-            compute_minimap_target_scroll(1_000, 400.0, 20.0, 4_000.0),
-            3_600.0
-        );
+    fn click_outside_strip_misses() {
+        let content_h = 4_000.0;
+        let layout =
+            compute_minimap_layout((0.0, 0.0, 800.0, 600.0), 0.0, 20.0, 200, content_h, 0.0);
+        let (rx, ry, _, _) = layout.rect;
+        assert!(continuity_render::minimap_hit_test(
+            &layout,
+            rx - 10.0,
+            ry + 50.0,
+            content_h,
+            400.0
+        )
+        .is_none());
     }
 }

@@ -19,7 +19,7 @@
 use std::time::Instant;
 
 use crate::literal::{is_ascii_word_boundary, LiteralMatcher};
-use crate::regex::{find_match_ranges, MatchRange};
+use crate::regex::{find_match_ranges, find_match_ranges_multiline, MatchRange};
 use crate::Error;
 
 /// Which engine produced the matches returned by
@@ -116,12 +116,22 @@ pub fn find_match_ranges_dispatch(
     let matches = match path {
         PatternPath::Literal => run_literal(query, source, case_sensitive, whole_word),
         PatternPath::Regex => {
-            let effective_pattern = if is_regex {
-                query.to_string()
+            if is_regex {
+                // User-toggled regex: route through the WHOLE-BUFFER
+                // multi-line matcher so a literal `\n` (typed as the
+                // two-char escape) or `(?s).` can match across line
+                // boundaries, and `^`/`$` anchor per line. The query
+                // reaches the engine verbatim — it is NOT escaped — so
+                // the engine's own `\n` handling applies.
+                find_match_ranges_multiline(query, source, !case_sensitive, whole_word)?
             } else {
-                crate::regex::escape_literal(query)
-            };
-            find_match_ranges(&effective_pattern, source, !case_sensitive, whole_word)?
+                // Non-ASCII case-insensitive literal fallback: the query
+                // is escaped to a literal byte sequence (no anchors, no
+                // newline construct), so the line-oriented path is
+                // sufficient and preserves prior behavior.
+                let effective_pattern = crate::regex::escape_literal(query);
+                find_match_ranges(&effective_pattern, source, !case_sensitive, whole_word)?
+            }
         }
     };
     Ok(DispatchResult {
@@ -300,6 +310,38 @@ mod tests {
     fn dispatch_regex_path_propagates_invalid_regex_error() {
         let r = find_match_ranges_dispatch("(", "x", true, true, false);
         assert!(matches!(r, Err(Error::InvalidRegex(_))));
+    }
+
+    #[test]
+    fn dispatch_regex_matches_literal_newline_across_lines() {
+        // With regex ON, the two-char escape `\n` reaches the engine and
+        // matches across the line break (Sublime-style multi-line find).
+        let src = "first line\nsecond line";
+        let r = find_match_ranges_dispatch(r"line\nsecond", src, true, true, false).unwrap();
+        assert_eq!(r.path, PatternPath::Regex);
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(
+            &src[r.matches[0].start_byte..r.matches[0].end_byte],
+            "line\nsecond"
+        );
+    }
+
+    #[test]
+    fn dispatch_regex_dot_all_spans_lines() {
+        let src = "<a>\nbody\n</a>";
+        let r = find_match_ranges_dispatch(r"(?s)<a>.*</a>", src, true, true, false).unwrap();
+        assert_eq!(r.path, PatternPath::Regex);
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(r.matches[0].start_byte, 0);
+        assert_eq!(r.matches[0].end_byte, src.len());
+    }
+
+    #[test]
+    fn dispatch_regex_caret_dollar_anchor_per_line() {
+        let src = "alpha\nbeta\ngamma";
+        let r = find_match_ranges_dispatch(r"^beta$", src, true, true, false).unwrap();
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(r.matches[0].line, 2);
     }
 
     #[test]

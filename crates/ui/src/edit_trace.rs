@@ -36,8 +36,9 @@ pub(crate) fn kind_of(edit: &SelectionEdit) -> &'static str {
         MarkdownToggleCheckbox, MarkdownToggleEmphasis, MarkdownToggleNumbered, MarkdownToggleTask,
         MarkdownWrapInBlockquote, MoveLineDown, MoveLineUp, Outdent, ReflowParagraph, ReverseLines,
         ShuffleLines, SortLines, SpacesToTabs, SurroundSelection, TabsToSpaces, TabsToSpacesAll,
-        ToggleBulletAtLineStart, TransposeChars, TransposeWords, TrimTrailingWhitespace,
-        TrimTrailingWhitespaceAll, UniqueLines, WrapAtColumn,
+        ToggleBulletAtLineStart, ToggleBulletWithContinuationIndent, TransposeChars,
+        TransposeWords, TrimTrailingWhitespace, TrimTrailingWhitespaceAll, TrimWhitespaceAll,
+        UniqueLines, WrapAtColumn,
     };
     match edit {
         InsertText(_) => "insert_text",
@@ -47,6 +48,7 @@ pub(crate) fn kind_of(edit: &SelectionEdit) -> &'static str {
         InsertNewlineBelow => "insert_newline_below",
         InsertNewlineSmart => "insert_newline_smart",
         ToggleBulletAtLineStart => "toggle_bullet_at_line_start",
+        ToggleBulletWithContinuationIndent { .. } => "toggle_bullet_with_continuation_indent",
         DeleteWordBackward => "delete_word_backward",
         DeleteWordForward => "delete_word_forward",
         DeleteToLineStart => "delete_to_line_start",
@@ -64,6 +66,7 @@ pub(crate) fn kind_of(edit: &SelectionEdit) -> &'static str {
         ShuffleLines(_) => "shuffle_lines",
         TrimTrailingWhitespace => "trim_trailing_whitespace",
         TrimTrailingWhitespaceAll => "trim_trailing_whitespace_all",
+        TrimWhitespaceAll => "trim_whitespace_all",
         WrapAtColumn(_) => "wrap_at_column",
         ReflowParagraph(_) => "reflow_paragraph",
         TransposeChars => "transpose_chars",

@@ -239,6 +239,8 @@ pub struct PaneStripDraw {
     /// is in flight. Paired with [`Self::active_tab_motion`]; both must
     /// be `Some` for the renderer to paint the sliding underline.
     pub previous_active_tab_index: Option<usize>,
+    /// Item 8 — per-pane horizontal tab-strip scroll offset in DIPs.
+    pub tab_scroll_offset_dip: f32,
 }
 
 /// Single tab's display payload.

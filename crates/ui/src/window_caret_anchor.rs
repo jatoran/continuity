@@ -43,6 +43,8 @@ use continuity_text::Position;
 
 use crate::window::Window;
 
+mod resolve_build;
+
 /// How the caret display row was resolved from a frame projection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CaretDisplayLineResolution {
@@ -400,39 +402,6 @@ impl Window {
             );
         }
         Some(resolved)
-    }
-
-    /// Viewport-bounded frame-display build used by caret anchoring.
-    /// Pulled out so the path with and without a cached frame share
-    /// the same viewport-row math and overscan policy.
-    fn build_caret_anchor_viewport_frame_display(
-        &self,
-        rope: &ropey::Rope,
-        revision: u64,
-        decorations: Option<&continuity_decorate::Decorations>,
-        caret_bytes: &[usize],
-        wrap_width_dip: u32,
-        char_width_dip: f32,
-    ) -> continuity_render::FrameDisplay {
-        let visible_rows = crate::window_paint::visible_display_row_range(
-            self.view.scroll_y_dip,
-            self.view.viewport_height_dip,
-            self.effective_line_height(),
-        );
-        self.build_frame_display_viewport_cached(
-            Some(self.buffer_id),
-            rope,
-            revision,
-            decorations,
-            caret_bytes,
-            &[],
-            &[],
-            wrap_width_dip,
-            char_width_dip,
-            visible_rows,
-            crate::window_paint::VIEWPORT_OVERSCAN_ROWS,
-            continuity_display_map::WalkerCallReason::ViewportRealize,
-        )
     }
 }
 

@@ -110,9 +110,23 @@ impl Window {
         let _ = self
             .editor
             .set_selections(self.buffer_id, vec![Selection::caret_at(position)]);
-        // Scroll the heading line to the viewport top.
-        let target_y = line as f32 * self.effective_line_height();
-        let content_h = self.estimated_content_height();
+        // Pin the heading to the viewport TOP. The source-line index
+        // alone (`line * line_height`) is wrong under soft-wrap or folds:
+        // every wrapped/folded line above the heading shifts its true
+        // display row. Resolve the real display row through the
+        // display-map projection (O(visible+overscan)) and pin THAT,
+        // matching `center_primary_caret_in_viewport`'s row-aware math.
+        let line_height = self.effective_line_height();
+        let (target_y, content_h) = match self.resolve_caret_display_line(position) {
+            Some(display_line) => {
+                let display_row = display_line.display_row as f32;
+                let content_h = self
+                    .content_height_covering(display_row)
+                    .max(display_line.total_display_rows.max(1) as f32 * line_height);
+                (display_row * line_height, content_h)
+            }
+            None => (line as f32 * line_height, self.estimated_content_height()),
+        };
         self.view.jump_to(target_y, content_h);
         invalidate_hwnd(self.hwnd);
         true

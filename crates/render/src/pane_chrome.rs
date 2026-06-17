@@ -17,6 +17,7 @@ use windows::Win32::Graphics::DirectWrite::{
 };
 
 use crate::pane_chrome_border::paint_pane_border;
+use crate::pane_chrome_layout::{compute_tab_strip_metrics, TAB_CHEVRON_WIDTH_DIP};
 use crate::pane_chrome_tabs::{
     close_button_rect, paint_close_icon, paint_dirty_dot, paint_tab_background,
     TAB_TRAPEZOID_SKEW_DIP,
@@ -32,9 +33,7 @@ pub(crate) const STRIP_FONT_SIZE_DIP: f32 = 12.5;
 pub const BORDER_DIP: f32 = 1.0;
 /// Border thickness for the focused pane.
 pub const BORDER_ACTIVE_DIP: f32 = 2.0;
-/// Minimum visible width for one tab in DIPs. Matches the floor used by
-/// the slot-width computation.
-pub const TAB_MIN_WIDTH_DIP: f32 = 120.0;
+
 /// D5 minimum readable width for one tab in DIPs — ~20 chars at
 /// [`STRIP_FONT_SIZE_DIP`]. The shrink-then-wrap layout
 /// (`tab_strip_layout`) refuses to scale below this; once every tab is
@@ -42,59 +41,6 @@ pub const TAB_MIN_WIDTH_DIP: f32 = 120.0;
 /// additional rows.
 pub const TAB_MIN_READABLE_WIDTH_DIP: f32 = 120.0;
 const TAB_TOP_GAP_DIP: f32 = 5.0;
-
-/// Compute the width allocated to each tab in a strip of total `strip_w`
-/// DIPs. Used both by the paint code and by the UI hit-test so a click on
-/// the rendered tab N actually picks tab N.
-///
-/// The algorithm matches `paint_one_pane_strip` exactly: each tab gets an
-/// approximate text-width estimate clamped to [`TAB_MIN_WIDTH_DIP`]; if
-/// the sum exceeds `strip_w`, every slot is scaled down proportionally.
-#[must_use]
-pub fn tab_slot_widths(labels: &[&str], strip_w: f32) -> Vec<f32> {
-    if labels.is_empty() || strip_w <= 0.0 {
-        return Vec::new();
-    }
-    let mut widths: Vec<f32> = Vec::with_capacity(labels.len());
-    let mut total = 0.0;
-    for label in labels {
-        let chars = label.chars().count() as f32;
-        let est = chars * STRIP_FONT_SIZE_DIP * 0.55 + TAB_PADDING_DIP * 2.0;
-        let w = est.max(TAB_MIN_WIDTH_DIP);
-        widths.push(w);
-        total += w;
-    }
-    let scale = if total > strip_w {
-        strip_w / total
-    } else {
-        1.0
-    };
-    let mut cursor = 0.0;
-    for w in widths.iter_mut() {
-        let allotted = (*w * scale).min((strip_w - cursor).max(0.0));
-        *w = allotted;
-        cursor += allotted;
-    }
-    widths
-}
-
-/// Map a click x-offset (relative to the strip's left edge) to a tab index
-/// using the same widths as [`tab_slot_widths`]. Returns `None` if the
-/// click is past the last tab.
-#[must_use]
-pub fn tab_index_at(widths: &[f32], x_offset: f32) -> Option<usize> {
-    if widths.is_empty() || x_offset < 0.0 {
-        return None;
-    }
-    let mut acc = 0.0;
-    for (i, w) in widths.iter().enumerate() {
-        acc += *w;
-        if x_offset < acc {
-            return Some(i);
-        }
-    }
-    None
-}
 
 /// One row of a multi-row tab strip — slot widths summing to `strip_w`.
 /// `slot_tabs` is the slice indices into the original `labels` array
@@ -363,21 +309,62 @@ fn paint_one_pane_strip(
     }
 
     // Each tab gets a slot proportional to its label width with horizontal
-    // padding. The width algorithm is in [`tab_slot_widths`] so the UI
-    // hit-test can map a click to the same tab the paint code rendered.
+    // padding. The width + scroll layout is in [`compute_tab_strip_metrics`]
+    // so the UI hit-test (`window_mouse_tabs`) can map a click to the same
+    // tab the paint code rendered — paint and hit-test MUST stay
+    // byte-identical, so both pass the same `(labels, w, scroll_offset)`.
     if pane.tabs.is_empty() {
         return Ok(());
     }
     let labels: Vec<&str> = pane.tabs.iter().map(|t| t.text.as_ref()).collect();
-    let widths = tab_slot_widths(&labels, w);
-    let mut cursor_x = x;
+    let metrics = compute_tab_strip_metrics(&labels, w, pane.tab_scroll_offset_dip);
+    let widths = metrics.widths.clone();
+    // First tab's painted left edge: `content_x0` is strip-relative, so add
+    // the pane origin `x`. It is negative once the row is scrolled.
+    let content_origin_x = x + metrics.content_x0;
+    let mut cursor_x = content_origin_x;
     let tab_top_gap = TAB_TOP_GAP_DIP.min(strip_h * 0.45);
     let tab_y = y + tab_top_gap;
     let tab_h = (strip_h - tab_top_gap).max(1.0);
+    // When the row scrolls, clip the tab content to the band between the
+    // two chevrons so partially-scrolled tabs do not paint under them.
+    let pushed_content_clip = if metrics.overflowing {
+        let clip = D2D_RECT_F {
+            left: x + TAB_CHEVRON_WIDTH_DIP,
+            top: y,
+            right: x + (w - TAB_CHEVRON_WIDTH_DIP).max(0.0),
+            bottom: y + strip_h,
+        };
+        unsafe {
+            d2d.PushAxisAlignedClip(&clip, D2D1_ANTIALIAS_MODE_ALIASED);
+        }
+        true
+    } else {
+        false
+    };
+    // Item 17 — when the strip is crowded (tabs shrunk below preferred
+    // width but still above the small floor), suppress the per-tab close
+    // cell so a mis-aimed click can't close a tab; the dirty dot still
+    // shows. The close cell returns at the small floor (overflow/scroll
+    // case is not "crowded-but-above-minimum"). Hit-test mirrors this.
+    let suppress_close_cell = metrics.crowded && !metrics.overflowing;
+    let strip_right = x + w;
+    // Left visible bound: the right chevron edge when scrolling, else the
+    // strip's left edge. Tabs fully left of it are skipped (the content
+    // clip already prevents bleed; this just avoids needless layout work).
+    let visible_left = if metrics.overflowing {
+        x + TAB_CHEVRON_WIDTH_DIP
+    } else {
+        x
+    };
     for (i, tab) in pane.tabs.iter().enumerate() {
         let tw = widths.get(i).copied().unwrap_or(0.0);
         if tw <= 0.0 {
             break;
+        }
+        if cursor_x + tw <= visible_left || cursor_x >= strip_right {
+            cursor_x += tw;
+            continue;
         }
         let tab_rect = D2D_RECT_F {
             left: cursor_x,
@@ -432,19 +419,25 @@ fn paint_one_pane_strip(
         //   else dirty   → filled dot marking an unsaved buffer;
         //   else         → nothing.
         // The dot reuses the close-cell rect so it lands exactly where
-        // the `×` appears on hover (VS Code-style swap). The hit-test
-        // does not change — the dot is purely visual.
+        // the `×` appears on hover (VS Code-style swap).
+        //
+        // Item 17 — the `×` close cell is suppressed while the strip is
+        // crowded (`suppress_close_cell`) so a crowded click can't close a
+        // tab; the dirty dot still paints in that case. At the small floor
+        // (`!crowded`) the close cell returns. The hit-test in
+        // `window_mouse_tabs` applies the identical gate so paint and
+        // hit-test stay byte-identical.
         if tw >= TAB_CLOSE_MIN_TAB_WIDTH_DIP {
             let close_rect = close_button_rect(cursor_x, tw, tab_y, tab_h);
             let brush = if is_active { active_fg_brush } else { fg_brush };
-            if tab.show_close {
+            if tab.show_close && !suppress_close_cell {
                 paint_close_icon(d2d, close_rect, brush);
             } else if tab.dirty {
                 paint_dirty_dot(d2d, close_rect, brush);
             }
         }
         cursor_x += tw;
-        if cursor_x >= x + w {
+        if !metrics.overflowing && cursor_x >= strip_right {
             break;
         }
     }
@@ -452,16 +445,37 @@ fn paint_one_pane_strip(
     // from the previous-active tab's rect to the current one over the
     // 160 ms ease-out crossover scheduled by `ChromeMotionState`. The
     // underline is transient: at the end of the span, the active-tab
-    // background fill above is the sole remaining indicator.
+    // background fill above is the sole remaining indicator. Origin is the
+    // scrolled content origin so the underline tracks the painted tabs.
     crate::pane_chrome_slide::paint_active_tab_slide_underline(
         d2d,
         pane,
         &widths,
-        x,
+        content_origin_x,
         y,
         strip_h,
         active_fg_brush,
     );
+    if pushed_content_clip {
+        unsafe {
+            d2d.PopAxisAlignedClip();
+        }
+    }
+    // Item 8 — overflow chevrons at the strip edges. Painted after the
+    // content clip is popped so they sit over the strip background, not
+    // clipped to the scroll band. A `‹` chevron only reads as active when
+    // there is room to scroll left; `›` likewise for scrolling right, but
+    // both cells stay click-targets (the hit-test clamps the offset).
+    if metrics.overflowing {
+        crate::pane_chrome_chevron::paint_strip_chevrons(
+            d2d,
+            dwrite,
+            format,
+            &metrics,
+            crate::pane_chrome_chevron::StripChevronGeometry { x, y, strip_h },
+            fg_brush,
+        )?;
+    }
     Ok(())
 }
 

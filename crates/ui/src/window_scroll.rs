@@ -444,6 +444,43 @@ impl Window {
         self.scroll_inertia.is_active()
     }
 
+    /// Item 8(d) — Shift+wheel over an overflowing tab strip scrolls the
+    /// strip horizontally instead of scrolling the buffer. Returns `true`
+    /// when the point is inside a pane's (overflowing) tab strip and the
+    /// scroll was consumed. `notches` is the wheel notch count (positive =
+    /// wheel-up); we map it to a rightward content scroll so wheel-up moves
+    /// toward earlier tabs.
+    ///
+    /// Caller (`on_mouse_wheel`) must already have confirmed Shift is held;
+    /// this method only does the geometry + scroll so the wheel handler
+    /// stays in `window_runtime`. No-op (returns `false`) when the point is
+    /// outside any strip or the strip is not overflowing.
+    pub(crate) fn try_tab_strip_wheel_scroll(&mut self, x: i32, y: i32, notches: f32) -> bool {
+        let xf = x as f32;
+        let yf = y as f32;
+        let Some((pane, outer)) = self
+            .pane_outer_rects()
+            .into_iter()
+            .find(|(_, r)| r.contains(xf, yf))
+        else {
+            return false;
+        };
+        if yf >= outer.y + metrics::TAB_STRIP_HEIGHT_DIP {
+            return false;
+        }
+        let Some((strip_metrics, _tab_ids)) = self.tab_strip_metrics_for_pane(pane, outer.w) else {
+            return false;
+        };
+        if !strip_metrics.overflowing {
+            return false;
+        }
+        // One notch scrolls ~1.5 tabs' worth of content. Wheel-up (positive
+        // notches) scrolls left (toward earlier tabs), so negate.
+        let step = continuity_render::TAB_SHRINK_MIN_WIDTH_DIP * 1.5;
+        self.scroll_tab_strip(pane, -notches * step, &strip_metrics);
+        true
+    }
+
     fn estimated_content_height_for_pane(&self, pane: PaneId) -> f32 {
         if pane == self.tree.focused {
             return self.estimated_content_height();

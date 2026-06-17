@@ -366,6 +366,7 @@ pub(super) unsafe fn paint_pane_body(
             &[],
             Some(frame_display),
             false,
+            None,
         );
     }
 
@@ -380,6 +381,7 @@ pub(super) unsafe fn paint_pane_body(
             scroll_y,
             line_height,
             body.rope.len_lines().max(1) as u64,
+            crate::scrollbar::content_height_for_scrollbar(frame_display, line_height),
             outline_inset,
         );
         let _ = crate::minimap_paint::paint_minimap_scaled(

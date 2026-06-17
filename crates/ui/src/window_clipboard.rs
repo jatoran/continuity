@@ -138,14 +138,27 @@ impl Window {
         self.dispatch_selection_edit(SelectionEdit::InsertText(String::new()))
     }
 
-    /// `editor.paste` — read CF_UNICODETEXT and insert it at every cursor.
-    /// Phase B13: when the clipboard contents are a single bare URL,
-    /// transform the paste into a markdown link / image ref / autolink
-    /// based on the active selection. Plain text falls through.
+    /// `editor.paste` — insert the clipboard at every caret, preferring
+    /// richer formats in order.
     ///
     /// Phase F5: probe `CF_DIB` / `CF_DIBV5` / `CF_HDROP` *first* — a
     /// clipboard image lands as `![](images/<hash>.<ext>)` at the
     /// caret (single undo group, hash-deduped in the shared store).
+    ///
+    /// Item 16: when the clipboard advertises `"HTML Format"`, convert the
+    /// fragment to markdown and insert that (one `SelectionEdit::InsertText`)
+    /// ahead of the plain-text fallthrough. Falls back to plain text when
+    /// no HTML is present or the conversion yields nothing.
+    ///
+    /// Phase B13: when the clipboard is a single bare URL, transform the
+    /// paste into a markdown link / image ref / autolink. Plain text falls
+    /// through.
+    ///
+    /// Item 30: when the resolved text (plain or HTML-converted) is a GFM
+    /// pipe table and the caret is not at column 0 of a blank line, a
+    /// leading newline (and a synthesized delimiter row when missing) is
+    /// prefixed so the table begins its own block and reparses as a
+    /// `PipeTable`.
     pub(crate) fn paste_clipboard_impl(&mut self) -> Result<(), CommandError> {
         // F5 — image branches take precedence over the text path.
         // `try_paste_clipboard_image` returns Ok(true) when it
@@ -154,6 +167,19 @@ impl Window {
         // text alternate format some apps populate alongside CF_DIB.
         if let Ok(true) = self.try_paste_clipboard_image() {
             return Ok(());
+        }
+
+        // Item 16 — rich HTML paste takes precedence over plain text.
+        // Ctrl+Shift+V (plain paste) does NOT reach here; it routes
+        // through `insert_plain_clipboard_text`.
+        if clipboard::has_html() {
+            if let Ok(Some(fragment)) = clipboard::read_html(self.hwnd) {
+                if let Some(markdown) = crate::html_to_markdown::html_to_markdown(&fragment) {
+                    let normalized = normalize_line_endings(&markdown);
+                    return self.insert_paste_text(normalized);
+                }
+            }
+            // No usable HTML fragment — fall through to plain text.
         }
 
         let text_opt = clipboard::read_text(self.hwnd).map_err(|e| {
@@ -168,16 +194,13 @@ impl Window {
             .current_snapshot()
             .map(|s| s.selections.iter().any(|sel| !sel.is_collapsed()))
             .unwrap_or(false);
-        // α.1 — paste flows through `SelectionEdit::InsertText` which
-        // is intentionally NOT in the structural-edit allowlist (so
-        // single-char typing doesn't pulse). Capture pre-state here
-        // and arm the edit-region pulse after the apply lands.
-        let pre = self.editor.snapshot(self.buffer_id);
-        let pre_caret_line = pre
-            .as_ref()
-            .and_then(|s| s.selections().first().map(|sel| sel.head.line));
-        let pre_line_count = pre.as_ref().map(|s| s.rope_snapshot().rope().len_lines());
         if let Some(op) = crate::smart_paste::smart_paste_transform(&normalized, has_selection) {
+            // α.1 — capture pre-state for the edit-region pulse.
+            let pre = self.editor.snapshot(self.buffer_id);
+            let pre_caret_line = pre
+                .as_ref()
+                .and_then(|s| s.selections().first().map(|sel| sel.head.line));
+            let pre_line_count = pre.as_ref().map(|s| s.rope_snapshot().rope().len_lines());
             let result = match op {
                 crate::smart_paste::SmartPasteOp::WrapAsLink { open, close } => {
                     self.dispatch_selection_edit(SelectionEdit::SurroundSelection { open, close })
@@ -194,13 +217,74 @@ impl Window {
             }
             return result;
         }
-        let result = self.dispatch_selection_edit(SelectionEdit::InsertText(normalized));
+        self.insert_paste_text(normalized)
+    }
+
+    /// Insert `text` at every caret as a single `SelectionEdit::InsertText`
+    /// undo group, applying item-30 GFM-table block normalization and
+    /// arming the edit-region pulse.
+    ///
+    /// `text` must already be line-ending-normalized. Shared by the HTML
+    /// and plain-text branches of [`Self::paste_clipboard_impl`].
+    fn insert_paste_text(&mut self, text: String) -> Result<(), CommandError> {
+        let text = self.normalize_table_paste(text);
+        // α.1 — paste flows through `SelectionEdit::InsertText` which is
+        // intentionally NOT in the structural-edit allowlist (so single-
+        // char typing doesn't pulse). Capture pre-state and arm the pulse
+        // after the apply lands.
+        let pre = self.editor.snapshot(self.buffer_id);
+        let pre_caret_line = pre
+            .as_ref()
+            .and_then(|s| s.selections().first().map(|sel| sel.head.line));
+        let pre_line_count = pre.as_ref().map(|s| s.rope_snapshot().rope().len_lines());
+        let result = self.dispatch_selection_edit(SelectionEdit::InsertText(text));
         if result.is_ok() {
             if let (Some(line), Some(lines)) = (pre_caret_line, pre_line_count) {
                 self.pulse_edit_region_after_dispatch(line, lines);
             }
         }
         result
+    }
+
+    /// Item 30 — apply GFM-table block normalization to a paste payload.
+    ///
+    /// When `text` is (or could become) a pipe table, prefix a newline so
+    /// the table starts its own block unless the primary caret is already
+    /// at column 0 of a blank line, and synthesize a missing delimiter
+    /// row. Non-table pastes are returned unchanged.
+    fn normalize_table_paste(&self, text: String) -> String {
+        use crate::window_markdown_table_ops::paste_normalize::{
+            is_gfm_table_text, is_pipe_table_missing_delimiter, normalize_pasted_table,
+        };
+        if !is_gfm_table_text(&text) && !is_pipe_table_missing_delimiter(&text) {
+            return text;
+        }
+        let at_blank_line_start = self.primary_caret_at_blank_line_start();
+        normalize_pasted_table(&text, at_blank_line_start)
+    }
+
+    /// `true` when the primary caret sits at column 0 of a blank line (so a
+    /// pasted block already begins its own block and needs no leading
+    /// newline). A caret at the very start of an empty buffer also counts.
+    fn primary_caret_at_blank_line_start(&self) -> bool {
+        let Some(snap) = self.editor.snapshot(self.buffer_id) else {
+            return true;
+        };
+        let Some(sel) = snap.selections().first() else {
+            return true;
+        };
+        if sel.head.byte_in_line != 0 {
+            return false;
+        }
+        let rope = snap.rope_snapshot().rope();
+        let line_idx = sel.head.line as usize;
+        if line_idx >= rope.len_lines() {
+            return true;
+        }
+        rope.line(line_idx)
+            .to_string()
+            .trim_end_matches(['\n', '\r'])
+            .is_empty()
     }
 
     /// Insert the clipboard's `CF_UNICODETEXT` payload verbatim at every

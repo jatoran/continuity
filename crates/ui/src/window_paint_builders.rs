@@ -70,6 +70,16 @@ pub(crate) fn build_pane_chrome(window: &Window) -> Option<PaneChromeDraw> {
             focus_motion: None,
             active_tab_motion: None,
             previous_active_tab_index: None,
+            // Item 8 — horizontal tab-strip scroll offset for this pane.
+            // The renderer clamps it against the live layout; we feed the
+            // raw stored value so the same `(labels, strip_w, offset)`
+            // reaches both paint and hit-test.
+            tab_scroll_offset_dip: window
+                .tab_session
+                .scroll_by_pane
+                .get(pane_id)
+                .copied()
+                .unwrap_or(0.0),
         });
     }
     let panel_colors = panel_colors_from_theme(window);

@@ -307,6 +307,19 @@ pub(crate) fn classify_projection_build(
         return cold_or_cold_partial(inputs.rope, &inputs.viewport_rows);
     }
 
+    if rope_advanced && inputs.rope_deltas.is_empty() {
+        // Defense-in-depth: the rope revision advanced but the history
+        // reported zero deltas for the span. A revision only advances on
+        // a real content edit, so "advanced + no deltas" means we cannot
+        // compute a dirty/splice plan — and reusing `prev`'s specs against
+        // the changed rope can slice out-of-bounds during paint (the
+        // historical undo/redo crash, which failed to record delta
+        // history). Cold build is the safe ground truth. With delta
+        // history correctly recorded on every edit path this branch is
+        // unreachable; it stays as a backstop.
+        return cold_or_cold_partial(inputs.rope, &inputs.viewport_rows);
+    }
+
     let mut combined: Vec<u32> = Vec::new();
     let mut splice_plan = None;
 

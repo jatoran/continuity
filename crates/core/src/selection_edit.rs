@@ -22,13 +22,14 @@ use crate::edit_inline::{
 use crate::edit_line_text::{
     plan_convert_line_endings, plan_indent, plan_outdent, plan_reverse_lines, plan_shuffle_lines,
     plan_sort_lines, plan_spaces_to_tabs, plan_tabs_to_spaces, plan_trim_trailing_whitespace,
-    plan_trim_trailing_whitespace_all, plan_unique_lines,
+    plan_trim_trailing_whitespace_all, plan_trim_whitespace_all, plan_unique_lines,
 };
 use crate::edit_lines::{
     plan_delete_to_line_end, plan_delete_to_line_start, plan_duplicate_line,
     plan_duplicate_selection, plan_insert_newline_above, plan_insert_newline_below,
     plan_insert_newline_smart, plan_join_lines, plan_join_selected_lines, plan_move_line_down,
     plan_move_line_up, plan_toggle_bullet_at_line_start,
+    plan_toggle_bullet_with_continuation_indent,
 };
 use crate::edit_markdown::{
     plan_markdown_cycle_list_marker, plan_markdown_insert_code_fence,
@@ -82,6 +83,18 @@ pub enum SelectionEdit {
     /// shortcut.
     ToggleBulletAtLineStart,
 
+    /// Like [`SelectionEdit::ToggleBulletAtLineStart`], but for a multi-line
+    /// selection the add path also prepends one indent unit to every covered
+    /// line after the first (turning the selection into a bulleted list whose
+    /// continuation lines are indented under the first item); the strip path
+    /// removes both the bullet and that indent. A single-line selection
+    /// behaves identically to the plain toggle. Bound to `Ctrl+Shift+R`.
+    ToggleBulletWithContinuationIndent {
+        /// Indent unit (tab or N spaces) prepended to continuation lines,
+        /// read live from the dispatch context (mirrors `editor.indent`).
+        unit: IndentUnit,
+    },
+
     /// Delete text from the caret backward to the previous word boundary.
     DeleteWordBackward,
     /// Delete text from the caret forward to the next word boundary.
@@ -125,6 +138,12 @@ pub enum SelectionEdit {
     /// regardless of selection. Used by the explicit
     /// `editor.trim_trailing_whitespace` command and the on-save hook.
     TrimTrailingWhitespaceAll,
+    /// Strip leading **and** trailing whitespace from every line in the
+    /// buffer (one undo group). Used by the explicit `editor.trim_whitespace`
+    /// command. Per-line leading strip removes indentation by design — the
+    /// literal "trim each line" reading, distinct from
+    /// [`SelectionEdit::TrimTrailingWhitespaceAll`].
+    TrimWhitespaceAll,
 
     /// Hard-wrap each paragraph covered by selections at `column` columns.
     WrapAtColumn(u32),
@@ -351,6 +370,10 @@ pub fn plan(buffer: &Buffer, edit: &SelectionEdit) -> Result<Option<SelectionEdi
         SelectionEdit::InsertNewlineBelow => plan_insert_newline_below(buffer),
         SelectionEdit::InsertNewlineSmart => plan_insert_newline_smart(buffer),
         SelectionEdit::ToggleBulletAtLineStart => plan_toggle_bullet_at_line_start(buffer),
+        SelectionEdit::ToggleBulletWithContinuationIndent { unit } => {
+            let indent_unit = crate::edit_line_text_helpers::indent_text(*unit);
+            plan_toggle_bullet_with_continuation_indent(buffer, &indent_unit)
+        }
 
         SelectionEdit::DeleteWordBackward => plan_delete_word_backward(buffer),
         SelectionEdit::DeleteWordForward => plan_delete_word_forward(buffer),
@@ -370,6 +393,7 @@ pub fn plan(buffer: &Buffer, edit: &SelectionEdit) -> Result<Option<SelectionEdi
         SelectionEdit::ShuffleLines(seed) => plan_shuffle_lines(buffer, *seed),
         SelectionEdit::TrimTrailingWhitespace => plan_trim_trailing_whitespace(buffer),
         SelectionEdit::TrimTrailingWhitespaceAll => plan_trim_trailing_whitespace_all(buffer),
+        SelectionEdit::TrimWhitespaceAll => plan_trim_whitespace_all(buffer),
 
         SelectionEdit::WrapAtColumn(width) => plan_wrap_at_column(buffer, *width),
         SelectionEdit::ReflowParagraph(width) => plan_reflow_paragraph(buffer, *width),
@@ -533,68 +557,7 @@ fn delete_specs(
     Ok(specs)
 }
 
+// Tests live in `selection_edit/tests.rs` so this file stays under the
+// 600-line cap.
 #[cfg(test)]
-mod tests {
-    use continuity_buffer::Buffer;
-    use continuity_text::{Position, Selection, SelectionKind};
-
-    use super::*;
-
-    #[test]
-    fn insert_plans_one_op_per_caret_descending() {
-        let mut buffer = Buffer::from_text("abcd");
-        buffer.set_selections(vec![
-            Selection::caret_at(Position::new(0, 1)),
-            Selection::caret_at(Position::new(0, 3)),
-        ]);
-        let plan = plan(&buffer, &SelectionEdit::InsertText("x".into()))
-            .expect("plan ok")
-            .expect("plan some");
-        assert_eq!(plan.ops.len(), 2);
-        apply_plan(&mut buffer, &plan).expect("apply ok");
-        assert_eq!(buffer.rope().to_string(), "axbcxd");
-    }
-
-    #[test]
-    fn block_delete_uses_each_touched_line() {
-        let mut buffer = Buffer::from_text("abcd\nwxyz\n");
-        buffer.set_selections(vec![Selection::new(
-            Position::new(0, 1),
-            Position::new(1, 3),
-            SelectionKind::BlockWise,
-        )]);
-        let plan = plan(&buffer, &SelectionEdit::DeleteForward)
-            .expect("plan ok")
-            .expect("plan some");
-        apply_plan(&mut buffer, &plan).expect("apply ok");
-        assert_eq!(buffer.rope().to_string(), "ad\nwz\n");
-    }
-
-    #[test]
-    fn delete_back_at_doc_start_is_noop() {
-        let buffer = Buffer::from_text("abc");
-        let plan = plan(&buffer, &SelectionEdit::DeleteBack).expect("plan ok");
-        assert!(plan.is_none());
-    }
-
-    #[test]
-    fn apply_plan_coalesces_colliding_carets() {
-        // Two carets at distinct positions on the same line, both insert "x".
-        // The two inserts at byte 1 and byte 2 produce post-edit carets at
-        // bytes 2 and 4 — distinct, so no collision. To force a collision,
-        // we wire a synthetic plan with duplicate selections_after.
-        let mut buffer = Buffer::from_text("abcdef");
-        buffer.set_selections(vec![Selection::caret_at(Position::new(0, 0))]);
-        let plan = SelectionEditPlan {
-            ops: Vec::new(),
-            selections_before: vec![Selection::caret_at(Position::new(0, 0))],
-            selections_after: vec![
-                Selection::caret_at(Position::new(0, 3)),
-                Selection::caret_at(Position::new(0, 3)),
-            ],
-        };
-        apply_plan(&mut buffer, &plan).expect("apply ok");
-        assert_eq!(buffer.selections().len(), 1);
-        assert_eq!(buffer.selections()[0].head, Position::new(0, 3));
-    }
-}
+mod tests;

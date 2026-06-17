@@ -20,12 +20,14 @@ use crate::params::Rgba;
 /// Default outline-sidebar width in DIPs (per spec §F2 "narrow strip").
 pub const OUTLINE_DEFAULT_WIDTH_DIP: f32 = 220.0;
 
-/// Per-row vertical height in DIPs. Matches the renderer's line height
-/// closely enough that rows visually align with text.
-pub const OUTLINE_ROW_HEIGHT_DIP: f32 = 22.0;
+/// Per-row vertical height in DIPs. Taller than the body line height so
+/// heading rows get breathing room and don't read as a cramped list; the
+/// glyph is vertically centered within the row (see
+/// [`crate::outline_paint`]).
+pub const OUTLINE_ROW_HEIGHT_DIP: f32 = 26.0;
 
 /// Horizontal inset for the row text run.
-pub const OUTLINE_ROW_INDENT_DIP: f32 = 8.0;
+pub const OUTLINE_ROW_INDENT_DIP: f32 = 12.0;
 
 /// Per heading level: extra indent applied so the visual tree mirrors
 /// heading depth.

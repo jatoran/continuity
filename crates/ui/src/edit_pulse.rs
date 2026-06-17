@@ -244,6 +244,7 @@ pub(crate) fn is_structural_edit(edit: &SelectionEdit) -> bool {
         | SelectionEdit::InsertNewlineBelow
         | SelectionEdit::InsertNewlineSmart
         | SelectionEdit::ToggleBulletAtLineStart
+        | SelectionEdit::ToggleBulletWithContinuationIndent { .. }
         | SelectionEdit::Indent { .. }
         | SelectionEdit::Outdent { .. }
         | SelectionEdit::InsertPair { .. }
@@ -251,6 +252,7 @@ pub(crate) fn is_structural_edit(edit: &SelectionEdit) -> bool {
         // Whole-buffer normalisations — would pulse every line, which
         // defeats the "where did it land" purpose.
         SelectionEdit::TrimTrailingWhitespaceAll
+        | SelectionEdit::TrimWhitespaceAll
         | SelectionEdit::ConvertLineEndingsAll(_)
         | SelectionEdit::TabsToSpacesAll { .. } => false,
         // Selection-scope reflows, transpositions, and markdown edits

@@ -185,6 +185,11 @@ impl Window {
             self.apply_global_text_scale(new_scale);
             return true;
         }
+        // Item 8(d) — Shift+wheel over an overflowing tab strip scrolls the
+        // strip horizontally instead of the buffer body.
+        if shift_held && self.try_tab_strip_wheel_scroll(client_x, client_y, notches) {
+            return true;
+        }
         let Some(target_pane) = self.wheel_scroll_target_at(client_x, client_y) else {
             return false;
         };

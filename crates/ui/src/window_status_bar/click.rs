@@ -134,7 +134,12 @@ impl Window {
         }
         if !applied.is_empty() {
             let summary = format!("Normalized {} (Ctrl+Z to undo)", applied.join(" + "));
-            self.file_banner = Some(FileBanner::new(summary));
+            // Confirmation-only notice: the action already ran and Ctrl+Z
+            // reverts it. Auto-dismiss so the chrome doesn't linger past
+            // the change it announces.
+            let now = self.now_ms();
+            self.file_banner = Some(FileBanner::transient(summary, now));
+            self.start_file_io_poll(self.hwnd);
         }
     }
 }

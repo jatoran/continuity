@@ -23,12 +23,6 @@ use crate::Error;
 /// `ui::Window`); each method mutates per-pane runtime state and triggers
 /// an invalidate for the next paint.
 pub trait ViewContext {
-    /// Cycle theme mode (`dark` → `light` → `system` → `dark`). Returns
-    /// `UnsupportedContext` when no theme system is wired.
-    fn cycle_theme(&mut self) -> Result<(), Error> {
-        Err(Error::UnsupportedContext("cycle_theme"))
-    }
-
     /// Re-read the active theme TOML and re-render. Returns
     /// `UnsupportedContext` when unsupported, or any theme-load error.
     fn reload_theme(&mut self) -> Result<(), Error> {

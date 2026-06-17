@@ -108,6 +108,33 @@ pub(crate) fn list_newline_action(
         return ListNewlineAction::None;
     };
     let content_after_marker = &body[marker.prefix_len..];
+    // A task / checkbox line (`- [ ] foo` / `- [x] foo`) continues with
+    // an *unchecked* box on the next line so writers keep ticking off
+    // items without re-typing the `[ ] `. An empty task stub
+    // (`- [ ] ` with no content after the box) ends the list, mirroring
+    // the empty-bullet behaviour below. Detection reuses
+    // [`crate::edit_markdown::split_leading_list_marker`] so the marker
+    // glyph (`- ` / `* ` / `+ ` / `N. `) is split off before the box is
+    // inspected.
+    let (_, after_marker) = crate::edit_markdown::split_leading_list_marker(body);
+    if let Some(task_content) = after_marker
+        .strip_prefix("[ ] ")
+        .or_else(|| after_marker.strip_prefix("[x] "))
+        .or_else(|| after_marker.strip_prefix("[X] "))
+    {
+        if task_content.is_empty() {
+            // Empty task stub: dedent one level, same as an empty
+            // bullet — strip exactly one `indent_unit` of leading
+            // whitespace if present, else clear the line.
+            let replacement = leading_whitespace
+                .strip_prefix(indent_unit)
+                .map_or(String::new(), str::to_string);
+            return ListNewlineAction::End { replacement };
+        }
+        return ListNewlineAction::Continue {
+            next_marker: format!("{}[ ] ", marker.next_marker()),
+        };
+    }
     if content_after_marker.is_empty() {
         // Empty list item: dedent one level. If leading whitespace
         // starts with `indent_unit`, strip exactly that prefix —
@@ -124,7 +151,6 @@ pub(crate) fn list_newline_action(
 
 use continuity_buffer::Buffer;
 use continuity_text::{Position, Selection};
-use ropey::Rope;
 
 use crate::edit_planning::{advance_position, finalize_specs, line_content_end, EditSpec};
 use crate::selection_edit::SelectionEditPlan;
@@ -137,6 +163,20 @@ pub(crate) fn plan_insert_newline_smart_list_aware(
 ) -> Result<Option<SelectionEditPlan>, Error> {
     let rope = buffer.rope();
     let selections_before = buffer.selections().to_vec();
+
+    // Phase: auto-renumber. A single caret continuing an ordered list
+    // takes a dedicated path that also rewrites the run's markers in the
+    // same undo group, so `1.\n2.\n3.` with the caret at the end of `2.`
+    // produces `1.\n2.\n3.\n4.` instead of `1.\n2.\n3.\n3.`. The
+    // multi-cursor / non-ordered cases keep the simpler per-selection
+    // behaviour below.
+    if selections_before.len() == 1 {
+        let selection = selections_before[0];
+        if let Some(plan) = renumber::try_ordered_continue_with_renumber(rope, selection)? {
+            return Ok(Some(plan));
+        }
+    }
+
     let mut specs = Vec::new();
     let mut selections_after = Vec::new();
     for selection in &selections_before {
@@ -177,113 +217,11 @@ pub(crate) fn plan_insert_newline_smart_list_aware(
     Ok(finalize_specs(specs, selections_before, selections_after))
 }
 
-/// Phase B11 — renumber the ordered list containing each caret.
-///
-/// "Ordered list" = a contiguous run of lines that all start (after
-/// the same leading whitespace) with `N. ` markers. Walks upward and
-/// downward from each caret's line, collects the run, and rewrites
-/// markers as `1.`, `2.`, `3.`, … preserving each line's leading
-/// whitespace + body. Lines whose leading whitespace differs from the
-/// caret line are excluded (nested ordered lists are renumbered on
-/// their own caret pass).
-pub(crate) fn plan_markdown_renumber_list(
-    buffer: &Buffer,
-) -> Result<Option<SelectionEditPlan>, Error> {
-    let rope = buffer.rope();
-    let selections_before = buffer.selections().to_vec();
-    let mut specs = Vec::new();
-    let mut visited: ahash::AHashSet<u32> = ahash::AHashSet::new();
-    for selection in &selections_before {
-        let caret_line = selection.head.line as usize;
-        let Some((start_line, end_line, indent)) = ordered_list_range(rope, caret_line) else {
-            continue;
-        };
-        if visited.contains(&(start_line as u32)) {
-            continue;
-        }
-        visited.insert(start_line as u32);
-        let mut counter: u32 = 1;
-        for line in start_line..=end_line {
-            let line_start = rope.line_to_byte(line);
-            let line_end = line_content_end(rope, line);
-            let line_text = rope.byte_slice(line_start..line_end).to_string();
-            let body = &line_text[indent.len()..];
-            let Some(marker) = detect_list_marker(body) else {
-                continue;
-            };
-            let after_marker = &body[marker.prefix_len..];
-            let new_line = format!("{indent}{counter}. {after_marker}");
-            if new_line != line_text {
-                specs.push(EditSpec::replace(rope, line_start, line_end, new_line)?);
-            }
-            counter = counter.saturating_add(1);
-        }
-    }
-    Ok(finalize_specs(
-        specs,
-        selections_before.clone(),
-        selections_before,
-    ))
-}
-
-/// Walk up + down from `caret_line` while consecutive lines are
-/// ordered-list items at the same leading-whitespace level.
-/// Returns `(start, end, indent)` where `start..=end` is inclusive
-/// and `indent` is the shared leading-whitespace string.
-fn ordered_list_range(rope: &Rope, caret_line: usize) -> Option<(usize, usize, String)> {
-    let total = rope.len_lines();
-    if total == 0 || caret_line >= total {
-        return None;
-    }
-    let indent = caret_line_indent_for(rope, caret_line);
-    let body = line_body(rope, caret_line, &indent);
-    let marker = detect_list_marker(&body)?;
-    if !matches!(marker.kind, ListMarkerKind::Ordered(_)) {
-        return None;
-    }
-    let mut start = caret_line;
-    while start > 0 && is_ordered_at_indent(rope, start - 1, &indent) {
-        start -= 1;
-    }
-    let mut end = caret_line;
-    while end + 1 < total && is_ordered_at_indent(rope, end + 1, &indent) {
-        end += 1;
-    }
-    Some((start, end, indent))
-}
-
-fn caret_line_indent_for(rope: &Rope, line: usize) -> String {
-    let start = rope.line_to_byte(line);
-    let end = line_content_end(rope, line);
-    let text = rope.byte_slice(start..end).to_string();
-    text.chars()
-        .take_while(|c| *c == ' ' || *c == '\t')
-        .collect()
-}
-
-fn line_body(rope: &Rope, line: usize, indent: &str) -> String {
-    let start = rope.line_to_byte(line);
-    let end = line_content_end(rope, line);
-    let text = rope.byte_slice(start..end).to_string();
-    text[indent.len().min(text.len())..].to_string()
-}
-
-fn is_ordered_at_indent(rope: &Rope, line: usize, indent: &str) -> bool {
-    let line_indent = caret_line_indent_for(rope, line);
-    // Deeper indent = nested content owned by the most recent parent
-    // ordered item; transparent to the walk (we don't renumber it but
-    // we don't stop on it either).
-    if line_indent.len() > indent.len() && line_indent.starts_with(indent) {
-        return true;
-    }
-    if line_indent != indent {
-        return false;
-    }
-    let body = line_body(rope, line, indent);
-    detect_list_marker(&body)
-        .map(|m| matches!(m.kind, ListMarkerKind::Ordered(_)))
-        .unwrap_or(false)
-}
+// Phase B11 ordered-list renumbering + the smart-newline ordered-continue
+// path live in `edit_list/renumber.rs` so this file stays under the
+// 600-line cap. Re-exported so `selection_edit.rs` keeps its import paths.
+mod renumber;
+pub(crate) use renumber::{is_ordered_marker, ordered_list_range_for, plan_markdown_renumber_list};
 
 #[cfg(test)]
 mod tests {

@@ -16,6 +16,10 @@ use continuity_buffer::{
 use continuity_persist::{encode_edit, PersistClient, UndoGroupRow};
 use continuity_text::{EditOp, Selection};
 
+use crate::dispatch::{
+    delta_with_points_for_op, push_delta_history, DeltaHistory, DeltaHistoryEntry,
+};
+use crate::rope_edit_delta_points::RopeEditDeltaWithPoints;
 use crate::trace;
 use crate::Error;
 
@@ -194,11 +198,21 @@ impl UndoOrchestrator {
 
     /// Apply the most-recent group's inverse ops in reverse order. Returns
     /// the new revision after the inverses have all been applied.
-    pub fn undo(
+    ///
+    /// The byte deltas of every applied inverse op are recorded into
+    /// `delta_history` against the resulting revision — exactly as the
+    /// forward edit paths do in [`crate::dispatch`]. Without this,
+    /// `rope_deltas_since` would report `(empty, covered=true)` after an
+    /// undo (the rope advanced but no deltas exist), and the UI's
+    /// projection classifier would reuse the pre-undo display map against
+    /// the post-undo rope — slicing stale, out-of-bounds byte ranges
+    /// during paint.
+    pub(crate) fn undo(
         &mut self,
         buf: &mut Buffer,
         ts_ms: i64,
         persist: &PersistClient,
+        delta_history: &mut DeltaHistory,
     ) -> Result<Option<Revision>, Error> {
         let buffer_id = buf.id();
         let Some(group) = buf.undo_tree().group_to_undo().cloned() else {
@@ -222,7 +236,12 @@ impl UndoOrchestrator {
             .rev()
             .map(|r| r.inverse_op.clone())
             .collect();
+        let mut deltas: Vec<RopeEditDeltaWithPoints> = Vec::with_capacity(inverses.len());
         for op in &inverses {
+            // Capture the delta + positions against the pre-apply rope so
+            // the byte coordinates are valid for the consumers' chain
+            // walk, matching the forward edit paths' ordering invariant.
+            deltas.push(delta_with_points_for_op(buf, op));
             let removed_text = buf.capture_removed_text(op).map_err(Error::from)?;
             let revision = buf.apply(op).map_err(Error::from)?;
             self.persist_edit_row(
@@ -242,20 +261,31 @@ impl UndoOrchestrator {
         buf.set_selections(target_selections);
         buf.undo_tree_mut().set_current(parent);
         self.coalesce.remove(&buffer_id);
+        if let Some(revision) = final_revision {
+            push_delta_history(
+                delta_history,
+                buffer_id,
+                DeltaHistoryEntry {
+                    revision: revision.get(),
+                    deltas,
+                },
+            );
+        }
         Ok(final_revision)
     }
 
     /// Re-apply the most-recent child of the current pointer.
-    pub fn redo(
+    pub(crate) fn redo(
         &mut self,
         buf: &mut Buffer,
         ts_ms: i64,
         persist: &PersistClient,
+        delta_history: &mut DeltaHistory,
     ) -> Result<Option<Revision>, Error> {
         let Some(target) = buf.undo_tree().group_to_redo().cloned() else {
             return Ok(None);
         };
-        self.replay_group(buf, target.id, ts_ms, persist)
+        self.replay_group(buf, target.id, ts_ms, persist, delta_history)
     }
 
     /// Re-apply an alternate child of the current pointer (a sibling of
@@ -267,11 +297,12 @@ impl UndoOrchestrator {
         buf: &mut Buffer,
         ts_ms: i64,
         persist: &PersistClient,
+        delta_history: &mut DeltaHistory,
     ) -> Result<Option<Revision>, Error> {
         let Some(alt) = buf.undo_tree().group_to_redo_alternate().cloned() else {
             return Ok(None);
         };
-        self.replay_group(buf, alt.id, ts_ms, persist)
+        self.replay_group(buf, alt.id, ts_ms, persist, delta_history)
     }
 
     /// Best-effort log of current group + immediate children. Phase 8 will
@@ -305,6 +336,7 @@ impl UndoOrchestrator {
         group_id: UndoGroupId,
         ts_ms: i64,
         persist: &PersistClient,
+        delta_history: &mut DeltaHistory,
     ) -> Result<Option<Revision>, Error> {
         let Some(group) = buf.undo_tree().get(group_id).cloned() else {
             return Ok(None);
@@ -320,8 +352,11 @@ impl UndoOrchestrator {
             .selections_after
             .clone();
         let mut final_revision = None;
+        let mut deltas: Vec<RopeEditDeltaWithPoints> = Vec::with_capacity(group.ops.len());
         for record in &group.ops {
             let op = record.op.clone();
+            // Capture the delta against the pre-apply rope (see `undo`).
+            deltas.push(delta_with_points_for_op(buf, &op));
             let removed_text = buf.capture_removed_text(&op).map_err(Error::from)?;
             let revision = buf.apply(&op).map_err(Error::from)?;
             self.persist_edit_row(
@@ -341,6 +376,16 @@ impl UndoOrchestrator {
         buf.set_selections(target_selections);
         buf.undo_tree_mut().set_current(Some(group_id));
         self.coalesce.remove(&buffer_id);
+        if let Some(revision) = final_revision {
+            push_delta_history(
+                delta_history,
+                buffer_id,
+                DeltaHistoryEntry {
+                    revision: revision.get(),
+                    deltas,
+                },
+            );
+        }
         Ok(final_revision)
     }
 

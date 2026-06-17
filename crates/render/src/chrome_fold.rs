@@ -30,6 +30,16 @@ const GLYPH_EXPANDED: char = '▾';
 /// Glyph used when a line is foldable and currently folded.
 const GLYPH_FOLDED: char = '▸';
 
+/// §10 — whether a foldable line's tick should paint this frame.
+/// Collapsed lines always show their `▸` tick (so a folded section stays
+/// discoverable); expanded lines only show their `▾` tick while the
+/// pointer is over the gutter strip. Pure so the gating is unit-testable
+/// without a D2D device.
+#[must_use]
+fn should_paint_fold_tick(is_folded: bool, gutter_hovered: bool) -> bool {
+    is_folded || gutter_hovered
+}
+
 /// Header + body span of one active fold, used by the gutter painter
 /// to skip body-line numbers and stamp the "▸ N" indicator on the
 /// header line.
@@ -296,6 +306,13 @@ fn line_indent_columns(rope: &Rope, line: usize) -> u32 {
 /// numbers); `folded_brush` paints the collapsed `▸` glyph so a folded
 /// section's caret stands out a little from the rest of the gutter.
 ///
+/// `gutter_hovered` gates the **expanded** `▾` ticks: they only paint
+/// when the pointer is over the gutter strip, so an idle gutter stays
+/// quiet (it doesn't decorate every foldable line with a glyph). The
+/// **folded** `▸` ticks always paint regardless of hover — a collapsed
+/// section must advertise that it can be re-expanded even when the
+/// pointer is elsewhere.
+///
 /// # Errors
 ///
 /// Returns [`Error::Graphics`] when DirectWrite text-layout allocation
@@ -314,9 +331,16 @@ pub(crate) fn paint_fold_triangles(
     last_visible: usize,
     brush: &ID2D1SolidColorBrush,
     folded_brush: &ID2D1SolidColorBrush,
+    gutter_hovered: bool,
 ) -> Result<(), Error> {
     let total_lines = rope.len_lines();
     let fold_all = folded_lines.contains(&u32::MAX);
+    // When the gutter is not hovered and nothing is collapsed there is
+    // nothing to draw: expanded ticks are hover-gated and there are no
+    // folded sections to advertise. Bail before any per-line work.
+    if !gutter_hovered && folded_lines.is_empty() {
+        return Ok(());
+    }
     let font_size_dip = unsafe { format.GetFontSize() };
     let gutter_width = crate::chrome::gutter_width_for_line_count(font_size_dip, rope.len_lines());
     // The fold icons live inside the gutter's right-edge gap — the same
@@ -340,6 +364,12 @@ pub(crate) fn paint_fold_triangles(
         };
         let is_folded = folded_lines.contains(&line_u32)
             || (fold_all && line_indent_columns(rope, line_idx) == 0);
+        // Expanded `▾` ticks only paint while the gutter is hovered; the
+        // folded `▸` tick always paints so a collapsed section stays
+        // discoverable. Skip expanded ticks on an un-hovered gutter.
+        if !should_paint_fold_tick(is_folded, gutter_hovered) {
+            continue;
+        }
         let (glyph, glyph_brush) = if is_folded {
             // A collapsed section's caret is tinted with the brighter
             // active-line gutter color so it stands out from the muted
@@ -528,5 +558,19 @@ mod tests {
         assert_eq!(line_indent_columns(&rope, 0), 2);
         assert_eq!(line_indent_columns(&rope, 1), 4);
         assert_eq!(line_indent_columns(&rope, 2), 0);
+    }
+
+    #[test]
+    fn expanded_tick_only_paints_when_gutter_hovered() {
+        // Expanded (not folded): hidden when the gutter is idle, shown on hover.
+        assert!(!should_paint_fold_tick(false, false));
+        assert!(should_paint_fold_tick(false, true));
+    }
+
+    #[test]
+    fn folded_tick_always_paints() {
+        // Collapsed: visible regardless of hover so it stays discoverable.
+        assert!(should_paint_fold_tick(true, false));
+        assert!(should_paint_fold_tick(true, true));
     }
 }

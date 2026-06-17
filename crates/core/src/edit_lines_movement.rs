@@ -217,6 +217,15 @@ fn move_line_block(buffer: &Buffer, delta: i32) -> Result<Option<SelectionEditPl
     if delta > 0 && last + 1 >= rope.len_lines() {
         return Ok(None);
     }
+
+    // Auto-renumber: when the moved block and the line it swaps with all
+    // live inside the same contiguous ordered-list run, reorder + renumber
+    // that run as a single replacement so the markers stay `1.`, `2.`, …
+    // after the move (one undo group). Falls through to the generic block
+    // move otherwise.
+    if let Some(plan) = try_move_within_ordered_run(buffer, first, last, delta)? {
+        return Ok(Some(plan));
+    }
     let block_start = rope.line_to_byte(first);
     let block_end = if last + 1 < rope.len_lines() {
         rope.line_to_byte(last + 1)
@@ -277,4 +286,199 @@ fn move_line_block(buffer: &Buffer, delta: i32) -> Result<Option<SelectionEditPl
         ));
     }
     Ok(finalize_specs(specs, selections_before, selections_after))
+}
+
+/// Reorder + renumber an ordered-list run when the moved block
+/// (`first..=last`) and the line it swaps with (`first - 1` for an up move,
+/// `last + 1` for a down move) all sit inside the same contiguous ordered
+/// run at the same indent. Rewrites the whole run as one replacement so the
+/// `N.` markers stay sequential. Returns `Ok(None)` when the move is not a
+/// pure within-run reorder, so the caller falls back to the generic block
+/// move.
+fn try_move_within_ordered_run(
+    buffer: &Buffer,
+    first: usize,
+    last: usize,
+    delta: i32,
+) -> Result<Option<SelectionEditPlan>, Error> {
+    let rope = buffer.rope();
+    // The swap partner that the block trades places with.
+    let partner = if delta < 0 { first - 1 } else { last + 1 };
+
+    // Anchor the run on the caret block's first line. Every line in the
+    // block, plus the partner, must be ordered items at the run's indent.
+    let Some((run_start, run_end, indent)) = crate::edit_list::ordered_list_range_for(rope, first)
+    else {
+        return Ok(None);
+    };
+    if first < run_start || last > run_end || partner < run_start || partner > run_end {
+        return Ok(None);
+    }
+    // Require every covered + partner line to be an ordered item — a nested
+    // or non-ordered line inside the span means the simple positional
+    // renumber would be wrong, so defer to the generic move.
+    for line in first..=last {
+        if !is_ordered_line_at(rope, line, &indent) {
+            return Ok(None);
+        }
+    }
+    if !is_ordered_line_at(rope, partner, &indent) {
+        return Ok(None);
+    }
+
+    // Pull the run's bodies (text after the `N. ` marker) in source order,
+    // then move the block's bodies past the partner.
+    let mut bodies: Vec<String> = Vec::with_capacity(run_end - run_start + 1);
+    for line in run_start..=run_end {
+        bodies.push(ordered_body_at(rope, line, &indent));
+    }
+    let block_lo = first - run_start;
+    let block_hi = last - run_start;
+    let block: Vec<String> = bodies[block_lo..=block_hi].to_vec();
+    // Remove the block, then reinsert it shifted by one position.
+    bodies.drain(block_lo..=block_hi);
+    let insert_at = if delta < 0 {
+        block_lo - 1
+    } else {
+        block_lo + 1
+    };
+    for (offset, body) in block.into_iter().enumerate() {
+        bodies.insert(insert_at + offset, body);
+    }
+
+    // Rebuild the run with sequential markers.
+    let mut rebuilt = String::new();
+    for (idx, body) in bodies.iter().enumerate() {
+        if idx > 0 {
+            rebuilt.push('\n');
+        }
+        rebuilt.push_str(&format!("{indent}{}. {body}", idx + 1));
+    }
+
+    let block_start = rope.line_to_byte(run_start);
+    let block_end = if run_end + 1 < rope.len_lines() {
+        rope.line_to_byte(run_end + 1)
+    } else {
+        rope.len_bytes()
+    };
+    let original = rope.byte_slice(block_start..block_end).to_string();
+    let trailing_newline = original.ends_with('\n');
+    if trailing_newline {
+        rebuilt.push('\n');
+    }
+    if rebuilt == original {
+        return Ok(None);
+    }
+
+    let selections_before = buffer.selections().to_vec();
+    let shift = |p: Position| -> Position {
+        let new_line = if delta < 0 {
+            p.line.saturating_sub(1)
+        } else {
+            p.line.saturating_add(1)
+        };
+        Position::new(new_line, p.byte_in_line)
+    };
+    let selections_after: Vec<Selection> = selections_before
+        .iter()
+        .map(|sel| Selection::new(shift(sel.anchor), shift(sel.head), sel.kind))
+        .collect();
+
+    let specs = vec![EditSpec::replace(rope, block_start, block_end, rebuilt)?];
+    Ok(finalize_specs(specs, selections_before, selections_after))
+}
+
+/// Body text of an ordered-list line (everything after the `N. ` marker),
+/// or the whole post-indent body when no ordered marker is present.
+fn ordered_body_at(rope: &ropey::Rope, line: usize, indent: &str) -> String {
+    let start = rope.line_to_byte(line);
+    let end = line_content_end(rope, line);
+    let text = rope.byte_slice(start..end).to_string();
+    if text.len() < indent.len() {
+        return text;
+    }
+    let body = &text[indent.len()..];
+    match crate::edit_list::detect_list_marker(body) {
+        Some(marker) => body[marker.prefix_len..].to_string(),
+        None => body.to_string(),
+    }
+}
+
+/// Whether `line` is an ordered-list item at exactly `indent`.
+fn is_ordered_line_at(rope: &ropey::Rope, line: usize, indent: &str) -> bool {
+    let start = rope.line_to_byte(line);
+    let end = line_content_end(rope, line);
+    let text = rope.byte_slice(start..end).to_string();
+    if text.len() < indent.len() || !text.starts_with(indent) {
+        return false;
+    }
+    let line_indent: String = text
+        .chars()
+        .take_while(|c| *c == ' ' || *c == '\t')
+        .collect();
+    if line_indent != indent {
+        return false;
+    }
+    let body = &text[indent.len()..];
+    crate::edit_list::detect_list_marker(body)
+        .is_some_and(|m| crate::edit_list::is_ordered_marker(&m))
+}
+
+#[cfg(test)]
+mod tests {
+    use continuity_buffer::Buffer;
+    use continuity_text::{Position, Selection};
+
+    use crate::selection_edit::{apply_plan, plan, SelectionEdit};
+
+    fn build(text: &str, line: u32, col: u32) -> Buffer {
+        let mut b = Buffer::from_text(text);
+        b.set_selections(vec![Selection::caret_at(Position::new(line, col))]);
+        b
+    }
+
+    fn run(b: &mut Buffer, edit: SelectionEdit) {
+        let p = plan(b, &edit).expect("plan ok").expect("plan some");
+        apply_plan(b, &p).expect("apply ok");
+    }
+
+    #[test]
+    fn move_up_within_ordered_run_renumbers() {
+        // Move `2. b` up past `1. a`; markers stay sequential (1,2,3).
+        let mut b = build("1. a\n2. b\n3. c", 1, 0);
+        run(&mut b, SelectionEdit::MoveLineUp);
+        assert_eq!(b.rope().to_string(), "1. b\n2. a\n3. c");
+    }
+
+    #[test]
+    fn move_down_within_ordered_run_renumbers() {
+        let mut b = build("1. a\n2. b\n3. c", 1, 0);
+        run(&mut b, SelectionEdit::MoveLineDown);
+        assert_eq!(b.rope().to_string(), "1. a\n2. c\n3. b");
+    }
+
+    #[test]
+    fn move_first_ordered_item_down_renumbers() {
+        let mut b = build("1. a\n2. b\n3. c", 0, 0);
+        run(&mut b, SelectionEdit::MoveLineDown);
+        assert_eq!(b.rope().to_string(), "1. b\n2. a\n3. c");
+    }
+
+    #[test]
+    fn move_non_ordered_block_falls_through_to_plain_move() {
+        // Plain text move is unaffected by the renumber path.
+        let mut b = build("a\nb\nc", 1, 0);
+        run(&mut b, SelectionEdit::MoveLineUp);
+        assert_eq!(b.rope().to_string(), "b\na\nc");
+    }
+
+    #[test]
+    fn move_ordered_item_out_to_plain_line_does_not_corrupt() {
+        // Moving the top ordered item up past a plain line is not a
+        // within-run reorder, so it falls through to the generic move
+        // (no renumber); the markers are simply repositioned verbatim.
+        let mut b = build("intro\n1. a\n2. b", 1, 0);
+        run(&mut b, SelectionEdit::MoveLineUp);
+        assert_eq!(b.rope().to_string(), "1. a\nintro\n2. b");
+    }
 }

@@ -25,13 +25,6 @@ use crate::window_theme_settings_edit::{write_settings_theme_binding, ThemeSlot}
 use crate::Window;
 
 impl Window {
-    pub(crate) fn cycle_theme_impl(&mut self) -> Result<(), crate::Error> {
-        self.active_theme.cycle_mode();
-        // Color changes don't touch font metrics; leave layout cache alone.
-        invalidate_hwnd_with_reason(self.hwnd, "theme_apply");
-        Ok(())
-    }
-
     pub(crate) fn reload_theme_impl(&mut self) -> Result<(), crate::Error> {
         // For Phase 11 the bundled themes are the source of truth. The
         // Phase-12 file watcher will swap installed themes via

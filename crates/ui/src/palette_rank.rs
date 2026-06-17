@@ -54,7 +54,44 @@ pub(crate) fn score_entry(query: &str, entry: &PaletteEntry) -> Option<FuzzyMatc
             score_compact_field(&compact_query, &compact_field),
         );
     }
+    if let Some(fuzzy) = best.as_mut() {
+        fuzzy.score += command_query_bias(&normalized_query, &entry.command);
+    }
     best
+}
+
+/// Per-(query, command) score delta applied after field scoring. Used to
+/// curate the ranking of near-tied commands for high-traffic queries
+/// without hard-filtering — the recency tiebreaker in `Palette::refilter`
+/// can still float a command the user actually picks.
+///
+/// For the bare `theme` query the palette-mode picker (`view.pick_theme`)
+/// is the intended landing spot, so the secondary theme-management
+/// commands (`theme.clone`, `theme.duplicate`, `theme.rename`,
+/// `theme.delete`, `theme.edit`, `theme.reveal_folder`,
+/// `theme.create_blank`) take a small penalty. The delta is intentionally
+/// smaller than the recency boost so muscle memory still wins.
+fn command_query_bias(normalized_query: &str, command: &str) -> i32 {
+    if normalized_query == "theme" && is_secondary_theme_command(command) {
+        return -150;
+    }
+    0
+}
+
+/// `true` for the theme-management commands that should rank below the
+/// palette-mode picker for the bare `theme` query.
+fn is_secondary_theme_command(command: &str) -> bool {
+    matches!(
+        command,
+        "theme.clone"
+            | "theme.duplicate"
+            | "theme.rename"
+            | "theme.delete"
+            | "theme.edit"
+            | "theme.reveal_folder"
+            | "theme.create_blank"
+            | "theme.reload"
+    )
 }
 
 fn update_best(best: &mut Option<FuzzyMatch>, candidate: Option<FuzzyMatch>) {
@@ -202,6 +239,12 @@ fn aliases_for(command: &str) -> &'static [&'static str] {
             &["pick font", "choose font", "font picker", "typeface"]
         }
         "view.pick_theme" => &[
+            // The bare "theme" alias gives `view.pick_theme` the exact /
+            // prefix `field_boost` for a `theme` query so it outranks the
+            // secondary theme-management commands (whose ids normalize to
+            // `theme clone`, `theme rename`, …). Without it those commands'
+            // ids start_with "theme" and tie/outrank the picker.
+            "theme",
             "pick theme",
             "choose theme",
             "select theme",
@@ -209,7 +252,6 @@ fn aliases_for(command: &str) -> &'static [&'static str] {
             "appearance",
             "colors",
         ],
-        "view.cycle_theme" => &["cycle theme", "next theme", "switch theme"],
         "view.toggle_file_tree" => &["file tree", "sidebar", "folder tree", "explorer"],
         "view.toggle_minimap" => &[
             "minimap",
@@ -290,6 +332,28 @@ mod tests {
         }
     }
 
+    fn entry_with_description(command: &str, description: &str) -> PaletteEntry {
+        PaletteEntry {
+            command: command.into(),
+            keybinding: None,
+            description: Some(description.into()),
+            applicable: true,
+        }
+    }
+
+    /// Score a set of competing entries against `query` and return the
+    /// winning command (highest score, ties broken by command id ascending
+    /// to mirror `Palette::refilter`'s final fallback). Entries that fail
+    /// to match are dropped.
+    fn top_command(query: &str, entries: &[PaletteEntry]) -> String {
+        entries
+            .iter()
+            .filter_map(|e| score_entry(query, e).map(|m| (e.command.clone(), m.score)))
+            .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+            .map(|(command, _)| command)
+            .expect("at least one entry must match")
+    }
+
     #[test]
     fn empty_query_uses_curated_default_priority() {
         let file_open = score_entry("", &entry("file.open")).unwrap();
@@ -318,5 +382,56 @@ mod tests {
     fn aliases_find_user_terms() {
         assert!(score_entry("preferences", &entry("settings.open")).is_some());
         assert!(score_entry("toc", &entry("view.toggle_outline")).is_some());
+    }
+
+    #[test]
+    fn theme_query_ranks_pick_theme_first() {
+        // Mirror the real registry surface: the picker competes against the
+        // theme-management commands, each carrying the descriptions set by
+        // `register_theme_commands`.
+        let entries = vec![
+            entry("view.pick_theme"),
+            entry_with_description(
+                "theme.clone",
+                "Theme: clone active theme to a new custom theme",
+            ),
+            entry_with_description("theme.duplicate", "Theme: duplicate any theme"),
+            entry_with_description("theme.rename", "Theme: rename a custom theme"),
+            entry_with_description("theme.delete", "Theme: soft-delete a custom theme"),
+            entry_with_description("theme.edit", "Theme: open the active theme's TOML"),
+            entry_with_description("theme.reveal_folder", "Theme: reveal the themes folder"),
+            entry_with_description("theme.create_blank", "Theme: create a blank custom theme"),
+        ];
+        assert_eq!(top_command("theme", &entries), "view.pick_theme");
+    }
+
+    #[test]
+    fn secondary_theme_command_takes_penalty_for_bare_theme_query() {
+        // The penalty is a score delta, not a hard filter — the command
+        // still matches and scores, just below the picker.
+        let pick = score_entry("theme", &entry("view.pick_theme")).unwrap();
+        let clone = score_entry(
+            "theme",
+            &entry_with_description("theme.clone", "Theme: clone active theme"),
+        )
+        .expect("secondary theme command must still match");
+        assert!(pick.score > clone.score);
+    }
+
+    #[test]
+    fn cycle_theme_has_no_aliases() {
+        // Lane H removed the cycle-theme command, so its alias-table entry
+        // is gone too — the id resolves to the empty alias slice and the
+        // old `cycle theme` / `next theme` / `switch theme` terms are not
+        // wired to any command.
+        assert!(aliases_for("view.cycle_theme").is_empty());
+        for term in ["cycle theme", "next theme", "switch theme"] {
+            for command in ["view.pick_theme", "view.cycle_theme"] {
+                assert!(
+                    !aliases_for(command).contains(&term),
+                    "{term} must not alias {command} after cycle-theme removal",
+                );
+            }
+        }
     }
 }

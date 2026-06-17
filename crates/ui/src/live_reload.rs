@@ -62,7 +62,7 @@ pub struct LiveReload {
     /// Path to the user's `settings.toml`. Used by `settings.open`.
     pub settings_path: PathBuf,
     /// Path to the user's `themes/` directory. Theme TOMLs land here
-    /// when `cycle_theme`/`theme.reload` resolves a non-bundled name.
+    /// when the theme picker / `theme.reload` resolves a non-bundled name.
     pub themes_dir: PathBuf,
     /// Shared cell carrying the latest committed `Settings` as observed
     /// by the registry. Read by every new-window construction through

@@ -44,7 +44,6 @@ view_id!(VIEW_SET_FONT_FAMILY, "view.set_font_family");
 view_id!(VIEW_PICK_FONT, "view.pick_font");
 view_id!(VIEW_SET_FONT_SIZE, "view.set_font_size");
 view_id!(VIEW_SET_RULER_COLUMNS, "view.set_ruler_columns");
-view_id!(VIEW_CYCLE_THEME, "view.cycle_theme");
 view_id!(VIEW_PICK_THEME, "view.pick_theme");
 view_id!(THEME_RELOAD, "theme.reload");
 
@@ -152,11 +151,6 @@ pub fn register_view_commands(registry: &mut Registry) {
     );
 
     // Phase 11: themes
-    registry.register(
-        VIEW_CYCLE_THEME,
-        focused.clone(),
-        Arc::new(|_args, ctx| ctx.cycle_theme()),
-    );
     // §E4: palette-mode theme picker.
     registry.register(
         VIEW_PICK_THEME,
@@ -345,10 +339,6 @@ mod tests {
         }
     }
     impl crate::ViewContext for CountingCtx {
-        fn cycle_theme(&mut self) -> Result<(), Error> {
-            self.view_calls.set(self.view_calls.get() + 1);
-            Ok(())
-        }
         fn reload_theme(&mut self) -> Result<(), Error> {
             self.view_calls.set(self.view_calls.get() + 1);
             Ok(())
@@ -499,7 +489,6 @@ mod tests {
             VIEW_TOGGLE_LIGATURES,
             VIEW_SET_FONT_FAMILY,
             VIEW_PICK_FONT,
-            VIEW_CYCLE_THEME,
             VIEW_CYCLE_CARET_STYLE,
             THEME_RELOAD,
         ];
@@ -508,6 +497,19 @@ mod tests {
         }
         // Each command increments view_calls exactly once.
         assert_eq!(ctx.view_calls.get(), ids.len() as u32);
+    }
+
+    #[test]
+    fn cycle_theme_command_is_not_registered() {
+        // Lane H removed the cycle-theme command entirely in favour of the
+        // palette-mode theme picker (`view.pick_theme`). Confirm the id no
+        // longer resolves to a handler.
+        let mut registry = Registry::new();
+        register_view_commands(&mut registry);
+        assert!(
+            !Registry::ids(&registry).any(|id| id.as_str() == "view.cycle_theme"),
+            "view.cycle_theme must be unregistered",
+        );
     }
 
     #[test]

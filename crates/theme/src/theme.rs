@@ -190,10 +190,18 @@ impl Theme {
     pub fn editor_selection_inactive(&self) -> Color {
         self.required("editor.selection_inactive")
     }
-    /// `editor.line_highlight`.
+    /// `editor.line_highlight` — fill for the mouse-hover line band
+    /// (the renderer scales its alpha down for the hover overlay).
     #[must_use]
     pub fn editor_line_highlight(&self) -> Color {
         self.required("editor.line_highlight")
+    }
+    /// `editor.caret_line_highlight` — distinct fill painted behind the
+    /// caret's own line, separate from the hover band derived from
+    /// [`Self::editor_line_highlight`].
+    #[must_use]
+    pub fn editor_caret_line_highlight(&self) -> Color {
+        self.required("editor.caret_line_highlight")
     }
     /// `editor.line_number`.
     #[must_use]

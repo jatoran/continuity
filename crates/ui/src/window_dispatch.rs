@@ -23,6 +23,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_TIMER,
 };
 
+mod panic_barrier;
+
 use crate::window::Window;
 use crate::window_helpers::lparam_to_xy;
 use crate::window_theme::{lparam_is_immersive_color_set, read_system_dark};
@@ -35,27 +37,38 @@ use crate::window_timers::{
 };
 
 /// Win32 window-class procedure: pulls the `Window *` back out of
-/// `GWLP_USERDATA` and dispatches to [`Window::handle_message`]. Falls
+/// `GWLP_USERDATA` and dispatches to [`Window::handle_message`], falling
 /// through to `DefWindowProcW` when no `Window` is bound or the message
 /// is unhandled.
+///
+/// Panic barrier: the routing body runs inside
+/// [`std::panic::catch_unwind`] because Win32 calls this back across an
+/// `extern "system"` FFI boundary, where an unwind aborts the process
+/// (`release-small` compiles `panic = "unwind"`). A caught panic becomes
+/// a safe `LRESULT` via [`panic_barrier`]; the closure uses
+/// [`std::panic::AssertUnwindSafe`] for the raw-pointer borrow — see
+/// [`panic_barrier`] for the soundness argument.
 pub(crate) unsafe extern "system" fn wndproc(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    if msg == WM_NCCREATE {
-        let cs = lparam.0 as *const CREATESTRUCTW;
-        let ptr = unsafe { (*cs).lpCreateParams } as isize;
-        unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, ptr) };
-    }
-    let window_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut Window;
-    if !window_ptr.is_null() {
-        if let Some(result) = unsafe { (*window_ptr).handle_message(hwnd, msg, wparam, lparam) } {
-            return result;
+    let dispatch = std::panic::AssertUnwindSafe(|| {
+        if msg == WM_NCCREATE {
+            let cs = lparam.0 as *const CREATESTRUCTW;
+            let ptr = unsafe { (*cs).lpCreateParams } as isize;
+            unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, ptr) };
         }
-    }
-    unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+        let window_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut Window;
+        let handled = (!window_ptr.is_null())
+            .then(|| unsafe { (*window_ptr).handle_message(hwnd, msg, wparam, lparam) })
+            .flatten();
+        handled.unwrap_or_else(|| unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) })
+    });
+    std::panic::catch_unwind(dispatch).unwrap_or_else(|payload| {
+        panic_barrier::recover_from_wndproc_panic(hwnd, msg, wparam, lparam, payload)
+    })
 }
 
 impl Window {

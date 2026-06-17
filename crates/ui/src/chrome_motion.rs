@@ -169,6 +169,7 @@ mod tests {
                     focus_motion: None,
                     active_tab_motion: None,
                     previous_active_tab_index: None,
+                    tab_scroll_offset_dip: 0.0,
                 },
                 PaneStripDraw {
                     outer: (100.0, 0.0, 100.0, 100.0),
@@ -178,6 +179,7 @@ mod tests {
                     focus_motion: None,
                     active_tab_motion: None,
                     previous_active_tab_index: None,
+                    tab_scroll_offset_dip: 0.0,
                 },
             ],
             colors: PanelColors::default(),

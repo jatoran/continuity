@@ -111,6 +111,7 @@ impl Window {
                 }
             } else {
                 self.close_focused_pane()?;
+                self.adopt_focused_tab();
             }
         } else {
             self.adopt_focused_tab();

@@ -79,4 +79,14 @@ pub(crate) const REGEX_SNIPPETS: &[RegexSnippet] = &[
         insert: "(one|two)",
         description: "one term or another",
     },
+    RegexSnippet {
+        label: "\\n",
+        insert: "\\n",
+        description: "a newline (match across lines)",
+    },
+    RegexSnippet {
+        label: "(?s).",
+        insert: "(?s).",
+        description: "any char, incl. newlines",
+    },
 ];

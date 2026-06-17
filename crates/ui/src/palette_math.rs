@@ -30,7 +30,7 @@
 //! ## Intent detection
 //! [`is_math_intent`] returns `true` when the first non-whitespace
 //! character is a digit, `.`, `(`, `+`, or `-`. This deliberately avoids
-//! eating command names like `editor.find` or `view.cycle_theme`.
+//! eating command names like `editor.find` or `view.pick_theme`.
 //!
 //! Thread ownership: stateless pure functions; safe to call from the UI
 //! thread on every [`crate::palette::Palette::refilter`] tick.

@@ -27,9 +27,11 @@
 use windows::core::Interface;
 use windows::Win32::Graphics::Direct2D::Common::{D2D1_COLOR_F, D2D_POINT_2F, D2D_RECT_F};
 use windows::Win32::Graphics::Direct2D::{
-    ID2D1DeviceContext, ID2D1RenderTarget, ID2D1SolidColorBrush, D2D1_DRAW_TEXT_OPTIONS_NONE,
+    ID2D1DeviceContext, ID2D1RenderTarget, ID2D1SolidColorBrush, D2D1_DRAW_TEXT_OPTIONS_CLIP,
 };
-use windows::Win32::Graphics::DirectWrite::{IDWriteFactory, IDWriteTextFormat, DWRITE_TEXT_RANGE};
+use windows::Win32::Graphics::DirectWrite::{
+    IDWriteFactory, IDWriteTextFormat, DWRITE_TEXT_RANGE, DWRITE_WORD_WRAPPING_NO_WRAP,
+};
 
 use crate::motion::{StatusTransientDraw, StatusTransientGroup};
 use crate::params::Rgba;
@@ -493,6 +495,16 @@ fn draw_segment(
 ) -> Result<(), Error> {
     let wide: Vec<u16> = text.encode_utf16().collect();
     let layout = unsafe { factory.CreateTextLayout(&wide, format, width, STATUS_BAR_HEIGHT_DIP)? };
+    // The status bar is a fixed-height chrome strip (`STATUS_BAR_HEIGHT_DIP`
+    // tall). DirectWrite defaults a text layout to WRAP, so an over-budget
+    // segment (e.g. the mixed-indent chip near the right edge) would wrap
+    // onto a second visual line and spill below the 22-DIP bar. Pin the
+    // layout to NO_WRAP — mirrors `overlay::text::draw_text_sized` — and
+    // pair it with `D2D1_DRAW_TEXT_OPTIONS_CLIP` below so a too-wide chip
+    // clips at its slot rather than overflowing horizontally.
+    unsafe {
+        let _ = layout.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    }
     // The supplied `format` is the body text format, whose size tracks
     // body zoom. The status bar is chrome — pin its glyph size to the
     // caller-supplied (unscaled) size so Ctrl+wheel zoom never clips the
@@ -514,7 +526,7 @@ fn draw_segment(
             D2D_POINT_2F { x: left, y: top },
             &layout,
             brush,
-            D2D1_DRAW_TEXT_OPTIONS_NONE,
+            D2D1_DRAW_TEXT_OPTIONS_CLIP,
         );
         brush.SetOpacity(1.0);
     }

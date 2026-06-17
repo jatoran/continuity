@@ -143,6 +143,13 @@ fn paint_outline_entry_rows(
 ) -> Result<(), Error> {
     let (rx, _, rw, _) = layout.rect;
     let current_index = data.current_index;
+    // Vertical centering pad: now that the row is taller than the glyph,
+    // top-aligning the text would leave it hugging the row's top edge.
+    // Center the glyph's line box inside the row instead. The glyph line
+    // box is ~1.3 × the font size; clamp the pad at a small floor so it
+    // never goes negative for unusually large fonts.
+    let glyph_line_box = (data.font_size_dip * 1.3).max(1.0);
+    let glyph_y_pad = ((OUTLINE_ROW_HEIGHT_DIP - glyph_line_box) * 0.5).max(1.0);
     for row in &layout.rows {
         let entry = match data.entries.get(row.entry_index as usize) {
             Some(e) => e,
@@ -166,7 +173,7 @@ fn paint_outline_entry_rows(
             ctx.DrawTextLayout(
                 D2D_POINT_2F {
                     x: left,
-                    y: row.top,
+                    y: row.top + glyph_y_pad,
                 },
                 &text_layout,
                 brush,

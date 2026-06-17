@@ -17,6 +17,25 @@ impl Window {
         })
     }
 
+    /// Expand ONLY the newest (last) selection to the word under its head,
+    /// leaving every prior selection's range untouched.
+    ///
+    /// Item 2 — Ctrl+double-click appends a fresh caret (via
+    /// [`Self::add_cursor_at_pixel`]) and then grows that one caret into a
+    /// word range. [`Self::select_word`] cannot be reused here because it
+    /// maps over *all* selections and would re-snap the user's existing
+    /// ranges (collapsing a deliberate multi-line span back to a single
+    /// word). The empty-selection case is a no-op.
+    pub(crate) fn select_word_on_last(&mut self) -> bool {
+        self.map_selections(|rope, selections| {
+            let mut next: Vec<Selection> = selections.to_vec();
+            if let Some(last) = next.last_mut() {
+                *last = select::word_at(rope, last.head);
+            }
+            next
+        })
+    }
+
     pub(crate) fn select_line(&mut self) -> bool {
         self.map_selections(|rope, selections| {
             selections

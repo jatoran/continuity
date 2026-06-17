@@ -26,6 +26,7 @@ use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FONT_WEIGHT_REGULAR, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_LEADING,
 };
 
+use crate::pane_chrome_layout::tab_slot_widths;
 use crate::params::{
     PaneBodyDropHighlight, PaneChromeDraw, Rgba, TabDragGhostDraw, TabDragSourceFade,
     TabStripInsertionBarDraw,
@@ -120,7 +121,7 @@ unsafe fn paint_source_tab_fade(
         return Ok(());
     }
     let labels: Vec<&str> = pane.tabs.iter().map(|t| t.text.as_ref()).collect();
-    let widths = crate::pane_chrome::tab_slot_widths(&labels, fade.strip_outer.2);
+    let widths = tab_slot_widths(&labels, fade.strip_outer.2);
     let tab_x: f32 = widths.iter().take(fade.tab_index).sum();
     let tab_w = widths.get(fade.tab_index).copied().unwrap_or(0.0);
     if tab_w <= 0.0 {

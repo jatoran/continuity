@@ -10,8 +10,20 @@ command = "editor.insert_newline"
 keys = ["backspace"]
 command = "editor.delete_back"
 
+# The keymap is an exact-modifier match, so holding Shift while pressing
+# Backspace / Delete produces the unbound `shift+backspace` / `shift+delete`
+# chords and the key would otherwise be dropped. Mirror the bare bindings
+# (the same way `shift+enter` is bound separately from `enter`).
+[[binding]]
+keys = ["shift+backspace"]
+command = "editor.delete_back"
+
 [[binding]]
 keys = ["delete"]
+command = "editor.delete_forward"
+
+[[binding]]
+keys = ["shift+delete"]
 command = "editor.delete_forward"
 
 [[binding]]
@@ -132,8 +144,16 @@ command = "editor.select_all"
 keys = ["ctrl+shift+k"]
 command = "keymap.show_conflicts"
 
+# Ctrl+Shift+R toggles a bullet on the highlighted lines and indents every
+# continuation line (line after the first) by one indent unit. The
+# `keymap.reload` command it used to hold relocated to `Ctrl+K Ctrl+M`
+# (m = keyMap) below.
 [[binding]]
 keys = ["ctrl+shift+r"]
+command = "editor.toggle_bullet_indent_continuation"
+
+[[binding]]
+keys = ["ctrl+k", "ctrl+m"]
 command = "keymap.reload"
 
 [[binding]]
@@ -251,6 +271,13 @@ command = "editor.unique_lines"
 [[binding]]
 keys = ["ctrl+alt+t"]
 command = "editor.trim_trailing_whitespace"
+
+# Strip leading AND trailing whitespace on every line of the buffer. The
+# `ctrl+alt+t` chord above is already taken (trim-trailing + buffer.timeline)
+# so this lands on a free `ctrl+k` chord (s = Strip).
+[[binding]]
+keys = ["ctrl+k", "ctrl+s"]
+command = "editor.trim_whitespace"
 
 [[binding]]
 keys = ["ctrl+alt+q"]
@@ -653,9 +680,8 @@ when = "language == 'markdown'"
 
 # --- Phase 11: themes / fonts / view toggles ---
 
-[[binding]]
-keys = ["ctrl+k", "ctrl+t"]
-command = "view.cycle_theme"
+# `view.cycle_theme` was removed (the command no longer exists); its old
+# `Ctrl+K Ctrl+T` chord is intentionally left free.
 
 [[binding]]
 keys = ["ctrl+k", "ctrl+r"]

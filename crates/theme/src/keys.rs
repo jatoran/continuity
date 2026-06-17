@@ -29,6 +29,12 @@ pub(crate) const REQUIRED_KEYS: &[&str] = &[
     "editor.selection",
     "editor.selection_inactive",
     "editor.line_highlight",
+    // Distinct fill for the caret's own line, separate from
+    // `editor.line_highlight` (which now drives only the mouse-hover
+    // band). Bundled themes set this slightly brighter / more saturated
+    // than the hover band so the caret line reads as "where I am" while
+    // the hover band reads as "where the pointer is."
+    "editor.caret_line_highlight",
     "editor.line_number",
     "editor.line_number_active",
     "editor.indent_guide",

@@ -54,6 +54,8 @@ mod overlay_scrollbar;
 pub mod pane_body;
 pub mod pane_chrome;
 mod pane_chrome_border;
+mod pane_chrome_chevron;
+mod pane_chrome_layout;
 mod pane_chrome_slide;
 mod pane_chrome_tabs;
 pub mod params;
@@ -160,9 +162,14 @@ pub use overlay::{
 };
 pub use overlay_motion::paint_overlay_with_motion;
 pub use pane_chrome::{
-    paint_pane_chrome, tab_index_at, tab_slot_widths, tab_strip_layout, TabStripLayout,
-    TabStripRow, BORDER_ACTIVE_DIP, BORDER_DIP, TAB_CLOSE_MIN_TAB_WIDTH_DIP, TAB_CLOSE_WIDTH_DIP,
-    TAB_MIN_READABLE_WIDTH_DIP, TAB_MIN_WIDTH_DIP, TAB_PADDING_DIP,
+    paint_pane_chrome, tab_strip_layout, TabStripLayout, TabStripRow, BORDER_ACTIVE_DIP,
+    BORDER_DIP, TAB_CLOSE_MIN_TAB_WIDTH_DIP, TAB_CLOSE_WIDTH_DIP, TAB_MIN_READABLE_WIDTH_DIP,
+    TAB_PADDING_DIP,
+};
+pub use pane_chrome_layout::{
+    compute_tab_strip_metrics, tab_index_at, tab_index_at_with_origin, tab_slot_widths,
+    TabStripMetrics, TAB_CHEVRON_WIDTH_DIP, TAB_MIN_WIDTH_DIP, TAB_PREFERRED_WIDTH_DIP,
+    TAB_SHRINK_MIN_WIDTH_DIP,
 };
 pub use pane_chrome_tabs::close_button_rect;
 pub use params::colors::{EditorColors, MarkdownColors, PanelColors};

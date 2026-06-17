@@ -27,19 +27,10 @@ struct GutterLabel {
     is_active: bool,
 }
 
-/// Width passed to `CreateTextLayout` for a gutter label: the column
-/// width minus the left breathing-room pad
-/// ([`crate::chrome::GUTTER_LEFT_PADDING_DIP`], also applied as the draw
-/// origin in [`draw_gutter_label`]) and the fold-icon / breathing-room gap
-/// reserved on the right ([`crate::chrome::gutter_fold_gap_dip`]), floored
-/// at 1 DIP so DirectWrite never sees a non-positive max width when the
-/// font is tiny. The layout box therefore spans
-/// `[GUTTER_LEFT_PADDING_DIP, gutter_width - fold_gap]`: trailing-aligned
-/// digits end exactly at the left edge of the fold-icon gap — the icons sit
-/// to their right and never overlap — while their left edge starts at the
-/// pad instead of the pane edge. Because the canonical gutter width already
-/// reserves the same pad, the box's effective digit width is unchanged, so
-/// no clipping is introduced.
+/// Width passed to `CreateTextLayout` for a gutter label. The box spans
+/// `[GUTTER_LEFT_PADDING_DIP, gutter_width - fold_gap]`, so trailing-aligned
+/// digits end before the fold-icon gap while keeping the canonical digit
+/// width unchanged.
 fn label_layout_width(gutter_width: f32, font_size_dip: f32) -> f32 {
     (gutter_width
         - crate::chrome::gutter_fold_gap_dip(font_size_dip)
@@ -101,6 +92,37 @@ fn push_unique_label(labels: &mut Vec<GutterLabel>, next: GutterLabel) {
         return;
     }
     labels.push(next);
+}
+
+/// Add a muted label for the mouse-hovered source line in `caret_only`
+/// mode. The label is styled like the viewport-anchor numbers
+/// (`is_active = false`) so the hovered line reads as a transient
+/// pointer affordance rather than the caret line. Skipped when the line
+/// is hidden inside an active fold or maps to no display row.
+fn add_hover_anchor_label(
+    labels: &mut Vec<GutterLabel>,
+    hovered_source_line: Option<usize>,
+    display_row_for_source: impl Fn(usize) -> Option<u32>,
+    is_in_fold_body: &dyn Fn(u32) -> bool,
+) {
+    let Some(source_line) = hovered_source_line else {
+        return;
+    };
+    let line_u32 = u32::try_from(source_line).unwrap_or(0);
+    if is_in_fold_body(line_u32) {
+        return;
+    }
+    let Some(display_row) = display_row_for_source(source_line) else {
+        return;
+    };
+    push_unique_label(
+        labels,
+        GutterLabel {
+            display_row,
+            source_line,
+            is_active: false,
+        },
+    );
 }
 
 fn add_viewport_anchor_labels(
@@ -190,6 +212,13 @@ fn draw_gutter_label(
 /// wrapped paragraphs only get one label, placed on their first row, and
 /// the y-grid lines up with the body's display-row paint). Otherwise it
 /// falls back to one row per source line.
+///
+/// `hovered_source_line` is the source line currently under the mouse
+/// pointer (when the pointer is in this pane's body). In `caret_only`
+/// mode the gutter also stamps this line's number — muted, like the
+/// viewport-anchor labels — so the user can see "what line am I pointing
+/// at?" without turning on the full always-on numbers. Ignored when the
+/// full-numbers path runs (every line already shows its number).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn paint_line_number_gutter(
     ctx: &ID2D1DeviceContext,
@@ -209,6 +238,7 @@ pub(crate) fn paint_line_number_gutter(
     fold_headers: &[crate::chrome_fold::FoldHeaderInfo],
     frame_display: Option<&FrameDisplay>,
     pane_focused: bool,
+    hovered_source_line: Option<usize>,
 ) -> Result<(), Error> {
     let font_size_dip = unsafe { format.GetFontSize() };
     let gutter_width = gutter_width_for_line_count(font_size_dip, rope.len_lines());
@@ -241,11 +271,8 @@ pub(crate) fn paint_line_number_gutter(
 
     let total_lines = rope.len_lines();
     let active_line = selections.first().map(|s| s.head.line as usize);
-    // §H3: pre-compute the fold-body test so the gutter loop stays
-    // O(visible_rows). `is_in_fold_body` is true when `line_idx` is
-    // hidden inside any active fold; the gutter then skips its number
-    // entirely. Collapsing a section only hides the body rows' numbers —
-    // it adds no other gutter decoration.
+    // Pre-compute the fold-body test so the gutter loop stays
+    // O(visible_rows). Collapsed bodies skip their numbers entirely.
     let is_in_fold_body = |line_idx: u32| -> bool {
         fold_headers
             .iter()
@@ -271,6 +298,7 @@ pub(crate) fn paint_line_number_gutter(
             relative,
             &is_in_fold_body,
             gutter_width,
+            hovered_source_line,
         );
     }
 
@@ -301,6 +329,15 @@ pub(crate) fn paint_line_number_gutter(
                 );
             }
         }
+        add_hover_anchor_label(
+            &mut labels,
+            hovered_source_line,
+            |source_line| {
+                let row = u32::try_from(source_line).ok()?;
+                (source_line >= first_visible && source_line < last_visible).then_some(row)
+            },
+            &is_in_fold_body,
+        );
         for label in labels {
             let brush = if label.is_active {
                 active_brush
@@ -384,6 +421,7 @@ fn paint_gutter_display_rows(
     relative: bool,
     is_in_fold_body: &dyn Fn(u32) -> bool,
     gutter_width: f32,
+    hovered_source_line: Option<usize>,
 ) -> Result<(), Error> {
     let total_dl = fd.display_line_count();
     if total_dl == 0 {
@@ -426,6 +464,15 @@ fn paint_gutter_display_rows(
                 }
             }
         }
+        add_hover_anchor_label(
+            &mut labels,
+            hovered_source_line,
+            |source_line| {
+                let dl_idx = fd.first_display_line_index_for_source(source_line);
+                (dl_idx >= first_anchor_dl && dl_idx < last_dl as u32).then_some(dl_idx)
+            },
+            is_in_fold_body,
+        );
         for label in labels {
             let brush = if label.is_active {
                 active_brush
@@ -481,4 +528,69 @@ fn paint_gutter_display_rows(
         )?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn never_folded(_line: u32) -> bool {
+        false
+    }
+
+    #[test]
+    fn hover_anchor_label_added_as_inactive() {
+        let mut labels = Vec::new();
+        add_hover_anchor_label(
+            &mut labels,
+            Some(7),
+            |s| u32::try_from(s).ok(),
+            &never_folded,
+        );
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels[0].source_line, 7);
+        assert_eq!(labels[0].display_row, 7);
+        assert!(!labels[0].is_active);
+    }
+
+    #[test]
+    fn hover_anchor_label_skipped_when_none() {
+        let mut labels = Vec::new();
+        add_hover_anchor_label(&mut labels, None, |s| u32::try_from(s).ok(), &never_folded);
+        assert!(labels.is_empty());
+    }
+
+    #[test]
+    fn hover_anchor_label_skipped_inside_fold() {
+        let mut labels = Vec::new();
+        add_hover_anchor_label(&mut labels, Some(4), |s| u32::try_from(s).ok(), &|line| {
+            line == 4
+        });
+        assert!(labels.is_empty());
+    }
+
+    #[test]
+    fn hover_anchor_label_skipped_when_off_screen() {
+        let mut labels = Vec::new();
+        // Resolver returns None ⇒ hovered line maps to no visible row.
+        add_hover_anchor_label(&mut labels, Some(9), |_| None, &never_folded);
+        assert!(labels.is_empty());
+    }
+
+    #[test]
+    fn hover_anchor_does_not_demote_active_caret_label() {
+        let mut labels = vec![GutterLabel {
+            display_row: 3,
+            source_line: 3,
+            is_active: true,
+        }];
+        add_hover_anchor_label(
+            &mut labels,
+            Some(3),
+            |s| u32::try_from(s).ok(),
+            &never_folded,
+        );
+        assert_eq!(labels.len(), 1);
+        assert!(labels[0].is_active);
+    }
 }

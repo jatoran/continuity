@@ -9,6 +9,7 @@
 //! Variants are intentionally narrow — generic event buses encourage
 //! cross-layer coupling. Add a typed variant per concrete control flow.
 
+use continuity_buffer::{BufferId, FileAssociation};
 use continuity_config::ConfigEvent;
 use continuity_persist::PersistEvent;
 use crossbeam_channel::{Receiver, Sender};
@@ -27,6 +28,24 @@ pub enum WindowControl {
     /// [`PersistEvent::ThreadStopped`] when its receiver disconnects
     /// (the persist thread panicked rather than exited cleanly).
     PersistEvent(PersistEvent),
+    /// Reveal (and focus) an already-open file buffer in this window, in
+    /// response to a reopen of a path the registry routed here. The window
+    /// activates an existing tab for the buffer (or adopts a fresh tab if
+    /// the tab was closed but the buffer is still alive), brings itself to
+    /// the foreground, and reconciles the buffer against the freshly-read
+    /// disk bytes. This is how reopening a file focuses the existing tab
+    /// instead of spawning a duplicate window.
+    RevealBufferTab {
+        /// The buffer to surface.
+        buffer_id: BufferId,
+        /// Current decoded disk content (for reconciliation).
+        content: String,
+        /// Current filesystem association (mtime + raw/content hashes).
+        file: FileAssociation,
+        /// Launch-time banners to surface after revealing (e.g. an
+        /// encoding notice from a forwarded open). Usually empty.
+        notices: Vec<String>,
+    },
 }
 
 /// Sender end of a registry → window control channel. Owned by the

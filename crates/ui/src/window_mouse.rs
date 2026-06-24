@@ -26,6 +26,12 @@ impl Window {
             click_trace.claim("overlay");
             return true;
         }
+        // The external-change conflict banner's reload / keep-mine / show-diff
+        // buttons sit just below the tab strip; claim a click on one before
+        // it can reach the editor body and move the caret.
+        if self.try_file_banner_left_down(x, y) {
+            return true;
+        }
         // Phase-I1: when the time-machine slider is open it owns clicks
         // inside its HUD band. Runs before any other click target so a
         // click on the slider doesn't bleed through into status-bar /

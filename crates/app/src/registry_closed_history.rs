@@ -271,6 +271,7 @@ fn try_spawn_from_closed_entry(
         open_tutorial_on_init: false,
         startup_open_buffer_ids: Vec::new(),
         startup_folder_roots: Vec::new(),
+        reconcile_on_init: None,
     };
     match tx.send(RegistryEvent::Spawn(req)) {
         Ok(()) => true,

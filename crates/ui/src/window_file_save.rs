@@ -51,18 +51,23 @@ impl Window {
         );
     }
 
-    /// Queue `content` for an atomic file-system save on the file-I/O worker.
+    /// Queue `content` for an atomic file-system save on the file-I/O
+    /// worker. `expected_hash` is the buffer's last-synced on-disk raw hash:
+    /// when `Some`, the worker refuses the write (emitting `SaveConflict`)
+    /// if the file changed externally since; `None` forces the write
+    /// (save-as / "keep mine").
     pub(crate) fn enqueue_save(
         &mut self,
         buffer_id: BufferId,
         path: PathBuf,
         content: String,
+        expected_hash: Option<u64>,
     ) -> Result<(), CommandError> {
         let file_io = self
             .file_io
             .as_ref()
             .ok_or(CommandError::UnsupportedContext("file_save"))?;
-        if file_io.save_buffer(buffer_id, path, content) {
+        if file_io.save_buffer(buffer_id, path, content, expected_hash) {
             Ok(())
         } else {
             Err(CommandError::UnsupportedContext("file_save"))

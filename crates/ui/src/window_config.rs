@@ -128,4 +128,21 @@ pub struct WindowCommands {
     pub startup_open_buffer_ids: Vec<BufferId>,
     /// Folder roots supplied at process startup.
     pub startup_folder_roots: Vec<PathBuf>,
+    /// Freshly-read disk bytes for the window's initial buffer, supplied
+    /// when the registry spawns a window to (re)open a file that already
+    /// had a buffer. [`crate::Window::new`] reconciles the initial buffer
+    /// against these bytes after construction so a reopen of an
+    /// externally-changed file shows current content (or banners on a
+    /// dirty conflict). `None` for ordinary spawns.
+    pub reconcile_on_init: Option<PendingReconcile>,
+}
+
+/// Freshly-read disk bytes carried into a spawned window so it can
+/// reconcile its initial (reopened) file buffer against the current
+/// on-disk content. See [`WindowCommands::reconcile_on_init`].
+pub struct PendingReconcile {
+    /// Current decoded disk content.
+    pub content: String,
+    /// Current filesystem association (mtime + raw/content hashes).
+    pub file: FileAssociation,
 }

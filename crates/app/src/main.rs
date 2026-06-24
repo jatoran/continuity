@@ -28,8 +28,10 @@
 mod error;
 mod main_initial_requests;
 mod registry;
+mod registry_build;
 mod registry_closed_history;
 mod registry_file_buffers;
+mod registry_open_file;
 mod registry_time;
 mod runtime_paths;
 mod single_instance;
@@ -163,14 +165,9 @@ fn main() -> Result<()> {
     );
     // The hub only exists in a claimed primary; bypassed instances must
     // not receive forwards meant for the real session.
-    let instance_hub = instance_guard.as_ref().and_then(|_| {
-        spawn_instance_hub(
-            &db,
-            editor.clone(),
-            Arc::clone(&file_buffer_index),
-            tx.clone(),
-        )
-    });
+    let instance_hub = instance_guard
+        .as_ref()
+        .and_then(|_| spawn_instance_hub(&db, editor.clone(), tx.clone()));
     let ctx = RegistryCtx {
         persist: persist.client(),
         editor: editor.clone(),
@@ -351,6 +348,7 @@ pub(crate) fn startup_file_spawn_request(
         open_tutorial_on_init: false,
         startup_open_buffer_ids: Vec::new(),
         startup_folder_roots: Vec::new(),
+        reconcile_on_init: None,
     }
 }
 

@@ -68,25 +68,20 @@ pub(crate) fn file_buffer_for_path(
     find_live_file_buffer(editor, index, path)
 }
 
-/// Build the callback UI windows use to open files in fresh windows.
+/// Build the callback UI windows use to open files. The decision to
+/// reveal an existing tab vs. spawn a fresh window is made on the registry
+/// main thread (it owns the cross-window state), so the callback just
+/// forwards the freshly-read disk bytes as a [`RegistryEvent::OpenFileBuffer`].
 pub(crate) fn make_open_file_window_handler(ctx: &RegistryCtx) -> OpenFileWindow {
     let tx = ctx.tx.clone();
-    let editor = Arc::clone(&ctx.editor);
-    let file_buffer_index = Arc::clone(&ctx.file_buffer_index);
     Arc::new(move |request: OpenFileWindowRequest| {
-        let file = request.file;
-        let buffer_id = buffer_id_for_open_file(&editor, &file_buffer_index, request.content, file);
-        let _ = tx.send(RegistryEvent::Spawn(SpawnRequest {
-            initial_buffer_id: buffer_id,
-            restored: None,
-            activate_on_restore: false,
+        let _ = tx.send(RegistryEvent::OpenFileBuffer {
+            content: request.content,
+            file: request.file,
             explicit_origin: request.explicit_origin,
             cascade_from: request.cascade_from,
             recovery_notices: request.recovery_notices,
-            open_tutorial_on_init: false,
-            startup_open_buffer_ids: Vec::new(),
-            startup_folder_roots: Vec::new(),
-        }));
+        });
     })
 }
 
@@ -98,17 +93,21 @@ pub(crate) fn make_register_file_buffer_handler(ctx: &RegistryCtx) -> RegisterFi
     })
 }
 
-fn buffer_id_for_open_file(
+/// Resolve a file open to a single buffer: reuse the live buffer already
+/// associated with `file.path` (so one file never spans two divergent
+/// edit logs), otherwise create a fresh file buffer from `content`. The
+/// caller reconciles the returned buffer against the on-disk bytes.
+pub(crate) fn resolve_open_file_buffer(
     editor: &Arc<EditorHandle>,
     index: &FileBufferIndex,
-    content: String,
+    content: &str,
     file: FileAssociation,
 ) -> BufferId {
     if let Some(buffer_id) = find_live_file_buffer(editor, index, &file.path) {
         return buffer_id;
     }
     let path = file.path.clone();
-    let buffer_id = editor.open_file_buffer(content, file);
+    let buffer_id = editor.open_file_buffer(content.to_string(), file);
     register_file_buffer(index, path, buffer_id);
     buffer_id
 }

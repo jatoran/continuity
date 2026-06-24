@@ -33,22 +33,12 @@ use std::sync::Arc;
 use std::thread;
 
 use crate::error::Error;
-use crate::registry_closed_history::{archive_closed_window, smart_reopen_handler};
+use crate::registry_closed_history::archive_closed_window;
 use crate::registry_file_buffers::{
     make_open_file_window_handler, make_register_file_buffer_handler, FileBufferIndex,
 };
 use crate::registry_time::unix_ms_now;
-use continuity_buffer::{BufferId, WindowId};
-use continuity_command::{
-    register_buffer_history_commands, register_clipboard_commands, register_diagnostics_commands,
-    register_editor_primitives, register_file_commands, register_help_commands,
-    register_indent_commands, register_keymap_commands, register_markdown_commands,
-    register_markdown_links_clipboard, register_motion_extras, register_pane_commands,
-    register_rich_editing, register_search_commands, register_selection_commands,
-    register_settings_commands, register_spell_commands, register_tab_commands,
-    register_theme_commands, register_undo_commands, register_view_commands,
-    register_window_commands, Registry,
-};
+use continuity_buffer::{BufferId, FileAssociation, WindowId};
 use continuity_config::{ConfigEvent, Settings};
 use continuity_core::{EditorHandle, SnapshotPolicy};
 use continuity_keymap::Keymap;
@@ -76,6 +66,28 @@ pub enum RegistryEvent {
         /// that never reached Window construction (in which case there's
         /// nothing to tombstone).
         window_id: Option<WindowId>,
+    },
+    /// A UI thread is opening a file. The registry resolves it to one
+    /// buffer (reusing the existing file buffer when the path is already
+    /// loaded), then either **reveals** the buffer in the window that
+    /// already owns it — focusing the existing tab instead of spawning a
+    /// duplicate — or **spawns** a fresh window showing it. Either way the
+    /// target reconciles the buffer against `content`/`file` so a reopen
+    /// of an externally-changed file shows current content (or banners a
+    /// dirty conflict). Always carries freshly-read disk bytes.
+    OpenFileBuffer {
+        /// Decoded disk content at read time.
+        content: String,
+        /// Filesystem association (path + mtime + raw/content hashes).
+        file: FileAssociation,
+        /// Requested origin, forwarded to a spawned window.
+        explicit_origin: Option<(i32, i32)>,
+        /// Source window rect, used to place a spawned window.
+        cascade_from: Option<(i32, i32, i32, i32)>,
+        /// Launch-time banners to surface in the target window (e.g. an
+        /// encoding notice from a synchronously-read forwarded open).
+        /// Empty for ordinary in-process opens.
+        recovery_notices: Vec<String>,
     },
 }
 
@@ -120,6 +132,12 @@ pub(crate) struct SpawnRequest {
     pub startup_open_buffer_ids: Vec<BufferId>,
     /// Folder roots supplied on the process command line.
     pub startup_folder_roots: Vec<PathBuf>,
+    /// Freshly-read disk bytes for `initial_buffer_id` when this spawn is
+    /// (re)opening a file that already had a buffer. The constructed
+    /// window reconciles the initial buffer against these bytes (clean →
+    /// silent reload, dirty → conflict banner). `None` for ordinary
+    /// spawns. See [`continuity_ui::PendingReconcile`].
+    pub reconcile_on_init: Option<continuity_ui::PendingReconcile>,
 }
 
 /// Shared, clone-able registry context handed to each window thread.
@@ -221,6 +239,25 @@ pub fn run(
                 Ok(RegistryEvent::Spawn(req)) => {
                     spawn_window_thread(&ctx, &mut state, req)?;
                 }
+                Ok(RegistryEvent::OpenFileBuffer {
+                    content,
+                    file,
+                    explicit_origin,
+                    cascade_from,
+                    recovery_notices,
+                }) => {
+                    crate::registry_open_file::handle_open_file_buffer(
+                        &ctx,
+                        &mut state,
+                        crate::registry_open_file::OpenFileBufferArgs {
+                            content,
+                            file,
+                            explicit_origin,
+                            cascade_from,
+                            recovery_notices,
+                        },
+                    )?;
+                }
                 Ok(RegistryEvent::Closed { window_id }) => {
                     // Every *graceful* close — one window among many or the
                     // final window — archives the window to the closed-
@@ -232,6 +269,7 @@ pub fn run(
                     // survive and that session *is* restored next launch.
                     if let Some(id) = window_id {
                         state.control_senders.remove(&id);
+                        state.buffer_home.retain(|_, owner| *owner != id);
                         archive_closed_window(&ctx.persist, id);
                     }
                     state.live = state.live.saturating_sub(1);
@@ -288,15 +326,22 @@ pub(crate) fn make_channel() -> (Sender<RegistryEvent>, Receiver<RegistryEvent>)
 }
 
 #[derive(Default)]
-struct LiveState {
+pub(crate) struct LiveState {
     /// Number of currently-running window threads.
     live: usize,
     /// Per-window control sender. Used to fan out
-    /// [`WindowControl::ConfigChanged`] events to live windows.
-    control_senders: HashMap<WindowId, WindowControlTx>,
+    /// [`WindowControl::ConfigChanged`] events to live windows, and to
+    /// route [`WindowControl::RevealBufferTab`] to a buffer's home window.
+    pub(crate) control_senders: HashMap<WindowId, WindowControlTx>,
+    /// Which live window currently owns (or last owned) each
+    /// file-associated buffer. Lets a reopen of an already-loaded path
+    /// reveal the existing tab in its window instead of spawning a
+    /// duplicate. Entries pointing at a closed window are pruned on
+    /// `Closed` and treated as "no home" (→ spawn) if encountered first.
+    pub(crate) buffer_home: HashMap<BufferId, WindowId>,
 }
 
-fn spawn_window_thread(
+pub(crate) fn spawn_window_thread(
     ctx: &RegistryCtx,
     state: &mut LiveState,
     req: SpawnRequest,
@@ -305,6 +350,7 @@ fn spawn_window_thread(
     // Stable id for this window — generated up front so we can wire the
     // control sender into LiveState before the thread starts.
     let window_id = req.restored.as_ref().map(|(id, _)| *id).unwrap_or_default();
+    seed_buffer_home(ctx, state, &req, window_id);
     let (control_tx, control_rx) = unbounded::<WindowControl>();
     state.control_senders.insert(window_id, control_tx);
     state.live += 1;
@@ -325,6 +371,37 @@ fn spawn_window_thread(
     Ok(())
 }
 
+/// Record this spawning window as the home of every file-associated
+/// buffer it will show, so a later reopen of one of those paths reveals
+/// the existing tab here instead of spawning a duplicate window. Non-file
+/// buffers are skipped to keep the map meaningful.
+fn seed_buffer_home(
+    ctx: &RegistryCtx,
+    state: &mut LiveState,
+    req: &SpawnRequest,
+    window_id: WindowId,
+) {
+    let mut candidates = vec![req.initial_buffer_id];
+    candidates.extend(req.startup_open_buffer_ids.iter().copied());
+    if let Some((_, restored)) = req.restored.as_ref() {
+        if let Ok(ids) =
+            continuity_ui::pane_tree_codec::buffer_ids_in_json(&restored.pane_tree_json)
+        {
+            candidates.extend(ids);
+        }
+    }
+    for buffer_id in candidates {
+        if ctx
+            .editor
+            .snapshot(buffer_id)
+            .and_then(|snap| snap.file)
+            .is_some()
+        {
+            state.buffer_home.insert(buffer_id, window_id);
+        }
+    }
+}
+
 fn run_window(
     ctx: RegistryCtx,
     req: SpawnRequest,
@@ -332,7 +409,7 @@ fn run_window(
     control_rx: WindowControlRx,
 ) -> Result<(), Error> {
     let _com = ComGuard::new()?;
-    let registry = build_registry(&ctx);
+    let registry = crate::registry_build::build_registry(&ctx);
     let keymap = load_keymap(ctx.default_keymap_toml, ctx.user_keymap_path.as_ref())?;
     let initial_state = req.restored.as_ref().map(|(_, s)| s.clone());
     let persistence = make_persistence(&ctx, window_id, initial_state);
@@ -390,6 +467,7 @@ fn run_window(
             open_tutorial_on_init: req.open_tutorial_on_init,
             startup_open_buffer_ids: req.startup_open_buffer_ids,
             startup_folder_roots: req.startup_folder_roots,
+            reconcile_on_init: req.reconcile_on_init,
         },
     )?;
     window.run()?;
@@ -420,91 +498,6 @@ fn make_persistence(
             }
         }),
     }
-}
-
-fn build_registry(ctx: &RegistryCtx) -> Registry {
-    let mut registry = Registry::new();
-    register_editor_primitives(&mut registry);
-    register_diagnostics_commands(&mut registry);
-    register_selection_commands(&mut registry);
-    register_keymap_commands(&mut registry);
-    register_motion_extras(&mut registry);
-    register_rich_editing(&mut registry);
-    register_indent_commands(&mut registry);
-    register_markdown_commands(&mut registry);
-    register_markdown_links_clipboard(&mut registry);
-    register_undo_commands(&mut registry);
-    register_view_commands(&mut registry);
-    register_search_commands(&mut registry);
-    register_settings_commands(&mut registry);
-    register_pane_commands(&mut registry);
-    register_tab_commands(&mut registry);
-    register_theme_commands(&mut registry);
-    register_file_commands(&mut registry);
-    register_clipboard_commands(&mut registry);
-    register_help_commands(&mut registry);
-    register_buffer_history_commands(&mut registry);
-    register_spell_commands(&mut registry);
-    let editor_for_new = Arc::clone(&ctx.editor);
-    let tx_new = ctx.tx.clone();
-    let new_window_handler = move |_args: &serde_json::Value,
-                                   ctx: &mut dyn continuity_command::Context|
-          -> Result<(), continuity_command::Error> {
-        let buffer_id = editor_for_new.open_buffer("");
-        let _ = tx_new.send(RegistryEvent::Spawn(SpawnRequest {
-            initial_buffer_id: buffer_id,
-            restored: None,
-            activate_on_restore: false,
-            explicit_origin: None,
-            cascade_from: ctx.current_window_rect(),
-            recovery_notices: Vec::new(),
-            open_tutorial_on_init: false,
-            startup_open_buffer_ids: Vec::new(),
-            startup_folder_roots: Vec::new(),
-        }));
-        Ok(())
-    };
-    let tx_tear = ctx.tx.clone();
-    let tear_off_handler = move |args: &serde_json::Value,
-                                 ctx: &mut dyn continuity_command::Context|
-          -> Result<(), continuity_command::Error> {
-        let cascade_from = ctx.current_window_rect();
-        let explicit_origin = parse_tear_off_origin(args);
-        let buffer_id = ctx.tear_off_focused_tab()?;
-        let _ = tx_tear.send(RegistryEvent::Spawn(SpawnRequest {
-            initial_buffer_id: buffer_id,
-            restored: None,
-            activate_on_restore: false,
-            explicit_origin,
-            cascade_from,
-            recovery_notices: Vec::new(),
-            open_tutorial_on_init: false,
-            startup_open_buffer_ids: Vec::new(),
-            startup_folder_roots: Vec::new(),
-        }));
-        Ok(())
-    };
-    register_window_commands(&mut registry, new_window_handler, tear_off_handler);
-    // Re-register `tab.reopen_closed` with the registry-aware smart
-    // handler — pops the most recent unit from either the local
-    // recently-closed list OR the schema-v5 closed-history stack.
-    // Must run after `register_tab_commands` so this registration
-    // replaces the default.
-    let predicate = continuity_command::ContextPredicate::parse("editor.focused");
-    registry.register(
-        continuity_command::TAB_REOPEN_CLOSED,
-        predicate,
-        smart_reopen_handler(ctx.persist.clone(), Arc::clone(&ctx.editor), ctx.tx.clone()),
-    );
-    registry
-}
-
-fn parse_tear_off_origin(args: &serde_json::Value) -> Option<(i32, i32)> {
-    let x = args.get("drop_screen_x")?.as_i64()?;
-    let y = args.get("drop_screen_y")?.as_i64()?;
-    let x = i32::try_from(x).ok()?;
-    let y = i32::try_from(y).ok()?;
-    Some((x, y))
 }
 
 /// δ.3 — fan a persistence-thread event out to every live window.

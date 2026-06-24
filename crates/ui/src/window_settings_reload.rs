@@ -73,6 +73,14 @@ impl Window {
                 crate::WindowControl::PersistEvent(event) => {
                     self.handle_persist_event(event);
                 }
+                crate::WindowControl::RevealBufferTab {
+                    buffer_id,
+                    content,
+                    file,
+                    notices,
+                } => {
+                    self.reveal_file_buffer_tab(buffer_id, content, file, notices);
+                }
             }
             dirty = true;
         }
@@ -211,6 +219,7 @@ impl Window {
         self.view_options.mouse_wheel_scroll_speed = s.editor.mouse_wheel_scroll_speed;
         self.view_options.ligatures = s.editor.ligatures;
         self.trim_trailing_whitespace_on_save = s.editor.trim_trailing_whitespace_on_save;
+        self.view_options.auto_revert_unmodified = s.editor.auto_revert_unmodified;
         self.decoration_worker_watchdog_timeout_ms = s.workers.decoration_watchdog_ms;
         if let Some(pool) = self.decorate_pool.as_ref() {
             pool.set_watchdog_timeout(std::time::Duration::from_millis(u64::from(

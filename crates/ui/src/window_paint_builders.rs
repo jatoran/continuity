@@ -120,10 +120,23 @@ fn rgba_from_theme(c: continuity_theme::Color) -> continuity_render::Rgba {
 /// so a large (~6000-line) buffer pays the walk only when the
 /// revision moves, not once per tab per paint frame.
 pub(crate) fn is_tab_dirty(window: &Window, tab: &crate::pane_tree::Tab) -> bool {
-    if !tab.file_associated {
-        return false;
-    }
-    let Some(snap) = window.editor.snapshot(tab.buffer_id) else {
+    tab.file_associated && is_buffer_dirty_against_file(window, tab.buffer_id)
+}
+
+/// Whether `buffer_id` carries unexported edits relative to its file
+/// association — i.e. the in-memory rope content hash differs from
+/// `FileAssociation.content_hash` (the decoded text at last open / save /
+/// reload). Returns `false` for buffers with no association, no live
+/// snapshot, or an untouched revision-0 import.
+///
+/// This is the canonical "clean vs. dirty against disk" decision used by
+/// both the dirty-tab gutter dot ([`is_tab_dirty`]) and external-change
+/// reconciliation ([`crate::window_file_reconcile`]).
+pub(crate) fn is_buffer_dirty_against_file(
+    window: &Window,
+    buffer_id: continuity_buffer::BufferId,
+) -> bool {
+    let Some(snap) = window.editor.snapshot(buffer_id) else {
         return false;
     };
     let Some(file) = snap.file.as_ref() else {
@@ -134,7 +147,7 @@ pub(crate) fn is_tab_dirty(window: &Window, tab: &crate::pane_tree::Tab) -> bool
         return false;
     }
     let mut cache = window.tab_dirty_cache.borrow_mut();
-    let entry = cache.entry(tab.buffer_id).or_insert((u64::MAX, 0));
+    let entry = cache.entry(buffer_id).or_insert((u64::MAX, 0));
     if entry.0 != revision {
         entry.0 = revision;
         entry.1 = continuity_persist::fnv1a_64_chunks(

@@ -871,6 +871,7 @@ _Auto-extracted from rustdoc `///` comments on the `Settings` struct and the per
 | `caret_secondary_color` | `String` | Phase B4: multi-cursor secondary color. Same syntax as `caret_color`; empty string falls through to the theme. |
 | `autolink_bare_urls` | `bool` | Phase B12: render bare URLs (`https://…`, `www.…`, emails) as clickable links via decoration. Default on. |
 | `trim_trailing_whitespace_on_save` | `bool` | Phase B14: strip trailing whitespace from every line as part of the save handler. One undo group. Default on. |
+| `auto_revert_unmodified` | `bool` | When a file-associated buffer has no unexported edits and the file changes on disk (external tool, sync, reopen, or restore), silently reload the new bytes instead of prompting. A buffer with unexported edits always raises the reload / keep-mine / diff banner regardless of this toggle. Default on (auto-revert of unmodified buffers, matching common editor behavior). |
 | `show_soft_wrap_indicator` | `bool` | Phase B17: render a small `↪` glyph in the margin at every soft-wrap continuation row. Default on (effective only when `word_wrap = true`). |
 | `soft_wrap_indicator_glyph` | `String` | Phase B17: Unicode glyph used for the soft-wrap indicator. Single character. Default `↪`. |
 | `autocorrect_enabled` | `bool` | Phase B18: enable the user-editable autocorrect rule pass. Default off so rule misfires don't surprise new users; the `%APPDATA%\continuity\autocorrect.toml` file ships empty. |

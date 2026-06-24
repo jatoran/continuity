@@ -77,11 +77,42 @@ pub enum FileIoEvent {
         /// File metadata after write.
         file: FileAssociation,
     },
+    /// A save was **refused** because the file changed on disk since the
+    /// buffer last synced (its raw-byte hash no longer matches the
+    /// expected fingerprint). The write did not happen — overwriting would
+    /// have silently destroyed the external edit. Carries the current disk
+    /// bytes so the UI can roll back the optimistic clean state and raise
+    /// the reload / keep-mine / show-diff conflict banner. Closes the race
+    /// where a save beats the asynchronous `notify` watcher.
+    SaveConflict {
+        /// Buffer whose save was refused.
+        buffer_id: BufferId,
+        /// File path.
+        path: PathBuf,
+        /// Current on-disk content.
+        content: String,
+        /// Current filesystem association (mtime + raw/content hashes).
+        file: FileAssociation,
+    },
     /// A watched file was reloaded for an existing buffer.
     Reloaded {
         /// Target buffer.
         buffer_id: BufferId,
         /// Decoded text content.
+        content: String,
+        /// File metadata after read.
+        file: FileAssociation,
+    },
+    /// A one-shot disk recheck completed (session restore or explicit
+    /// refresh). Carries the current disk bytes + fingerprint so the
+    /// window can reconcile a possibly-stale buffer. Unlike
+    /// [`FileIoEvent::ExternalChanged`], the worker does *not* gate this
+    /// on a self-write comparison — the window owns the clean/dirty
+    /// decision via [`crate::window_file_reconcile`].
+    Rechecked {
+        /// Target buffer.
+        buffer_id: BufferId,
+        /// Current disk content.
         content: String,
         /// File metadata after read.
         file: FileAssociation,
@@ -164,10 +195,21 @@ pub(crate) enum FileIoRequest {
         buffer_id: BufferId,
         path: PathBuf,
         content: String,
+        /// Last on-disk raw-byte hash this buffer synced to. When `Some`,
+        /// the worker re-reads the file before writing and refuses the
+        /// save (emitting `SaveConflict`) if the current hash differs — an
+        /// external change happened since. `None` forces an
+        /// unconditional write (save-as / explicit "keep mine").
+        expected_hash: Option<u64>,
     },
     ReloadBuffer {
         buffer_id: BufferId,
         path: PathBuf,
+    },
+    RecheckFile {
+        buffer_id: BufferId,
+        path: PathBuf,
+        reply: Option<Sender<FileIoEvent>>,
     },
     WatchFile {
         buffer_id: BufferId,
@@ -268,12 +310,19 @@ impl FileIoClient {
     /// # Errors
     ///
     /// Returns `false` when the worker has exited.
-    pub fn save_buffer(&self, buffer_id: BufferId, path: PathBuf, content: String) -> bool {
+    pub fn save_buffer(
+        &self,
+        buffer_id: BufferId,
+        path: PathBuf,
+        content: String,
+        expected_hash: Option<u64>,
+    ) -> bool {
         self.tx
             .send(FileIoRequest::SaveBuffer {
                 buffer_id,
                 path,
                 content,
+                expected_hash,
             })
             .is_ok()
     }
@@ -297,6 +346,30 @@ impl FileIoClient {
     pub(crate) fn reload_buffer(&self, buffer_id: BufferId, path: PathBuf) -> bool {
         self.tx
             .send(FileIoRequest::ReloadBuffer { buffer_id, path })
+            .is_ok()
+    }
+
+    /// Read a file once and report its current bytes/fingerprint back to
+    /// one window so it can reconcile a possibly-stale buffer (session
+    /// restore, explicit refresh). Also (re)arms the external-change watch
+    /// for the path. Completions route to `reply` so only the requesting
+    /// window reconciles.
+    ///
+    /// # Errors
+    ///
+    /// Returns `false` when the worker has exited.
+    pub(crate) fn recheck_file(
+        &self,
+        buffer_id: BufferId,
+        path: PathBuf,
+        reply: Sender<FileIoEvent>,
+    ) -> bool {
+        self.tx
+            .send(FileIoRequest::RecheckFile {
+                buffer_id,
+                path,
+                reply: Some(reply),
+            })
             .is_ok()
     }
 

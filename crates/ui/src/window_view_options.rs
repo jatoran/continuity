@@ -40,6 +40,11 @@ pub(crate) struct ViewOptions {
     pub whitespace_markers: bool,
     /// Paint a coloured fill on trailing whitespace runs.
     pub trailing_whitespace: bool,
+    /// Mirrors `[editor].auto_revert_unmodified`. When a clean (no
+    /// unexported edits) file-associated buffer's file changes on disk,
+    /// silently reload it instead of prompting; a dirty buffer always
+    /// banners. Read by [`crate::window_file_reconcile`].
+    pub auto_revert_unmodified: bool,
     /// Render the minimap (subsampled glyph-density heatmap).
     pub minimap: bool,
     /// Cached scaled-text minimap layout from the last paint, used by
@@ -217,6 +222,7 @@ impl Default for ViewOptions {
             indent_guides: true,
             whitespace_markers: false,
             trailing_whitespace: false,
+            auto_revert_unmodified: true,
             minimap: false,
             minimap_layout: None,
             indent_size: 4,

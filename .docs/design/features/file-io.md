@@ -8,8 +8,8 @@ Open, save, save-as, drag-drop import, bounded directory listing, external-chang
 
 ## Key concepts
 - **`FileIoClient`** — clonable `Sender` into the file-I/O thread.
-- **`FileIoRequest`** — `OpenFiles | ListDirectory | SaveBuffer | ReloadBuffer | WatchFile | Shutdown`.
-- **`FileIoEvent`** — `Opened | DirectoryListed | Saved | Reloaded | ExternalChanged | Deleted | EncodingNotice | Failed`.
+- **`FileIoRequest`** — `OpenFiles | ListDirectory | SaveBuffer | ReloadBuffer | RecheckFile | WatchFile | Shutdown`.
+- **`FileIoEvent`** — `Opened | DirectoryListed | Saved | SaveConflict | Reloaded | Rechecked | ExternalChanged | Deleted | EncodingNotice | Failed`.
 - **`StartupOpenedFile`** — sync startup-read result: decoded content + `FileAssociation` + optional encoding notice.
 - **`FileAssociation { path, mtime_ms, hash, content_hash }`** — link between a buffer and a real file on disk; `hash` fingerprints raw file bytes, `content_hash` fingerprints decoded rope text.
 - **`FileBanner`** — non-blocking status banner painted below the tab ribbon. Transient (auto-dismiss) for confirm/info text (save / reload); sticky for decision-required prompts (external-change, deletion, encoding, failures, recovery). See [Banner placement and lifetime](#banner-placement-and-lifetime).
@@ -22,8 +22,8 @@ Open, save, save-as, drag-drop import, bounded directory listing, external-chang
 2. UI sends `FileIoRequest::OpenFiles { paths, target_pane }`.
 3. File-I/O thread reads the file, decodes UTF-8 / UTF-16 BOMs / lossy non-UTF-8 fallback, computes mtime + raw-byte hash + decoded-content hash.
 4. File-I/O sends `FileIoEvent::Opened { target_pane, content, file }`.
-5. UI tick drains the event and asks core to create a file-associated buffer.
-6. Core creates the buffer at the adopted revision with the `FileAssociation` attached. Persistence writes an initial snapshot — not an edit.
+5. UI tick drains the event and forwards it to the registry as `RegistryEvent::OpenFileBuffer`. The registry resolves the path to one buffer (reusing the existing file buffer when already loaded — one file never spans two edit logs) and either **reveals** the existing tab in its owning window or **spawns** a fresh window, reconciling against the disk bytes in both cases (see [Reconciliation](#reconciliation)). Without a registry (tests) the window creates the buffer locally.
+6. For a new buffer, core creates it at the adopted revision with the `FileAssociation` attached; persistence writes an initial snapshot — not an edit.
 
 Drag-drop: `WM_DROPFILES` path. `DragQueryFileW` enumerates dropped paths; image paths route to image import first, files go through the same `OpenFiles` flow, and the first folder opens the file-tree pane.
 
@@ -55,10 +55,10 @@ Rules:
 ### Save
 1. UI dispatches `file.save` → `Window::file_save_impl`.
 2. If `editor.trim_trailing_whitespace_on_save` (B14), fire `SelectionEdit::TrimTrailingWhitespaceAll` as one undo group.
-3. UI snapshots the rope, sends `FileIoRequest::SaveBuffer { buffer_id, path, content }`.
-4. File-I/O writes atomically (temp file + rename), updates mtime + raw-byte hash + decoded-content hash.
-5. File-I/O sends `FileIoEvent::Saved { buffer_id, file }`.
-6. UI updates the `FileAssociation` on the buffer (via `SetFileAssociation`) and shows a transient `FileBanner::transient("Saved <path>")` (auto-dismisses; see [Banner placement and lifetime](#banner-placement-and-lifetime)).
+3. UI snapshots the rope, sends `FileIoRequest::SaveBuffer { buffer_id, path, content, expected_hash }` where `expected_hash = Some(FileAssociation.hash)` (the last on-disk raw hash this buffer synced to). Save-as / "keep mine" pass `None` to force an unconditional write.
+4. **Conflict guard.** When `expected_hash` is `Some`, the worker re-reads the file first; if its current raw hash differs (the file changed externally since we synced), it **refuses the write** and emits `FileIoEvent::SaveConflict { buffer_id, path, content, file }` carrying the disk bytes. This closes the race where a save beats the asynchronous `notify` watcher and silently clobbers an external edit. A missing file is not a conflict (the write recreates it).
+5. Otherwise File-I/O writes atomically (temp file + rename), updates mtime + raw-byte hash + decoded-content hash, and sends `FileIoEvent::Saved { buffer_id, file }`.
+6. On `Saved`, UI updates the `FileAssociation` (via `SetFileAssociation`) and shows a transient `FileBanner::transient("Saved <path>")`. On `SaveConflict`, UI rolls back the optimistic `mark_saved_clean` (so the buffer is dirty again) and runs reconciliation, which raises the reload / keep-mine / show-diff banner — here "keep mine" force-writes the editor's version (`from_save`), since the user was actively trying to persist.
 
 `file.save_as` (`window_file.rs::file_save_as_impl`) opens the `GetSaveFileNameW` common dialog via `window_file_dialogs.rs::save_file_dialog`; on commit the buffer becomes file-associated and the regular save path runs. `Ctrl+S` on an ephemeral buffer falls through to `save_as` (Phase D8).
 
@@ -72,10 +72,32 @@ Rules:
 2. File-I/O thread registers a `notify` watch.
 3. On change, file-I/O re-reads the file, compares raw-byte hash + mtime against the stored association.
 4. If different, emits `FileIoEvent::ExternalChanged { buffer_id, path, content, file }`.
-5. UI shows `FileBanner::external(path)` with three actions: reload / keep mine / show diff.
+5. UI routes it through `Window::reconcile_file_buffer` (see [Reconciliation](#reconciliation)) — a clean buffer auto-reverts silently, a dirty buffer raises `FileBanner::external(path)` with reload / keep mine / show diff.
+
+### Reconciliation
+
+A file-associated buffer mirrors bytes on disk that other tools can mutate. **Four triggers** expose divergence, and all of them funnel through one decision in `Window::reconcile_file_buffer` (`window_file_reconcile.rs`) so behavior is identical everywhere:
+
+1. **Live watcher** fires while the file is open (`FileIoEvent::ExternalChanged`).
+2. **Reopen** of an already-loaded path — the registry resolves it to the existing buffer and **reveals** the tab in its owning window (`WindowControl::RevealBufferTab` → `Window::reveal_file_buffer_tab`) instead of spawning a duplicate, or spawns a window carrying `reconcile_on_init` when no live window owns it.
+3. **Session restore** — restored file tabs never read disk, so `Window::recheck_restored_file_buffers` issues a one-shot `FileIoRequest::RecheckFile` at launch; the worker replies `FileIoEvent::Rechecked`.
+4. **Save** — the worker's conflict guard refuses a write whose `expected_hash` no longer matches disk and replies `FileIoEvent::SaveConflict` (synchronous, race-free — see [Save](#save)); `Window::reconcile_after_save_conflict` rolls back the optimistic clean state and reconciles. This is the guarantee against silent data loss; the watcher (trigger 1) is the live-notification nicety, not the safety net.
+
+The decision (pure `classify_reconcile`, unit-tested):
+
+| | Disk unchanged | Disk changed externally |
+|---|---|---|
+| **Buffer clean** (no unexported edits) | reuse as-is | **silent reload** (caret-line anchored) + transient "Reloaded … (changed on disk)" |
+| **Buffer dirty** (unexported edits) | reuse as-is | **reload / keep mine / show diff** banner |
+
+"Clean vs. dirty" is `window_paint_builders::is_buffer_dirty_against_file` (rope content hash vs. `FileAssociation.content_hash`). Silent reload is gated by `editor.auto_revert_unmodified` (default on); with it off, a clean external change banners like the dirty case. This fixes the long-standing bug where reopening (or restoring) an externally-changed file showed the stale database copy — and the data-loss footgun where a later save silently clobbered the external edit.
+
+Cross-window ownership lives in the registry's `buffer_home` map (`crates/app/src/registry.rs` + `registry_open_file.rs`), seeded at spawn and pruned on window close.
 
 ### Reload
+- The conflict banner renders **clickable buttons** (Reload / Keep mine / Show diff) below the message — the geometry is shared between paint and the mouse hit-test (`window_file_banner_buttons.rs`: `compute_banner_geometry` + `Window::try_file_banner_left_down`, claimed in `on_left_button_down` before the editor body). The commands also stay registered (`file.reload_external` / `file.keep_mine` / `file.show_diff`) and self-guard to a no-op when no conflict banner is active.
 - User clicks "Reload" → UI sends `FileIoRequest::ReloadBuffer` for that path; on `FileIoEvent::Reloaded`, the UI replaces the buffer content through a whole-buffer edit and refreshes the file association.
+- **Show diff** (`window_file_banner_actions.rs::file_show_diff_impl`) opens a scratch read-only tab with a unified line diff (`file_diff.rs`, dependency-free LCS) of editor-buffer vs. on-disk content, instead of a one-line summary. The conflict banner stays sticky so reload / keep-mine still apply.
 
 ### Banner placement and lifetime
 
@@ -150,6 +172,7 @@ The `FileIoEvent` enum carries four post-launch banner-relevant variants in addi
 - **`Deleted { buffer_id, path }`** — read fails AND the path is gone from disk. Watcher prunes the `watched` entry; UI raises sticky `FileBanner` "<path> was deleted externally — buffer kept in memory. Save to recreate." The rope is canonical, so the buffer keeps editing; a follow-up `file.save` recreates the file and re-installs the watch.
 - **`EncodingNotice { path, encoding }`** — sniffed at open / reload / external-change time when on-disk bytes aren't clean UTF-8. Fires *in addition to* the corresponding `Opened` / `Reloaded` / `ExternalChanged` event (never instead of). UI raises a sticky banner so the user knows re-saving would lose the original encoding (continuity always writes UTF-8).
 - **`Failed { operation, path, reason }`** — operation-named banner; the only variant that includes a specific verb (open / save / reload / watch / list folder).
+- **`Rechecked { buffer_id, content, file }`** — reply to a `RecheckFile` request (session restore / explicit refresh). Carries the current disk bytes + fingerprint and (re)arms the watch; unlike `ExternalChanged` the worker does *not* gate it on a self-write check — the window owns the clean/dirty decision via `reconcile_file_buffer`. A missing file is silent (no banner; the rope is canonical).
 
 ### Encoding sniff contract
 
@@ -164,6 +187,7 @@ The sniff is conservative on purpose. We don't try to fingerprint Latin-1 / Wind
 
 ## Configuration
 - `editor.trim_trailing_whitespace_on_save` (B14, default `true`).
+- `editor.auto_revert_unmodified` (default `true`) — silently reload a clean file-associated buffer when its file changes on disk; a dirty buffer always banners. Mirrored onto `ViewOptions::auto_revert_unmodified`.
 - `file.default_encoding` (default `"utf-8"`).
 - `file.watch_external_changes` (default `true`).
 
@@ -180,6 +204,9 @@ The sniff is conservative on purpose. We don't try to fingerprint Latin-1 / Wind
 - DragDrop receiver: `crates/ui/src/window.rs` (`WM_DROPFILES` arm) + `crates/ui/src/window_file.rs::on_drop_files`
 - file association on Buffer: `crates/buffer/src/metadata.rs`
 - dirty-tab close arm: `crates/ui/src/window_close_confirm.rs`
+- external-change reconciliation: `crates/ui/src/window_file_reconcile.rs` (decision) + `window_file_recheck.rs` (restore recheck) + `window_reveal.rs` (cross-window reveal)
+- conflict-banner actions + diff view: `crates/ui/src/window_file_banner_actions.rs` + `crates/ui/src/file_diff.rs`
+- cross-window open routing: `crates/app/src/registry_open_file.rs` (+ `registry.rs` `buffer_home`)
 
 ## Relates to
 - [Buffer](buffer.md) — `FileAssociation` lives on the buffer; updated via `SetFileAssociation`.

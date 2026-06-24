@@ -24,9 +24,8 @@ use continuity_win::{
 use crossbeam_channel::Sender;
 
 use crate::registry::{RegistryEvent, SpawnRequest};
-use crate::registry_file_buffers::{file_buffer_for_path, register_file_buffer, FileBufferIndex};
 use crate::runtime_paths::StartupPaths;
-use crate::{startup_file_spawn_request, startup_file_window_origin};
+use crate::startup_file_window_origin;
 
 const FORWARD_TIMEOUT_MS: u32 = 3_000;
 const FORWARD_RETRY_ATTEMPTS: u32 = 10;
@@ -75,17 +74,19 @@ pub(crate) fn claim_or_forward(db: &Path, startup: &StartupPaths) -> InstanceCla
 }
 
 /// Spawn the receiving hub in the primary instance. Forwarded file paths
-/// open as new top-level windows (reusing live buffers for already-open
-/// files); a bare-launch forward activates the top-most existing window.
+/// route through the same [`RegistryEvent::OpenFileBuffer`] flow as
+/// in-process opens, so an already-open file focuses its existing window
+/// tab and reconciles against the current disk bytes (clean → silent
+/// reload, dirty → conflict banner) rather than spawning a stale duplicate;
+/// a bare-launch forward activates the top-most existing window.
 pub(crate) fn spawn_instance_hub(
     db: &Path,
     editor: Arc<EditorHandle>,
-    file_buffer_index: FileBufferIndex,
     tx: Sender<RegistryEvent>,
 ) -> Option<InstanceHub> {
     let key = instance_key(db);
     let on_payload = Box::new(move |payload: &str| {
-        handle_forwarded_payload(payload, &editor, &file_buffer_index, &tx);
+        handle_forwarded_payload(payload, &editor, &tx);
     });
     match InstanceHub::spawn(&hub_class_name(&key), on_payload) {
         Ok(hub) => Some(hub),
@@ -96,12 +97,7 @@ pub(crate) fn spawn_instance_hub(
     }
 }
 
-fn handle_forwarded_payload(
-    payload: &str,
-    editor: &Arc<EditorHandle>,
-    file_buffer_index: &FileBufferIndex,
-    tx: &Sender<RegistryEvent>,
-) {
+fn handle_forwarded_payload(payload: &str, editor: &Arc<EditorHandle>, tx: &Sender<RegistryEvent>) {
     let (files, folders) = parse_forward_payload(payload);
     if files.is_empty() && folders.is_empty() {
         if !activate_first_visible_window_of_current_process() {
@@ -111,10 +107,11 @@ fn handle_forwarded_payload(
     }
     let mut opened = 0usize;
     for path in files {
-        if let Some(request) =
-            forwarded_file_spawn_request(&path, editor, file_buffer_index, opened)
-        {
-            let _ = tx.send(RegistryEvent::Spawn(request));
+        // Route through the same OpenFileBuffer path as in-process opens so
+        // the registry dedups the buffer, reveals the existing tab (or
+        // spawns), and reconciles against the freshly-read disk bytes.
+        if let Some(event) = forwarded_file_open_event(&path, opened) {
+            let _ = tx.send(event);
             opened += 1;
         }
     }
@@ -130,43 +127,42 @@ fn handle_forwarded_payload(
             open_tutorial_on_init: false,
             startup_open_buffer_ids: Vec::new(),
             startup_folder_roots: folders,
+            reconcile_on_init: None,
         }));
     }
 }
 
-fn forwarded_file_spawn_request(
-    path: &Path,
-    editor: &Arc<EditorHandle>,
-    file_buffer_index: &FileBufferIndex,
-    ordinal: usize,
-) -> Option<SpawnRequest> {
-    let mut notices = Vec::new();
-    let buffer_id = match file_buffer_for_path(editor, file_buffer_index, path) {
-        Some(buffer_id) => buffer_id,
-        None => match continuity_ui::file_io::read_startup_file(path) {
-            Ok(opened) => {
-                let encoding_notice = opened.encoding_notice;
-                let opened_path = opened.file.path.clone();
-                let buffer_id = editor.open_file_buffer(opened.content, opened.file);
-                register_file_buffer(file_buffer_index, opened_path.clone(), buffer_id);
-                if let Some(encoding) = encoding_notice {
-                    notices.push(format!(
-                        "Opened {} as {encoding}; saving will write UTF-8.",
-                        opened_path.display()
-                    ));
-                }
-                buffer_id
+/// Read a forwarded file path and build the [`RegistryEvent::OpenFileBuffer`]
+/// the registry uses to dedup / reveal / spawn and reconcile it. Reading on
+/// the hub thread (rather than enqueueing to the file-I/O worker) keeps the
+/// cross-process handoff self-contained — no window owns the request — while
+/// still handing the registry fresh disk bytes for reconciliation.
+fn forwarded_file_open_event(path: &Path, ordinal: usize) -> Option<RegistryEvent> {
+    match continuity_ui::file_io::read_startup_file(path) {
+        Ok(opened) => {
+            let mut recovery_notices = Vec::new();
+            if let Some(encoding) = opened.encoding_notice {
+                recovery_notices.push(format!(
+                    "Opened {} as {encoding}; saving will write UTF-8.",
+                    opened.file.path.display()
+                ));
             }
-            Err(e) => {
-                eprintln!(
-                    "continuity: forwarded open failed for {}: {e}",
-                    path.display()
-                );
-                return None;
-            }
-        },
-    };
-    Some(startup_file_spawn_request(buffer_id, notices, ordinal))
+            Some(RegistryEvent::OpenFileBuffer {
+                content: opened.content,
+                file: opened.file,
+                explicit_origin: startup_file_window_origin(ordinal),
+                cascade_from: None,
+                recovery_notices,
+            })
+        }
+        Err(e) => {
+            eprintln!(
+                "continuity: forwarded open failed for {}: {e}",
+                path.display()
+            );
+            None
+        }
+    }
 }
 
 /// Stable per-data-dir key so a portable instance and an installed
@@ -256,5 +252,53 @@ mod tests {
         assert_eq!(a, b);
         let c = instance_key(Path::new("D:\\elsewhere\\continuity.db"));
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn forwarded_open_builds_open_file_buffer_event_with_disk_bytes() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("forwarded.md");
+        std::fs::write(&path, "current disk content").expect("write file");
+        let event = forwarded_file_open_event(&path, 0).expect("event for readable file");
+        match event {
+            RegistryEvent::OpenFileBuffer {
+                content,
+                file,
+                recovery_notices,
+                ..
+            } => {
+                // Fresh disk bytes flow to the registry, which dedups +
+                // reveals/spawns + reconciles — not a stale reused buffer.
+                assert_eq!(content, "current disk content");
+                assert_eq!(file.path, path);
+                assert!(recovery_notices.is_empty());
+            }
+            _ => panic!("expected OpenFileBuffer event"),
+        }
+    }
+
+    #[test]
+    fn forwarded_open_surfaces_encoding_notice() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("latin1.txt");
+        // 0xE9 alone is invalid UTF-8 → lossy decode + encoding notice.
+        std::fs::write(&path, [b'h', b'i', 0xE9]).expect("write file");
+        let event = forwarded_file_open_event(&path, 0).expect("event for readable file");
+        match event {
+            RegistryEvent::OpenFileBuffer {
+                recovery_notices, ..
+            } => {
+                assert_eq!(recovery_notices.len(), 1);
+                assert!(recovery_notices[0].contains("saving will write UTF-8"));
+            }
+            _ => panic!("expected OpenFileBuffer event"),
+        }
+    }
+
+    #[test]
+    fn forwarded_open_missing_file_yields_no_event() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("absent.md");
+        assert!(forwarded_file_open_event(&path, 0).is_none());
     }
 }

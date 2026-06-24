@@ -107,6 +107,7 @@ pub(crate) fn build_initial_requests(
             open_tutorial_on_init,
             startup_open_buffer_ids: Vec::new(),
             startup_folder_roots: Vec::new(),
+            reconcile_on_init: None,
         }]);
     }
     let mut out = Vec::with_capacity(rows.len());
@@ -169,6 +170,7 @@ pub(crate) fn build_initial_requests(
             open_tutorial_on_init: false,
             startup_open_buffer_ids: Vec::new(),
             startup_folder_roots: Vec::new(),
+            reconcile_on_init: None,
         });
     }
     if out.is_empty() {
@@ -184,6 +186,7 @@ pub(crate) fn build_initial_requests(
             open_tutorial_on_init,
             startup_open_buffer_ids: Vec::new(),
             startup_folder_roots: Vec::new(),
+            reconcile_on_init: None,
         }]);
     }
     if let Some((_, idx)) = most_recent {

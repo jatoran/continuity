@@ -22,7 +22,7 @@ use crate::window_file_image_drop::is_dropped_image_path;
 #[derive(Clone, Debug)]
 pub struct FileBanner {
     text: String,
-    pending: Option<PendingExternalChange>,
+    pub(crate) pending: Option<PendingExternalChange>,
     /// UNIX-epoch milliseconds at which this banner should auto-dismiss.
     /// `None` means the banner is sticky and only dismisses on user
     /// action (Esc, reload/keep/diff button, etc.) — used for banners
@@ -81,28 +81,31 @@ impl FileBanner {
         self.text == text
     }
 
-    fn external(buffer_id: BufferId, path: PathBuf) -> Self {
+    fn external(buffer_id: BufferId, path: PathBuf, from_save: bool) -> Self {
         Self {
-            text: format!(
-                "{} changed on disk - reload / keep mine / show diff",
-                path.display()
-            ),
+            text: format!("{} changed on disk:", path.display()),
             pending: Some(PendingExternalChange {
                 buffer_id,
                 path,
                 disk_content: None,
+                from_save,
             }),
             expires_at_ms: None,
         }
     }
 
-    fn external_with_content(
+    /// Build the conflict banner carrying the on-disk content (for the diff
+    /// view). `from_save` marks a conflict raised by a refused *save* (vs.
+    /// the live watcher) — it makes "keep mine" force-write the editor's
+    /// version, since the user was actively trying to persist it.
+    pub(crate) fn external_with_content(
         buffer_id: BufferId,
         path: PathBuf,
         disk_content: String,
         _disk_file: FileAssociation,
+        from_save: bool,
     ) -> Self {
-        let mut banner = Self::external(buffer_id, path);
+        let mut banner = Self::external(buffer_id, path, from_save);
         if let Some(pending) = banner.pending.as_mut() {
             pending.disk_content = Some(disk_content);
         }
@@ -111,10 +114,14 @@ impl FileBanner {
 }
 
 #[derive(Clone, Debug)]
-struct PendingExternalChange {
-    buffer_id: BufferId,
-    path: PathBuf,
-    disk_content: Option<String>,
+pub(crate) struct PendingExternalChange {
+    pub(crate) buffer_id: BufferId,
+    pub(crate) path: PathBuf,
+    pub(crate) disk_content: Option<String>,
+    /// `true` when this conflict was raised by a refused save (the user was
+    /// trying to persist), so "keep mine" writes their version; `false`
+    /// for a live watcher change, where "keep mine" only dismisses.
+    pub(crate) from_save: bool,
 }
 
 impl Window {
@@ -144,6 +151,8 @@ impl Window {
                     FileIoEvent::ExternalChanged { .. }
                         | FileIoEvent::Deleted { .. }
                         | FileIoEvent::Reloaded { .. }
+                        | FileIoEvent::Rechecked { .. }
+                        | FileIoEvent::SaveConflict { .. }
                 ) {
                     reason = "external_invalidate";
                 }
@@ -186,34 +195,28 @@ impl Window {
     /// tab strip, and the text field is tall enough (`FIELD_HEIGHT_DIP`)
     /// that descenders are not clipped by the `paint_focus_field` inset.
     pub(crate) fn file_banner_overlay(&self, width: f32) -> Option<OverlayDraw> {
-        use crate::pane_layout::metrics::TAB_STRIP_HEIGHT_DIP;
-
         let banner = self.file_banner.as_ref()?;
-
-        // Drop the panel below the tab ribbon with a small breathing gap.
-        const RIBBON_GAP_DIP: f32 = 6.0;
-        let panel_top = TAB_STRIP_HEIGHT_DIP + RIBBON_GAP_DIP;
-        // Panel left/right insets and the text-field box inside it.
-        const PANEL_LEFT_DIP: f32 = 12.0;
-        const FIELD_INSET_X_DIP: f32 = 12.0;
-        // The text field must clear the unscaled base prose font's
-        // descenders. `paint_focus_field` insets the field by (8, 4)
-        // before drawing, leaving `FIELD_HEIGHT_DIP - 8` DIP of vertical
-        // room; 26 DIP leaves ~18 DIP, enough for a ~15-16 DIP glyph plus
-        // descenders. The panel grows to wrap the field with padding.
-        const FIELD_HEIGHT_DIP: f32 = 26.0;
-        const FIELD_PAD_TOP_DIP: f32 = 8.0;
-        const FIELD_PAD_BOTTOM_DIP: f32 = 8.0;
-        let panel_height = FIELD_PAD_TOP_DIP + FIELD_HEIGHT_DIP + FIELD_PAD_BOTTOM_DIP;
-        let field_top = panel_top + FIELD_PAD_TOP_DIP;
-
-        let panel_width = (width - 2.0 * PANEL_LEFT_DIP).clamp(240.0, 760.0);
-        let field_left = PANEL_LEFT_DIP + FIELD_INSET_X_DIP;
-        let field_width = (panel_width - 2.0 * FIELD_INSET_X_DIP).clamp(200.0, 720.0);
+        // Only the external-change conflict banner (which carries a pending
+        // decision) shows clickable action buttons; transient/info banners
+        // render as a plain field. Geometry is shared with the click
+        // hit-test via `banner_geometry` so painted and clickable rects
+        // never drift (see `window_file_banner_buttons`).
+        let with_buttons = banner.pending.is_some();
+        let geo = self.banner_geometry(width, with_buttons);
+        let list_rows: Vec<_> = geo
+            .buttons
+            .iter()
+            .map(crate::window_file_banner_buttons::banner_button_row)
+            .collect();
+        let field_top = geo.field_rect.y;
+        let panel_top = geo.panel_rect.y;
+        let panel_height = geo.panel_rect.h;
+        let field_left = geo.field_rect.x;
+        let field_width = geo.field_rect.w;
 
         Some(OverlayDraw {
             panel: PanelStyle {
-                rect: DrawRect::new(PANEL_LEFT_DIP, panel_top, panel_width, panel_height),
+                rect: geo.panel_rect,
                 corner_radius: 6.0,
                 // Slightly darker fill + brighter, fully opaque accent
                 // border than the surrounding chrome so the banner stands
@@ -240,7 +243,7 @@ impl Window {
             },
             input_focused: false,
             focus_field: Some(FocusField {
-                rect: DrawRect::new(field_left, field_top, field_width, FIELD_HEIGHT_DIP),
+                rect: DrawRect::new(field_left, field_top, field_width, geo.field_rect.h),
                 text: banner.text.clone(),
                 placeholder: None,
                 caret_byte: banner.text.len(),
@@ -257,7 +260,7 @@ impl Window {
                 focus_ring: Rgba::TRANSPARENT,
             }),
             secondary_field: None,
-            list_rows: Vec::new(),
+            list_rows,
             scrollbar: None,
             footer: Some(FooterText {
                 rect: DrawRect::new(field_left, panel_top + panel_height - 1.0, 1.0, 1.0),
@@ -345,8 +348,12 @@ impl Window {
         let path = file.path.clone();
         let base = file.clone();
         let content = snap.rope_snapshot().rope().to_string();
+        // Guard against silently overwriting an external change: the worker
+        // refuses the write if the on-disk hash no longer matches what we
+        // last synced (`file.hash`).
+        let expected_hash = Some(file.hash);
         self.mark_saved_clean(self.buffer_id, base, &content);
-        self.enqueue_save(self.buffer_id, path, content)
+        self.enqueue_save(self.buffer_id, path, content, expected_hash)
     }
 
     pub(crate) fn file_save_as_impl(&mut self) -> Result<(), CommandError> {
@@ -368,7 +375,9 @@ impl Window {
         let content = snap.rope_snapshot().rope().to_string();
         let base = FileAssociation::new(path.clone(), 0, 0);
         self.mark_saved_clean(self.buffer_id, base, &content);
-        self.enqueue_save(self.buffer_id, path, content)
+        // Save-as is an explicit user choice of target (the dialog already
+        // confirms any overwrite), so write unconditionally.
+        self.enqueue_save(self.buffer_id, path, content, None)
     }
 
     fn handle_file_io_event(&mut self, event: FileIoEvent) {
@@ -428,6 +437,28 @@ impl Window {
                     let _ = file_io.watch_file(buffer_id, file);
                 }
             }
+            FileIoEvent::SaveConflict {
+                buffer_id,
+                path: _,
+                content,
+                file,
+            } => {
+                // The save was refused — the file changed on disk since we
+                // last synced. The optimistic `mark_saved_clean` was wrong
+                // (no write happened): roll the content hash back to its
+                // pre-save value so the buffer is dirty again, then run the
+                // standard reconcile, which raises the reload / keep-mine /
+                // diff banner instead of silently overwriting.
+                if let Some(baseline) = self.pending_save_baseline.remove(&buffer_id) {
+                    if let Some(stored) = self.editor.snapshot(buffer_id).and_then(|s| s.file) {
+                        let _ = self.editor.set_file_association(
+                            buffer_id,
+                            Some(stored.with_content_hash(baseline)),
+                        );
+                    }
+                }
+                self.reconcile_after_save_conflict(buffer_id, content, file);
+            }
             FileIoEvent::Reloaded {
                 buffer_id,
                 content,
@@ -435,15 +466,23 @@ impl Window {
             } => self.apply_reloaded_file(buffer_id, content, file),
             FileIoEvent::ExternalChanged {
                 buffer_id,
-                path,
+                path: _,
                 content,
                 file,
             } => {
-                if self.tree.tabs.values().any(|t| t.buffer_id == buffer_id) {
-                    self.file_banner = Some(FileBanner::external_with_content(
-                        buffer_id, path, content, file,
-                    ));
-                }
+                // Clean buffer → silently reload; dirty buffer → raise the
+                // reload / keep-mine / diff banner. One decision point for
+                // every external-change trigger.
+                self.reconcile_file_buffer(buffer_id, content, file);
+            }
+            FileIoEvent::Rechecked {
+                buffer_id,
+                content,
+                file,
+            } => {
+                // One-shot disk recheck (session restore / explicit
+                // refresh) — same reconciliation as a live external change.
+                self.reconcile_file_buffer(buffer_id, content, file);
             }
             FileIoEvent::Deleted { buffer_id, path } => {
                 // δ.3 — sticky banner. The rope stays in memory; the
@@ -528,67 +567,6 @@ impl Window {
                 now,
             ));
         }
-    }
-
-    pub(crate) fn file_reload_external_impl(&mut self) -> Result<(), CommandError> {
-        let pending = self
-            .file_banner
-            .as_ref()
-            .and_then(|banner| banner.pending.clone())
-            .ok_or(CommandError::UnsupportedContext("file_reload_external"))?;
-        let file_io = self
-            .file_io
-            .as_ref()
-            .ok_or(CommandError::UnsupportedContext("file_reload_external"))?;
-        if file_io.reload_buffer(pending.buffer_id, pending.path) {
-            Ok(())
-        } else {
-            Err(CommandError::UnsupportedContext("file_reload_external"))
-        }
-    }
-
-    pub(crate) fn file_keep_mine_impl(&mut self) -> Result<(), CommandError> {
-        if self
-            .file_banner
-            .as_ref()
-            .and_then(|b| b.pending.as_ref())
-            .is_some()
-        {
-            self.file_banner = None;
-            Ok(())
-        } else {
-            Err(CommandError::UnsupportedContext("file_keep_mine"))
-        }
-    }
-
-    pub(crate) fn file_show_diff_impl(&mut self) -> Result<(), CommandError> {
-        let Some(pending) = self
-            .file_banner
-            .as_ref()
-            .and_then(|banner| banner.pending.clone())
-        else {
-            return Err(CommandError::UnsupportedContext("file_show_diff"));
-        };
-        let Some(disk_content) = pending.disk_content.as_deref() else {
-            self.file_banner = Some(FileBanner::new(format!(
-                "Diff unavailable for {}; reload / keep mine",
-                pending.path.display()
-            )));
-            return Ok(());
-        };
-        let current_lines = self
-            .editor
-            .snapshot(pending.buffer_id)
-            .map(|s| s.rope_snapshot().rope().len_lines())
-            .unwrap_or(0);
-        let disk_lines = disk_content.lines().count().max(1);
-        self.file_banner = Some(FileBanner::new(format!(
-            "Diff {}: editor {} lines, disk {} lines; reload / keep mine",
-            pending.path.display(),
-            current_lines,
-            disk_lines
-        )));
-        Ok(())
     }
 
     pub(crate) fn now_ms(&self) -> u64 {

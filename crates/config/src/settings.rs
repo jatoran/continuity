@@ -228,6 +228,13 @@ pub struct EditorConfig {
     /// Phase B14: strip trailing whitespace from every line as part
     /// of the save handler. One undo group. Default on.
     pub trim_trailing_whitespace_on_save: bool,
+    /// When a file-associated buffer has no unexported edits and the
+    /// file changes on disk (external tool, sync, reopen, or restore),
+    /// silently reload the new bytes instead of prompting. A buffer
+    /// with unexported edits always raises the reload / keep-mine /
+    /// diff banner regardless of this toggle. Default on (auto-revert
+    /// of unmodified buffers, matching common editor behavior).
+    pub auto_revert_unmodified: bool,
     /// Phase B17: render a small `↪` glyph in the margin at every
     /// soft-wrap continuation row. Default on (effective only when
     /// `word_wrap = true`).
@@ -329,6 +336,7 @@ impl Default for EditorConfig {
             caret_tween_duration_ms: 160,
             autolink_bare_urls: true,
             trim_trailing_whitespace_on_save: true,
+            auto_revert_unmodified: true,
             show_soft_wrap_indicator: true,
             soft_wrap_indicator_glyph: "↪".into(),
             autocorrect_enabled: false,

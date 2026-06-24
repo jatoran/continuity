@@ -16,6 +16,7 @@
 - Public staging excludes private development docs, generated docs, `trace-guide.md`, tests/benches directories, hooks, perf snapshots, and release build internals.
 - `continuity-public\releases\` is ignored by the public repo. Release assets are uploaded to GitHub Releases; they are not committed.
 - The release version comes from `crates\app\Cargo.toml`.
+- **The next version MUST be verified against the actual published releases via `gh release list --repo jatoran/continuity` — NOT local `git tag`, which is frequently stale (un-fetched tags) and will under-report the latest version.** `gh release create` rejects a duplicate tag. `sync-public.ps1` prints a loud preflight warning if a release for the current `Cargo.toml` version already exists on GitHub.
 
 ## Distribution Modes
 - **MSI**: normal install; Start Menu, optional desktop shortcut, uninstall, upgrade, and file association support.

@@ -192,7 +192,10 @@ function measureRangePresentation() {
   }]);
   editor.presentationRange(9_920, 10_000);
   const samples = [];
-  for (let index = 0; index < 32; index += 1) {
+  // A 32-sample nearest-rank p99 is the single slowest observation, so one
+  // hosted-runner preemption is mislabeled as sustained viewport cost. Keep
+  // the 100 ms budget and collect enough observations for a real percentile.
+  for (let index = 0; index < 256; index += 1) {
     editor.insertText("x", 10_000 + index);
     const started = performance.now();
     editor.presentationRange(9_920, 10_000);

@@ -264,7 +264,7 @@ dependencies = [
 
 [[package]]
 name = "continuity-buffer"
-version = "0.2.24"
+version = "0.2.25"
 dependencies = [
  "ahash",
  "continuity-test-support",
@@ -354,7 +354,7 @@ dependencies = [
 
 [[package]]
 name = "continuity-engine"
-version = "0.2.24"
+version = "0.2.25"
 dependencies = [
  "ahash",
  "continuity-buffer",
@@ -367,7 +367,7 @@ dependencies = [
 
 [[package]]
 name = "continuity-engine-c"
-version = "0.2.24"
+version = "0.2.25"
 dependencies = [
  "continuity-buffer",
  "continuity-engine",
@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "continuity-python"
-version = "0.2.24"
+version = "0.2.25"
 dependencies = [
  "continuity-buffer",
  "continuity-engine",
@@ -510,7 +510,7 @@ dependencies = [
 
 [[package]]
 name = "continuity-text"
-version = "0.2.24"
+version = "0.2.25"
 dependencies = [
  "ropey",
  "serde",
@@ -571,7 +571,7 @@ dependencies = [
 
 [[package]]
 name = "continuity-wasm"
-version = "0.2.24"
+version = "0.2.25"
 dependencies = [
  "continuity-buffer",
  "continuity-decorate",

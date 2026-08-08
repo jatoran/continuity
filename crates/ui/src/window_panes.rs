@@ -13,7 +13,7 @@ use crate::pane_layout::{
     close_pane, compute_leaf_rects, focus_geometric, metrics, pane_at_point, split_focused,
     FocusDirection, Rect,
 };
-use crate::pane_tree::{resolve_label, PaneId, SplitAxis, Tab, TabId};
+use crate::pane_tree::{resolve_file_label, resolve_label, PaneId, SplitAxis, Tab, TabId};
 use crate::window::Window;
 use crate::Error;
 
@@ -96,8 +96,8 @@ impl Window {
         let line_height = self.effective_line_height();
         let new_geometry = (r.w, r.h, line_height);
         let current_geometry = (
-            self.view.viewport_width_dip,
-            self.view.viewport_height_dip,
+            self.surface.view.viewport_width_dip,
+            self.surface.view.viewport_height_dip,
             line_height,
         );
         if new_geometry == current_geometry {
@@ -122,7 +122,9 @@ impl Window {
         // want the caret approximately visible (such as
         // `apply_layout_shortcut`) seed `view.scroll_y_dip` before
         // calling this helper using a source-line approximation.
-        if self.view.viewport_width_dip == 0.0 || self.view.viewport_height_dip == 0.0 {
+        if self.surface.view.viewport_width_dip == 0.0
+            || self.surface.view.viewport_height_dip == 0.0
+        {
             if crate::paint_trace::is_trace_enabled() {
                 crate::paint_trace::log_event(
                     "refresh_focused_viewport",
@@ -138,10 +140,10 @@ impl Window {
             line_height,
         );
         self.with_caret_line_anchored(|w| {
-            w.view.viewport_width_dip = r.w;
-            w.view.viewport_height_dip = r.h;
-            w.view.overscroll_bottom_dip = overscroll_bottom;
-            w.view.line_height_dip = line_height;
+            w.surface.view.viewport_width_dip = r.w;
+            w.surface.view.viewport_height_dip = r.h;
+            w.surface.view.overscroll_bottom_dip = overscroll_bottom;
+            w.surface.view.line_height_dip = line_height;
         });
     }
 
@@ -155,10 +157,10 @@ impl Window {
     pub(crate) fn refresh_focused_viewport_unanchored(&mut self) {
         let r = self.focused_body_rect();
         let line_height = self.effective_line_height();
-        self.view.viewport_width_dip = r.w;
-        self.view.viewport_height_dip = r.h;
-        self.view.line_height_dip = line_height;
-        self.view.overscroll_bottom_dip = self.overscroll_bottom_dip();
+        self.surface.view.viewport_width_dip = r.w;
+        self.surface.view.viewport_height_dip = r.h;
+        self.surface.view.line_height_dip = line_height;
+        self.surface.view.overscroll_bottom_dip = self.overscroll_bottom_dip();
     }
 
     /// Save the focused pane's mirrored scalars into `panes[old]`, then
@@ -172,6 +174,7 @@ impl Window {
         if old == new_pane {
             return;
         }
+        self.flush_due_vault_autosaves(true);
         let from_buffer = self.buffer_id;
         let from_pane = old;
         let to_buffer = self
@@ -254,15 +257,24 @@ impl Window {
         }
     }
 
-    /// First non-empty trimmed line of the buffer for label resolution.
-    fn first_line_for(&self, buffer_id: BufferId) -> Option<String> {
+    /// Filename for file-backed buffers, otherwise the first non-empty
+    /// trimmed line used by ephemeral buffers.
+    fn label_source_for(&self, buffer_id: BufferId) -> Option<(String, bool)> {
         let snap = self.editor.snapshot(buffer_id)?;
+        if let Some(filename) = snap
+            .file
+            .as_ref()
+            .and_then(|file| file.path.file_name())
+            .and_then(|name| name.to_str())
+        {
+            return Some((filename.to_string(), true));
+        }
         let rope = snap.rope_snapshot().rope();
         for i in 0..rope.len_lines().min(8) {
             let line = rope.line(i).to_string();
             let trimmed = line.trim();
             if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
+                return Some((trimmed.to_string(), false));
             }
         }
         None
@@ -270,8 +282,11 @@ impl Window {
 
     /// Resolve a tab's display label via the standard precedence.
     pub(crate) fn tab_label(&self, tab: &Tab) -> String {
-        let first = self.first_line_for(tab.buffer_id);
-        resolve_label(tab, first.as_deref())
+        let source = self.label_source_for(tab.buffer_id);
+        if let Some((filename, true)) = source.as_ref() {
+            return resolve_file_label(tab, filename);
+        }
+        resolve_label(tab, source.as_ref().map(|(text, _)| text.as_str()))
     }
 
     /// Open a fresh empty buffer in the focused pane as a new tab.
@@ -425,6 +440,7 @@ impl Window {
         // outgoing tab's scroll + primary selection BEFORE swapping.
         let is_tab_switch = self.tab_session.adopted_tab != Some(active);
         if is_tab_switch {
+            self.flush_due_vault_autosaves(true);
             self.save_tab_view_bookmark_for_adopted();
         }
         let buffer_changed = buffer_id != self.buffer_id;

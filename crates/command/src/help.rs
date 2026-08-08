@@ -6,10 +6,8 @@
 //! `cargo xtask gen-tutorial` (see `xtask/src/tutorial_gen.rs`) and
 //! embedded by `crates/app/assets/tutorial.md`.
 //!
-//! Sibling of [`crate::view_timeline_metrics`] — same shape as
-//! `view.metrics` (open-or-focus a synthetic buffer as a tab), just
-//! routed through the dedicated [`crate::ViewContext::show_tutorial_buffer`]
-//! method.
+//! The command opens or focuses a synthetic read-only buffer as a tab,
+//! routed through [`crate::ViewContext::show_tutorial_buffer`].
 
 use std::sync::Arc;
 

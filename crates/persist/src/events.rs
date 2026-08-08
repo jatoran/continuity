@@ -65,8 +65,6 @@ pub enum PersistOperation {
     SetBufferFile,
     /// `PersistMessage::SetSnapshotLabel` (fire-and-forget variant).
     SetSnapshotLabel,
-    /// `PersistMessage::RecordMetricsDelta`.
-    RecordMetricsDelta,
 }
 
 impl PersistOperation {
@@ -86,7 +84,6 @@ impl PersistOperation {
             Self::SaveWindow => "save_window",
             Self::SetBufferFile => "set_buffer_file",
             Self::SetSnapshotLabel => "set_snapshot_label",
-            Self::RecordMetricsDelta => "record_metrics_delta",
         }
     }
 }

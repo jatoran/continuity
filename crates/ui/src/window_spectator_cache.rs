@@ -14,7 +14,7 @@
 //! [`PaneId`] together with its [`PrewarmQuery`]. Subsequent paints
 //! reuse it via [`PrewarmQuery::is_compatible_for_motion`] — the same
 //! caret-byte-ignoring comparator the focused pane already uses for
-//! `Window::last_painted_frame_display`.
+//! `EditorSurface::projection.last_painted_frame_display`.
 //!
 //! Image reservations (γ) participate in the key via
 //! [`PrewarmQuery`]'s reservation signature, so a spectator with a
@@ -42,8 +42,8 @@ use crate::pane_tree::PaneId;
 ///
 /// `decorations` and `parse_revision` ride along with the frame so a
 /// promote into the focused-paint classify path can install them as
-/// `Window::last_painted_decorations` /
-/// `Window::last_painted_decoration_parse_revision`. Without that
+/// `EditorSurface::projection.last_painted_decorations` /
+/// `EditorSurface::projection.last_painted_decoration_parse_revision`. Without that
 /// shadowing, `classify_projection_build` rejects the promoted frame
 /// with `Cold` at `decoration_advanced` because the OUTGOING focused
 /// pane's decorations don't match the PROMOTED frame's stamp.

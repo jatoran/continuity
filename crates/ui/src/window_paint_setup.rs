@@ -43,11 +43,6 @@ impl Window {
     /// time-machine preview, and lazy-allocate the buffer-history render
     /// buffer when the focused tab is a history view.
     pub(crate) fn prepare_paint_frame(&mut self) {
-        // §I2: the metrics buffer overlay is now applied *after* the
-        // regular paint pipeline runs (chrome + empty-rope body), not
-        // as a full-window bypass — otherwise the panel paints over
-        // the tab strip and status bar. The overlay step happens later
-        // in `on_paint`, between `draw_buffer_no_present` and `Present`.
         {
             let _scope = crate::paint_trace::EventScope::new("drain_decoration_results");
             let _ = self.drain_decoration_results();

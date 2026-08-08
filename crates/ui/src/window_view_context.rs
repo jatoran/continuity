@@ -462,14 +462,6 @@ impl continuity_command::ViewContext for Window {
         self.mark_next_snapshot_impl(label)
             .map_err(map_ui_to_command_error)
     }
-    fn show_metrics_buffer(&mut self) -> Result<(), continuity_command::Error> {
-        self.show_metrics_buffer_impl()
-            .map_err(map_ui_to_command_error)
-    }
-    fn purge_metrics(&mut self) -> Result<(), continuity_command::Error> {
-        self.purge_metrics_impl().map_err(map_ui_to_command_error)
-    }
-
     fn show_tutorial_buffer(&mut self) -> Result<(), continuity_command::Error> {
         self.show_tutorial_buffer_impl()
             .map_err(map_ui_to_command_error)

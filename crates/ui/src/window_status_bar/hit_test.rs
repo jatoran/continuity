@@ -21,3 +21,22 @@ pub fn hit_test(
         .find(|b| x_dip >= b.left && x_dip <= b.right)
         .map(|b| b.kind)
 }
+
+/// Return whether a status segment currently dispatches a click action.
+#[must_use]
+pub fn is_clickable(kind: StatusBarSegmentKind) -> bool {
+    matches!(
+        kind,
+        StatusBarSegmentKind::Position
+            | StatusBarSegmentKind::Chars
+            | StatusBarSegmentKind::Words
+            | StatusBarSegmentKind::Lines
+            | StatusBarSegmentKind::LineEndings
+            | StatusBarSegmentKind::Chip
+            | StatusBarSegmentKind::VaultLauncher
+            | StatusBarSegmentKind::VaultFiles
+            | StatusBarSegmentKind::VaultMinimap
+            | StatusBarSegmentKind::VaultOutline
+            | StatusBarSegmentKind::VaultSettings
+    )
+}

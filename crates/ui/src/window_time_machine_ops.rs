@@ -163,6 +163,7 @@ impl Window {
                 rope: RopeSnapshot::new(Arc::new(rope), target),
                 selections: Vec::new(),
                 file: None,
+                is_read_only: true,
             };
             self.time_machine_preview = Some(TimeMachinePreview {
                 revision: target,
@@ -503,9 +504,8 @@ pub(crate) fn format_compact_timestamp(unix_ms: i64) -> String {
 }
 
 /// Howard Hinnant's `civil_from_days`. Returns `(year, month, day)`
-/// where `month ∈ 1..=12` and `day ∈ 1..=31`. Inlined here (rather
-/// than imported from `window_metrics_paint`) so the time-machine HUD
-/// path doesn't take a layer dependency on metrics paint.
+/// where `month ∈ 1..=12` and `day ∈ 1..=31`. Kept local to the
+/// time-machine HUD date-formatting path.
 fn civil_from_days(z: i64) -> (i32, u32, u32) {
     let z = z + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;

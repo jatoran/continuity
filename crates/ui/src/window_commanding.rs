@@ -6,7 +6,6 @@
 mod context;
 
 use continuity_command::{EDITOR_INSERT_CHAR, TAB_CLOSE};
-use continuity_input::KeyChord;
 use serde_json::Value;
 
 use crate::window_input_modifiers::active_modifiers;
@@ -69,6 +68,9 @@ impl Window {
         if self.overlay_has_keyboard_focus() {
             return self.overlay_on_char(ch);
         }
+        if self.try_file_tree_rename_char(ch) {
+            return true;
+        }
         // δ.1 — surround-on-type. When a paired open character is
         // typed against a non-empty selection AND auto-pair is enabled
         // for that pair, wrap the selection instead of replacing it
@@ -77,17 +79,11 @@ impl Window {
         // honours the per-char `auto_pair_*` settings (asterisk and
         // underscore default off so emphasis prose stays well-behaved).
         if self.try_surround_on_type(ch) {
-            self.note_metrics_keystroke(crate::window_time_machine::MetricsKeystroke::Inserted {
-                chars: 1,
-            });
             return true;
         }
         let dispatched =
             self.dispatch_command(EDITOR_INSERT_CHAR.as_str(), &Value::String(ch.to_string()));
         if dispatched {
-            self.note_metrics_keystroke(crate::window_time_machine::MetricsKeystroke::Inserted {
-                chars: 1,
-            });
             // §H5 — line-start `/` opens the slash-command palette.
             self.maybe_fire_slash_palette_trigger(ch);
         }
@@ -96,21 +92,21 @@ impl Window {
 
     pub(crate) fn on_keydown(&mut self, vk: u16) -> bool {
         let modifiers = active_modifiers();
-        self.shift_held = modifiers.shift;
+        self.surface.shift_held = modifiers.shift;
         self.note_input_now();
         let hover_cleared = if vk == windows::Win32::UI::Input::KeyboardAndMouse::VK_ESCAPE.0 {
             false
         } else {
             self.clear_footnote_hover()
         };
-        let Some(chord) = KeyChord::from_vk_modifiers(vk, modifiers) else {
+        let Some(chord) = crate::win32_key_chord::key_chord_from_virtual_key(vk, modifiers) else {
             // Modifier-only press: don't disturb a pending chord sequence.
             self.on_chord_hud_modifier_edge(modifiers);
             return hover_cleared;
         };
         let hud_dirty = self.on_chord_hud_typed();
         if self.overlay_has_keyboard_focus() {
-            self.pending_chord_sequence.clear();
+            self.surface.pending_chord_sequence.clear();
             if self.overlay_dispatch_find_mode_chord(&chord) {
                 return true;
             }
@@ -129,6 +125,9 @@ impl Window {
             // `editor.select_all` against the underlying document
             // while the user is typing into the palette — the chord
             // belongs to the overlay until it closes.
+            return true;
+        }
+        if self.try_file_tree_rename_keydown(vk, &chord) {
             return true;
         }
         // Phase-I1 — when the time-machine slider is open it owns
@@ -157,7 +156,7 @@ impl Window {
             return true;
         }
         // Build the tentative sequence (previous pending + this chord).
-        let mut seq = std::mem::take(&mut self.pending_chord_sequence);
+        let mut seq = std::mem::take(&mut self.surface.pending_chord_sequence);
         seq.push(chord.clone());
         let command_chain = match self.keymap.match_sequence_chain(&seq, self) {
             continuity_keymap::SequenceChainMatch::Match(bindings) => Some(
@@ -168,7 +167,7 @@ impl Window {
             ),
             continuity_keymap::SequenceChainMatch::Prefix => {
                 // Hold the pending sequence and wait for the next chord.
-                self.pending_chord_sequence = seq;
+                self.surface.pending_chord_sequence = seq;
                 return true;
             }
             continuity_keymap::SequenceChainMatch::None => None,
@@ -226,14 +225,14 @@ impl Window {
     /// Ctrl with the leader still pending dispatches its standalone
     /// binding here. Returns `true` when a command consumed the chord.
     pub(crate) fn flush_pending_chord_standalone(&mut self) -> bool {
-        if self.pending_chord_sequence.is_empty() {
+        if self.surface.pending_chord_sequence.is_empty() {
             return false;
         }
         if self.overlay_has_keyboard_focus() {
-            self.pending_chord_sequence.clear();
+            self.surface.pending_chord_sequence.clear();
             return false;
         }
-        let pending = std::mem::take(&mut self.pending_chord_sequence);
+        let pending = std::mem::take(&mut self.surface.pending_chord_sequence);
         let chain: Vec<String> = self
             .keymap
             .standalone_chain(&pending, self)
@@ -312,7 +311,14 @@ impl Window {
                 return DispatchOutcome::Skipped;
             }
         };
-        let dispatch_result = handler(args, self);
+        let dispatch_result = if args.is_null() {
+            match continuity_command::editor_operation_for_command(command) {
+                Some(operation) => self.dispatch_editor_operation(operation),
+                None => handler(args, self),
+            }
+        } else {
+            handler(args, self)
+        };
         let outcome = match &dispatch_result {
             Ok(()) => DispatchOutcome::Handled,
             Err(continuity_command::Error::UnsupportedContext(_)) => DispatchOutcome::Unsupported,

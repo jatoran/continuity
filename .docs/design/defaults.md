@@ -52,7 +52,7 @@ Test before adding a modal: is this interruption *reversible*? If yes, it's a ba
 ## Launch + sessions
 
 - **Launch behavior**: restore last session (all windows, panes, tabs, virtual desktops).
-- **Single instance per data dir**: a second `continuity.exe` launch does **not** replay the persisted session (which would duplicate every open window). It forwards its command-line file/folder paths to the running instance over `WM_COPYDATA` and exits; a bare launch just activates the running instance's top-most window. Bypass with `--new-instance` (the e2e insert hook bypasses too). Keyed per database path so portable + installed instances coexist. See `architecture.md` § Process model.
+- **Single instance per data dir**: a second `continuity.exe` launch does **not** replay the persisted session (which would duplicate every open window). It forwards its command-line file/folder paths to the running instance over `WM_COPYDATA` and exits; a bare launch activates the top-most Continuity window on the current virtual desktop, or creates a fresh blank window there when none exists. Virtual-desktop detection failure also creates locally rather than risking a desktop switch. Bypass with `--new-instance` (the e2e insert hook bypasses too). Keyed per database path so portable + installed instances coexist. See `architecture.md` § Process model.
 - **Restore without focus theft**: at launch only the most-recently-seen restored window takes the foreground; the rest show with `SW_SHOWNOACTIVATE`. A window restored onto a non-active virtual desktop never activates (activating it there would switch the user's desktop). Runtime-spawned windows (new window, tear-off, file open) and `Ctrl+Shift+T` reopen still activate.
 - **No empty panes** (D4).
 - Heavy multi-window + virtual-desktop user → `request_state_save` wiring (A8) is critical.
@@ -64,6 +64,18 @@ Test before adding a modal: is this interruption *reversible*? If yes, it's a ba
 - Trash retention = 30 days (spec §4 default retained).
 - Metrics rows excluded from trash flow (I2).
 
+## Vault defaults
+
+- A folder is a vault only when the nearest ancestor contains `.continuity/vault.toml`; the directory alone is not a marker.
+- Initialization is a non-modal banner action and writes version-1 defaults without overwriting an existing marker.
+- Vault continuous export is on with a 750 ms idle delay; validation accepts 100–60,000 ms. Non-vault and ignored files remain manual-save.
+- File-tree width defaults to 280 DIP and drag-clamps to 140–720 DIP.
+- Vault tree labels hide `.md` case-insensitively unless that would create a display collision. Folders sort first by name.
+- New vault markers demonstrate `solarized_dark`, Solarized file/folder label colors (`#839496` / `#268bd2`), and an active `.trash` ignore. Commented wildcard, re-include, path-style, and theme-token examples keep the syntax discoverable without hiding additional user content.
+- Plain click replaces the focused tab; Ctrl+click opens a tab; Shift+click opens a new window carrying the vault sidebar.
+- Closing the only tab with a folder tree open leaves a zero-tab workspace; a second `Ctrl+W` closes the window.
+- Vault deletion uses the Windows Recycle Bin and requires the same action twice within three seconds. `.continuity` is protected.
+
 ---
 
 ## Editing defaults
@@ -71,11 +83,13 @@ Test before adding a modal: is this interruption *reversible*? If yes, it's a ba
 - **Auto-pair off** (B8). Top user annoyance.
 - **Rainbow pair highlighting on** (B8).
 - **Trim trailing whitespace on save = on** (B14).
-- **Indentation = tabs** (`[editor].indent_type = "tabs"`). `Tab` inserts one tab character; `indent_width` / `tab_width` default 4. Switching `indent_type` at runtime does not retroactively convert existing indentation (`editor.spaces_to_tabs` / `editor.tabs_to_spaces` do that). `Shift+Tab` outdent strips a leading tab or up to one indent-width of leading spaces, so it works regardless of which the line actually uses.
+- **Indentation = tabs** (`[editor].indent_type = "tabs"`). `Tab` prefixes every covered line with one indent unit; it never inserts indentation inside line content. `indent_width` / `tab_width` default 4. Switching `indent_type` at runtime does not retroactively convert existing indentation (`editor.spaces_to_tabs` / `editor.tabs_to_spaces` do that). `Shift+Tab` removes one leading tab or up to one indent-width of leading spaces, so it works regardless of which the line actually uses.
 - **Indent folding on always** (H3).
 - **Caret-line highlight on by default** (`editor.caret_line_highlight`, `ViewOptions::current_line_highlight = true` in `crates/ui/src/window_view_options.rs`; toggle `view.toggle_current_line_highlight`, default chord `Ctrl+Alt+L`). This is the band painted behind the *caret* line and is distinct from the mouse-hover band (`editor.line_highlight`).
 - **Macros dropped** — no `.` repeat-last, no record/replay.
-- **Smart paste with indent dropped** (B13 keeps URL/image smart-paste only).
+- **Plain-text URL paste is literal.** Ctrl+V never inserts Markdown markers
+  around a `CF_UNICODETEXT` URL; rich `CF_HTML` conversion remains explicit to
+  the clipboard format supplied by the source application.
 
 ### File save dialog defaults (`crates/ui/src/window_file_dialogs.rs`)
 
@@ -100,6 +114,7 @@ Test before adding a modal: is this interruption *reversible*? If yes, it's a ba
 
 - Bottom of window, user-configurable segments.
 - Default segments: `line:col`, char count, word count, non-empty/total line count, selection stats, live numeric sum, encoding + line endings.
+- Indentation diagnostics do not appear as status chips. Mixed indentation and tabs/spaces conversion remain available through command-palette commands; only mixed line endings produce a corrective warning chip.
 - All segments are click-to-act (C2).
 
 ---
@@ -138,4 +153,5 @@ Every user-visible behavior should be reachable from **both** the command palett
 - `principles.md` — the rationale for these choices.
 - `CLAUDE.md` — the one-screen ethos summary.
 - `00_OVERVIEW.md` — global invariants and key trade-offs.
-- `../development/spec.md` — long-form source-of-truth spec (when this doc disagrees with the spec, update both deliberately; usually this doc is the more recent decision and the spec needs updating).
+- `../development/archive/spec.md` — historical long-form rationale; this
+  defaults document and focused feature contracts are current authority.

@@ -278,10 +278,10 @@ impl Window {
     pub(crate) fn paint_visible_buffer_history_overlays_no_present(
         &self,
     ) -> Result<(), crate::Error> {
-        let Some(renderer) = self.renderer.as_ref() else {
+        let Some(renderer) = self.surface.render.renderer.as_ref() else {
             return Ok(());
         };
-        let Some(text_format) = self.text_format.as_ref() else {
+        let Some(text_format) = self.surface.render.text_format.as_ref() else {
             return Ok(());
         };
         let colors = self.buffer_history_panel_colors();
@@ -365,7 +365,7 @@ impl Window {
             // paint is built at `base_font * font_size_scale`, so the
             // panel scales its row / column / dot geometry by the same
             // factor to keep glyphs inside their cells.
-            scale: self.view.font_size_scale,
+            scale: self.surface.view.font_size_scale,
         }
     }
 

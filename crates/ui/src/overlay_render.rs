@@ -115,6 +115,15 @@ pub(crate) fn build_overlay_draw(
             height,
             input_focused,
         )),
+        Overlays::VaultLauncher(launcher) => {
+            Some(crate::overlay_render_vault::layout_vault_launcher(
+                launcher,
+                panel_x,
+                panel_w,
+                height,
+                input_focused,
+            ))
+        }
         Overlays::GotoLine(g) => Some(layout_goto_line(g, panel_x, panel_w, input_focused)),
         Overlays::GotoHeading(g) => Some(layout_goto_heading(
             g,

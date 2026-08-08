@@ -50,6 +50,14 @@ pub struct RestoredState {
     pub placement_blob: Option<Vec<u8>>,
 }
 
+/// Decoded pane tree plus its fold, image-expansion, and folder-workspace state.
+pub type RestoredWindowState = (
+    PaneTree,
+    Vec<u32>,
+    Vec<(continuity_buffer::BufferId, usize, bool)>,
+    crate::pane_tree_codec_workspace::WorkspaceState,
+);
+
 /// Persistence callbacks attached to a window.
 ///
 /// `save` is fired on graceful shutdown (`WM_DESTROY`) and on coarse-grained
@@ -129,21 +137,17 @@ pub fn restore_with_folds_or_singleton(
 pub fn restore_with_state_or_singleton(
     initial: Option<&RestoredState>,
     fallback_tree: PaneTree,
-) -> (
-    PaneTree,
-    Vec<u32>,
-    Vec<(continuity_buffer::BufferId, usize, bool)>,
-) {
+) -> RestoredWindowState {
     let Some(state) = initial else {
-        return (fallback_tree, Vec::new(), Vec::new());
+        return (fallback_tree, Vec::new(), Vec::new(), Default::default());
     };
-    match pane_tree_codec::decode_with_state(&state.pane_tree_json) {
-        Ok((tree, folds, expand)) => (tree, folds, expand),
+    match crate::pane_tree_codec_workspace::decode_with_workspace(&state.pane_tree_json) {
+        Ok((tree, folds, expand, workspace)) => (tree, folds, expand, workspace),
         Err(e) => {
             eprintln!(
                 "continuity-ui: discarding restored pane tree + state (decode failed: {e}); falling back to singleton"
             );
-            (fallback_tree, Vec::new(), Vec::new())
+            (fallback_tree, Vec::new(), Vec::new(), Default::default())
         }
     }
 }

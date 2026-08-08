@@ -81,6 +81,9 @@ pub(crate) fn make_open_file_window_handler(ctx: &RegistryCtx) -> OpenFileWindow
             explicit_origin: request.explicit_origin,
             cascade_from: request.cascade_from,
             recovery_notices: request.recovery_notices,
+            disposition: request.disposition,
+            source_window_id: request.source_window_id,
+            vault_root: request.vault_root,
         });
     })
 }

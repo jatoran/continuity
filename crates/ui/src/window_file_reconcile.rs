@@ -135,6 +135,7 @@ impl Window {
         from_save: bool,
     ) {
         if self.tree.tabs.values().any(|t| t.buffer_id == buffer_id) {
+            self.suspend_vault_autosave(buffer_id);
             let path = file.path.clone();
             self.file_banner = Some(FileBanner::external_with_content(
                 buffer_id, path, content, file, from_save,
@@ -164,6 +165,7 @@ impl Window {
         let _ = self
             .editor
             .set_file_association(buffer_id, Some(file.clone()));
+        self.vault.resume_autosave(buffer_id);
         self.mark_tab_file_associated(buffer_id, &file);
         let now = self.now_ms();
         self.file_banner = Some(FileBanner::transient(

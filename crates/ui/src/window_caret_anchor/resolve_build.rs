@@ -28,8 +28,8 @@ impl Window {
         char_width_dip: f32,
     ) -> continuity_render::FrameDisplay {
         let visible_rows = crate::window_paint::visible_display_row_range(
-            self.view.scroll_y_dip,
-            self.view.viewport_height_dip,
+            self.surface.view.scroll_y_dip,
+            self.surface.view.viewport_height_dip,
             self.effective_line_height(),
         );
         self.build_frame_display_viewport_cached(
@@ -115,7 +115,7 @@ impl Window {
             &caret_bytes,
             &[],
             metrics.wrap_width_dip,
-            self.font_state,
+            self.surface.render.font_state,
         );
         let fd = if let Some(fd) = self.build_caret_anchor_targeted_frame_display(
             &query,
@@ -137,7 +137,7 @@ impl Window {
             let total_source_lines = rope.len_lines().max(1) as u32;
             let seed_row = (line as u32).min(total_source_lines.saturating_sub(1));
             let line_height = self.effective_line_height();
-            let viewport_rows = (self.view.viewport_height_dip / line_height)
+            let viewport_rows = (self.surface.view.viewport_height_dip / line_height)
                 .ceil()
                 .max(1.0) as u32;
             let visible_rows = seed_row..seed_row.saturating_add(viewport_rows);

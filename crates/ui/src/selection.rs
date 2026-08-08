@@ -64,6 +64,7 @@ impl Window {
             );
         }
         result?;
+        self.schedule_vault_autosave(self.buffer_id);
         self.cancel_active_display_prewarm();
         self.maybe_dispatch_projection_worker_early(is_first_edit_since_paint, "insert_text");
         Ok(())
@@ -97,6 +98,7 @@ impl Window {
             );
         }
         result?;
+        self.schedule_vault_autosave(self.buffer_id);
         self.cancel_active_display_prewarm();
         self.maybe_dispatch_projection_worker_early(is_first_edit_since_paint, "delete_back");
         Ok(())
@@ -130,6 +132,7 @@ impl Window {
             );
         }
         result?;
+        self.schedule_vault_autosave(self.buffer_id);
         self.cancel_active_display_prewarm();
         self.maybe_dispatch_projection_worker_early(is_first_edit_since_paint, "delete_forward");
         Ok(())

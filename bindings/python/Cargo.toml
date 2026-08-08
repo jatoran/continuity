@@ -1,0 +1,20 @@
+[package]
+name = "continuity-python"
+version = "0.2.22"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Headless Python binding for the synchronous Continuity editor engine"
+publish = false
+
+[lib]
+name = "_continuity_editor"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+continuity-buffer = { workspace = true }
+continuity-engine = { workspace = true }
+continuity-text = { workspace = true }
+pyo3 = { workspace = true, features = ["abi3-py310"] }

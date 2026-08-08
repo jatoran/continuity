@@ -10,9 +10,9 @@ name = "solarized_darker"
 
 "panel.background"                  = "#001b22"
 "panel.foreground"                  = "#93a1a1"
-"panel.active_tab.background"       = "#002b36"
+"panel.active_tab.background"       = "#001017"
 "panel.active_tab.foreground"       = "#fdf6e3"
-"panel.inactive_tab.background"     = "#001017"
+"panel.inactive_tab.background"     = "#00242e"
 "panel.inactive_tab.foreground"     = "#586e75"
 
 "pane.border"                       = "#001b22"

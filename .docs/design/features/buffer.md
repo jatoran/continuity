@@ -1,12 +1,15 @@
 # Buffer
 
-The per-document aggregate: rope + revision + selections + undo tree + optional file association. Only the editor core thread mutates a Buffer; every other thread sees an immutable `RopeSnapshot = Arc<Rope> + Revision`.
+The per-document aggregate: rope + revision + selections + undo tree + optional
+file association. Only the caller-selected engine owner mutates a `Buffer`;
+every other thread sees an immutable `RopeSnapshot = Arc<Rope> + Revision`.
 
 ## What it is
-- The per-document aggregate the editor manipulates. Owns a `ropey::Rope`, a `Revision` counter, a `Vec<Selection>`, an undo tree, and an optional `FileAssociation`. Lives only inside the `core` thread; everywhere else sees `RopeSnapshot = Arc<Rope>` clones.
+- The per-document aggregate lives inside `Engine`; Windows selects the core
+  actor as owner, while direct embedders select their own thread.
 
 ## Key concepts
-- **`BufferId`** — `Uuid` v7 (time-sortable); minted by `core` on `OpenBuffer`. Never reused.
+- **`BufferId`** — `Uuid` v7 (time-sortable); minted by the engine id source or supplied by a loading host. Never reused.
 - **`Revision(u64)`** — monotonic, bumped on every `Buffer::apply`. Stamps every snapshot and worker result.
 - **`Selection { anchor, head, kind }`** — `Caret` / `LineWise` / `BlockWise`. Multi-cursor is the general case; single is `selections.len() == 1`.
 - **`EditOp`** — only atomic mutation: `Insert { at, text } | Delete { range } | Replace { range, text }`. Resists growth (no `MoveLineUp` variant; that's a sequence under one `UndoGroupId`).
@@ -38,15 +41,19 @@ Positions are `(line, byte_in_line)` — byte-based at the storage layer, line-a
 ### Undo tree
 - `UndoTree` is a tree, not a stack. Redo branches survive new edits — see `crates/buffer/src/undo.rs`.
 - Each `EditRecord` carries `op`, `inverse_op`, `revision_before`, `revision_after`, `selections_before`, `selections_after`.
-- Groups are minted via `UndoOrchestrator::mint_or_coalesce_group`; consecutive keystrokes within a coalesce window merge into one group.
+- Groups are minted by `continuity-engine`'s undo manager; consecutive keystrokes within a coalesce window merge into one group.
 
 ### Undo/redo record delta history (invariant)
-- **Invariant: every revision-advancing path records rope delta history.** `UndoOrchestrator::{undo, redo, replay_group}` (`crates/core/src/undo.rs`) capture each applied inverse/replayed op's byte delta via `delta_with_points_for_op` against the pre-apply rope, then `push_delta_history` against the resulting revision — exactly as the forward edit paths in `crates/core/src/dispatch.rs` do.
+- **Invariant: every revision-advancing path records rope delta history.**
+  Engine forward edits and undo/redo capture each op's point-augmented delta
+  against the pre-apply rope and append it to the same bounded history.
 - **Failure mode (Ctrl+Z crash, fixed 2026-06-16):** an undo that advances the rope revision but records no delta makes `rope_deltas_since(old_rev)` return `(empty, covered=true)` — a false "nothing changed". The UI projection classifier then reuses the pre-undo display map against the post-undo rope and slices an out-of-bounds byte range on paint. The fix is structural: the invariant above; the projection classifier carries a defense-in-depth backstop (see [Display map](display-map.md)).
 
 ## API surface
 - Public crate API: `Buffer::{empty, from_text, id, rope, revision, selections, set_selections, apply, capture_removed_text, undo_tree, undo_tree_mut, file_association, set_file_association, snapshot}`.
-- All mutation paths *outside* the buffer crate go through `core::EditorHandle::*` — there is no `Mutex<Buffer>` anywhere.
+- Public mutation goes through synchronous `continuity_engine::Engine`; the
+  Windows UI reaches that facade through `core::EditorHandle`. There is no
+  `Mutex<Buffer>`.
 
 ## Configuration
 - None at the buffer level; settings (caret style, indent unit, etc.) live in `config::Settings` and are read by callers.

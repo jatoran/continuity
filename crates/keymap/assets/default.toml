@@ -547,6 +547,10 @@ command = "editor.replace"
 keys = ["ctrl+shift+p"]
 command = "palette.show"
 
+[[binding]]
+keys = ["ctrl+k", "v"]
+command = "vault.launcher_show"
+
 # δ.4 — previous-buffer browser. Lists every buffer ever opened (live
 # in SQLite), so users can re-open closed buffers beyond the single-step
 # `tab.reopen_closed` history. Distinct from the file-open dialog
@@ -820,14 +824,6 @@ keys = ["ctrl+alt+right"]
 command = "pane.resize_right"
 
 [[binding]]
-keys = ["ctrl+alt+up"]
-command = "pane.resize_up"
-
-[[binding]]
-keys = ["ctrl+alt+down"]
-command = "pane.resize_down"
-
-[[binding]]
 keys = ["ctrl+alt+z"]
 command = "pane.maximize_toggle"
 
@@ -1069,11 +1065,6 @@ command = "view.slash_palette_show"
 [[binding]]
 keys = ["ctrl+alt+t"]
 command = "buffer.timeline"
-
-# §I2 metrics buffer (WPM + activity heatmap)
-[[binding]]
-keys = ["ctrl+alt+m"]
-command = "view.metrics"
 
 # Cell-scoped overrides inside a pipe-table cell. The keymap is
 # last-match-wins among bindings whose `when` predicate is true, so

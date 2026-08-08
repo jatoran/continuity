@@ -12,10 +12,9 @@ shapes it serializes.
 Top-level: thread + queue (`handle.rs`, `persist_loop.rs`, `message.rs`),
 schema + migrations (`schema.rs`), codecs (`codec.rs`, `checksum.rs`),
 recovery driver (`recover.rs`), backup scheduler (`backup.rs`), path
-resolution (`paths.rs`), error type (`error.rs`), and history / metrics
-modules (`metrics.rs`, `timeline.rs`, `window_state.rs`, `file_assoc.rs`,
-`buffer_listing.rs`, `handle_buffer_listing.rs`, `handle_timeline.rs`,
-`handle_metrics.rs`, `budget.rs`).
+resolution (`paths.rs`), error type (`error.rs`), and history modules
+(`timeline.rs`, `window_state.rs`, `file_assoc.rs`, `buffer_listing.rs`,
+`handle_buffer_listing.rs`, `handle_timeline.rs`, `budget.rs`).
 
 Hot-path edit checksums are supplied by `continuity_buffer::Buffer`'s
 running FNV-1a state. Persist still owns one-shot snapshot/file checksum
@@ -38,6 +37,8 @@ Every table family lives in one sibling:
 - `store/undo_groups.rs` — `undo_groups` insert + ordered reload.
 - `store/backup.rs` — SQL-level online-backup driver (the cadence
   scheduler lives in top-level `backup.rs`).
+- `known_vault.rs` + `store/known_vaults.rs` — blocking client methods and
+  SQLite operations for pinned/recent machine-local vault navigation.
 
 `paths.rs` also exposes `tutorial_seen_path()` — the sentinel file
 (`.tutorial_seen` next to `continuity.db`) that gates the first-launch

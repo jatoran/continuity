@@ -371,7 +371,9 @@ impl Window {
                             .borrow_mut()
                             .insert(resolved_buffer_id, revision);
                         if self.decoration_cache.insert(buffer_id, d) {
-                            self.display_map_prewarm
+                            self.surface
+                                .projection
+                                .display_map_prewarm
                                 .invalidate_decoration_revision(buffer_id, revision);
                             if !updated_buffer_ids.contains(&buffer_id) {
                                 updated_buffer_ids.push(buffer_id);

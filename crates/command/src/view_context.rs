@@ -11,7 +11,7 @@
 //! relationship makes these methods callable on any `Context` reference.
 
 #[macro_use]
-mod timeline_metrics;
+mod timeline;
 #[macro_use]
 mod table_methods;
 
@@ -385,16 +385,17 @@ pub trait ViewContext {
         Err(Error::UnsupportedContext("copy_selection"))
     }
 
-    /// Paste the OS clipboard's `CF_UNICODETEXT` payload at the active
-    /// caret(s) (Ctrl+V).
+    /// Paste the OS clipboard at the active caret(s) (Ctrl+V). Native hosts
+    /// may import images or convert rich HTML first; a plain-text payload,
+    /// including a URL, is inserted exactly as supplied apart from newline
+    /// normalization.
     fn paste_clipboard(&mut self) -> Result<(), Error> {
         Err(Error::UnsupportedContext("paste_clipboard"))
     }
 
-    /// Paste the OS clipboard as plain text (Ctrl+Shift+V): explicitly
-    /// skips the smart-paste URL transform and the clipboard-image
-    /// import that `paste_clipboard` (Ctrl+V) performs, inserting the
-    /// raw `CF_UNICODETEXT` payload verbatim.
+    /// Paste the OS clipboard as plain text (Ctrl+Shift+V): explicitly skips
+    /// clipboard-image import and rich-HTML conversion, inserting the raw
+    /// `CF_UNICODETEXT` payload apart from newline normalization.
     fn paste_as_plain_text(&mut self) -> Result<(), Error> {
         Err(Error::UnsupportedContext("paste_as_plain_text"))
     }
@@ -537,5 +538,5 @@ pub trait ViewContext {
         Err(Error::UnsupportedContext("show_tab_overlay"))
     }
 
-    view_context_timeline_metrics_methods!();
+    view_context_timeline_methods!();
 }

@@ -46,12 +46,17 @@ impl Window {
     /// Cancel queued/cached prewarm for the currently active buffer.
     pub(crate) fn cancel_active_display_prewarm(&mut self) {
         let document = self.buffer_id.as_uuid().as_u128();
-        self.display_map_prewarm.cancel_document(document);
+        self.surface
+            .projection
+            .display_map_prewarm
+            .cancel_document(document);
     }
 
     /// Cancel queued/cached prewarm for `buffer_id`.
     pub(crate) fn cancel_display_prewarm_for_buffer(&mut self, buffer_id: BufferId) {
-        self.display_map_prewarm
+        self.surface
+            .projection
+            .display_map_prewarm
             .cancel_document(buffer_id.as_uuid().as_u128());
     }
 
@@ -61,7 +66,9 @@ impl Window {
         query: &PrewarmQuery,
         allow_undecorated: bool,
     ) -> Option<FrameDisplay> {
-        self.display_map_prewarm
+        self.surface
+            .projection
+            .display_map_prewarm
             .frame_for_query(query, allow_undecorated)
     }
 }

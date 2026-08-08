@@ -13,7 +13,7 @@ use crate::window::Window;
 
 impl Window {
     pub(super) fn process_one_display_prewarm_stage(&mut self) {
-        let Some(work) = self.display_map_prewarm.pop_work() else {
+        let Some(work) = self.surface.projection.display_map_prewarm.pop_work() else {
             return;
         };
         if !self.is_focused_mru_target(work.buffer_id) {
@@ -25,7 +25,9 @@ impl Window {
         let rope = snapshot.rope_snapshot().rope();
         let rope_revision = snapshot.rope_snapshot().revision().get();
         let document = work.buffer_id.as_uuid().as_u128();
-        self.display_map_prewarm
+        self.surface
+            .projection
+            .display_map_prewarm
             .invalidate_rope_revision(document, rope_revision);
         let caret_bytes = Self::caret_bytes_for_projection(rope, snapshot.selections());
         let search_minimap_active = self
@@ -43,7 +45,9 @@ impl Window {
                     .filter(|decorations| decorations.revision == rope_revision);
                 if current.is_none() {
                     self.submit_decoration_for_buffer(work.buffer_id);
-                    self.display_map_prewarm
+                    self.surface
+                        .projection
+                        .display_map_prewarm
                         .push_work(work.buffer_id, PrewarmStage::Decoration);
                     return;
                 }
@@ -69,11 +73,15 @@ impl Window {
             &caret_bytes,
             &folds,
             wrap_width_dip,
-            self.font_state,
+            self.surface.render.font_state,
         );
-        self.display_map_prewarm
+        self.surface
+            .projection
+            .display_map_prewarm
             .insert(query, work.stage, frame_display);
-        self.display_map_prewarm
+        self.surface
+            .projection
+            .display_map_prewarm
             .push_next_stage(work.buffer_id, work.stage);
     }
 }

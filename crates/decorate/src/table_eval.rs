@@ -65,8 +65,16 @@ pub struct EvaluatedTable {
 #[must_use]
 pub fn evaluate_tables(source: &str, blocks: &[BlockSpan]) -> Vec<EvaluatedTable> {
     let mut out = Vec::new();
+    let mut previous_table_end = 0usize;
     for block in blocks {
         if !matches!(block.kind, BlockKind::PipeTable) {
+            continue;
+        }
+        // Newer tree-sitter-md releases can report a second PipeTable span
+        // for the whitespace-only body rows after the header span. The
+        // extension below already absorbs those rows into the first logical
+        // table, so do not evaluate an overlapping parser fragment twice.
+        if block.start_byte < previous_table_end {
             continue;
         }
         // tree-sitter-md terminates the pipe-table block at the last
@@ -90,6 +98,7 @@ pub fn evaluate_tables(source: &str, blocks: &[BlockSpan]) -> Vec<EvaluatedTable
             block_range: block.start_byte..extended_end,
             overrides,
         });
+        previous_table_end = extended_end;
     }
     out
 }

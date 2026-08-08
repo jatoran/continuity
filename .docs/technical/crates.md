@@ -16,7 +16,7 @@ Generated companions: `.docs/generated/CRATES.md` for current counts/deps, `.doc
 | Crate | Responsibility | Key files |
 |---|---|---|
 | `buffer` | `Buffer` aggregate, `Revision`, `Selection`, undo tree, snapshot, incremental checksum | `src/buffer.rs`, `src/buffer/`, `src/checksum.rs`, `src/undo.rs`, `src/revision.rs`, `src/snapshot.rs`, `src/file.rs`, `src/id.rs` |
-| `persist` | SQLite schema + edit log + snapshots + hot backup + recovery | `src/store.rs` + responsibility-scoped siblings under `src/store/` (`snapshots.rs`, `edits.rs`, `buffers.rs`, `trash.rs`, `undo_groups.rs`, `backup.rs`), `src/handle.rs`, `src/handle_timeline.rs`, `src/handle_metrics.rs`, `src/persist_loop.rs`, `src/codec.rs`, `src/checksum.rs`, `src/schema.rs`, `src/recover.rs`, `src/backup.rs`, `src/paths.rs` |
+| `persist` | SQLite schema + edit log + snapshots + hot backup + recovery | `src/store.rs` + responsibility-scoped siblings under `src/store/` (`snapshots.rs`, `edits.rs`, `buffers.rs`, `trash.rs`, `undo_groups.rs`, `backup.rs`), `src/handle.rs`, `src/handle_timeline.rs`, `src/persist_loop.rs`, `src/codec.rs`, `src/checksum.rs`, `src/schema.rs`, `src/recover.rs`, `src/backup.rs`, `src/paths.rs` |
 
 ## Decoration + display projection
 
@@ -30,10 +30,15 @@ Generated companions: `.docs/generated/CRATES.md` for current counts/deps, `.doc
 
 | Crate | Responsibility | Key files |
 |---|---|---|
-| `core` | Singleton editor state machine; sole writer of every `Buffer` | `src/state.rs`, `src/handle.rs`, `src/dispatch.rs`, `src/message.rs`, `src/selection_edit.rs`, `src/selection_coalesce.rs`, `src/edit_inline.rs`, `src/edit_lines.rs` (+ `src/edit_lines/toggle_bullet.rs`), `src/edit_line_text.rs` (+ `src/edit_line_text/trim.rs`), `src/edit_words.rs`, `src/edit_list.rs` (+ `src/edit_list/renumber.rs`), `src/edit_markdown*.rs` (+ `src/edit_markdown/emphasis.rs`, `src/edit_markdown/sections.rs`), `src/edit_pairs.rs`, `src/edit_indent_shift.rs`, `src/edit_planning.rs`, `src/undo.rs`, `src/policy.rs`, `src/clock.rs` |
-| `command` | `Registry` + `Context` trait + `ContextPredicate` + command families | `src/registry.rs`, `src/context.rs`, `src/predicate.rs`, `src/id.rs`, `src/editor.rs`, `src/editor_extras.rs`, `src/selection.rs`, `src/view.rs`, `src/markdown.rs`, `src/clipboard.rs`, `src/file.rs`, `src/search.rs`, `src/tabs.rs`, `src/spell.rs`, `src/settings.rs` |
+| `engine` | Synchronous storage-neutral buffer state, planners, undo/coalescing, deltas, `ChangeBatch`, events | `src/engine.rs`, `src/change.rs`, `src/undo.rs`, `src/state.rs`, `src/selection_edit.rs`, `src/edit_*.rs`, `src/delta_history.rs` |
+| `host` | Platform-neutral intents, typed editor operations, post-dispatch event batches, checked UTF-16 boundaries, optional ephemeral runtime | `src/intent.rs`, `src/operation.rs`, `src/event.rs`, `src/runtime.rs`, `src/utf16.rs` |
+| `wasm` | Thin synchronous `wasm-bindgen` transport over engine, decoration, and display projection | `src/editor.rs`, `src/report.rs`, `src/projection.rs`, `tests/parity_native.rs` |
+| `c_api` | Versioned C ABI, panic boundary, allocator/thread contract, checked public header | `src/api.rs`, `src/handle.rs`, `src/types.rs`, `include/continuity_engine.h` |
+| `continuity-python` | PyO3 `abi3` headless Python facade over one synchronous engine document | `bindings/python/src/lib.rs`, `bindings/python/pyproject.toml` |
+| `core` | Native threaded `Engine` host and SQLite/snapshot adapter | `src/handle.rs`, `src/handle/core_loop.rs`, `src/dispatch.rs`, `src/persistence_bridge.rs`, `src/message.rs`, `src/policy.rs`, `src/clock.rs` |
+| `command` | Desktop `Registry`/`Context` plus context-free command-to-`EditorOperation` resolution | `src/portable_operation.rs`, `src/registry.rs`, `src/context.rs`, `src/predicate.rs`, command-family modules |
 | `keymap` | TOML chord lookup, multi-chord sequence, conflict checker | `src/lib.rs`, `src/chord.rs`, `src/conflict.rs`, `assets/default.toml` |
-| `input` | Win32 raw input → `KeyChord`, IME helpers | `src/lib.rs`, `src/chord.rs` |
+| `input` | Platform-neutral key-chord grammar and modifiers | `src/lib.rs`, `src/chord.rs` |
 
 ## Theme + config
 
@@ -53,7 +58,7 @@ Generated companions: `.docs/generated/CRATES.md` for current counts/deps, `.doc
 
 | Crate | Responsibility | Key files |
 |---|---|---|
-| `ui` | HWND owner, pane tree, tab strip, overlays, keystroke dispatch, paint orchestration | `src/window.rs`, `src/window_commanding.rs`, `src/window_overlays.rs`, `src/window_paint.rs` + responsibility-scoped siblings under `src/window_paint/` (`frame_resolution.rs`, `cache_seed.rs`, `cold_deferred.rs`, `decorations.rs`, `dispatch.rs`, `payload.rs`, `view_options.rs`), `src/window_panes.rs`, `src/window_startup_open.rs`, `src/window_pane_layout_ops.rs` (apply_layout_shortcut / toggle_maximize / resize), `src/window_runtime.rs`, `src/window_view.rs`, `src/window_scroll.rs`, `src/window_view_context.rs`, `src/window_dismiss.rs`, `src/window_link_clipboard.rs`, `src/window_view_options.rs`, `src/window_settings_reload.rs`, `src/window_placement_persistence.rs`, `src/window_placement_apply.rs`, `src/window_clipboard.rs`, `src/clipboard_html.rs`, `src/html_to_markdown.rs`, `src/window_ime.rs`, `src/window_spell.rs`, `src/window_auto_pair.rs`, `src/window_pane_modes.rs`, `src/window_time_machine.rs`, `src/window_mouse_tabs.rs`, `src/window_mouse_splitter.rs`, `src/window_tab_drag.rs`, `src/window_tab_drag_ghost.rs`, `src/window_tab_drag_overlay.rs`, `src/window_tab_strip_scroll.rs`, `src/window_dispatch.rs` (+ `src/window_dispatch/panic_barrier.rs`), `src/window_view.rs` (+ `src/window_view/caret_reveal.rs`), `src/window_caret_anchor.rs` (+ `src/window_caret_anchor/resolve_build.rs`), `src/window_markdown_table_ops.rs` (+ `src/window_markdown_table_ops/paste_normalize.rs`), `src/pane_tree.rs`, `src/pane_state.rs`, `src/pane_layout.rs`, `src/pane_shortcuts.rs`, `src/selection.rs`, `src/selection_dispatch.rs`, `src/selection_vertical.rs`, `src/find_bar.rs`, `src/find_regex_help.rs`, `src/find_replace_plan.rs`, `src/find_scope.rs`, `src/window_find_replace.rs`, `src/window_find_scope.rs`, `src/window_find_target.rs`, `src/find_in_all.rs`, `src/search_minimap.rs`, `src/quick_open.rs`, `src/goto_overlay.rs`, `src/palette.rs`, `src/palette_rank.rs`, `src/palette_mode.rs`, `src/view_overlay.rs`, `src/overlay_render.rs`, `src/overlay_render_find.rs`, `src/overlay_render_palette.rs`, `src/file_io.rs`, `src/window_file.rs`, `src/jump_glow.rs`, `src/caret_tween.rs`, `src/smart_paste.rs`, `src/window_dismiss.rs`, `src/window_theme.rs`, `src/window_context_menu.rs`, `src/window_registry.rs` |
+| `ui` | HWND owner, desktop message pump, evolving reusable editor surface, pane/tab shell, overlays, input, and paint orchestration | `src/desktop_shell.rs`, `src/editor_surface.rs`, `src/editor_surface/projection.rs`, `src/window.rs`, `src/window_commanding.rs`, `src/window_paint.rs` and siblings, `src/window_ime.rs`, `src/window_clipboard.rs`, `src/window_dispatch.rs`, `src/pane_tree.rs`, `src/pane_state.rs` |
 
 ## App + test support
 
@@ -61,11 +66,17 @@ Generated companions: `.docs/generated/CRATES.md` for current counts/deps, `.doc
 |---|---|---|
 | `app` | Binary crate; wiring + `fn main`. Only crate allowed `anyhow` | `src/main.rs`, `src/main_initial_requests.rs`, `src/registry.rs` |
 | `test_support` | Fixtures, golden buffers, `FakeClock`, proptest generators | `src/fixtures.rs`, `src/clock.rs`, `src/gen.rs`, `tests/canary.rs` (must always pass) |
+| `test_fixtures` | Dependency-free semantic parity corpus | `src/parity_corpus.rs` |
 | `xtask` | Workspace build / bench / release / conventions runner | `xtask/src/main.rs`, `xtask/src/conventions.rs`, `xtask/src/docs_gen.rs` |
+
+The stable JavaScript/TypeScript API is not the generated `wasm` crate output;
+it lives in `packages/editor/index.js` and `index.d.ts`. Package and clean
+consumer validation are owned by `xtask/src/wasm.rs`.
 
 ## Ownership rules (quick reference)
 - **`text` + `win`** — no internal deps; everyone else can depend on them.
-- **`core`** — the only crate that owns mutable buffer state. Single-writer.
+- **`engine`** — owns mutable buffer state; one caller-selected writer per instance.
+- **`core`** — native Windows engine owner and durability adapter.
 - **`ui`** — the only crate that touches HWNDs.
 - **`app`** — the only crate with `fn main`. The only crate allowed `anyhow`.
 - **Cross-layer `pub use`** — forbidden. Imports are explicit so the dependency graph stays legible.

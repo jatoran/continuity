@@ -222,7 +222,7 @@ pub(crate) fn command_timeline_section(rows: &[TraceRow]) -> String {
     s.push_str("| command id | n | ok | err | max µs |\n");
     s.push_str("|---|---:|---:|---:|---:|\n");
     let mut sorted: Vec<(String, (u64, u64, u64, u64))> = by_id.into_iter().collect();
-    sorted.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
+    sorted.sort_by_key(|entry| std::cmp::Reverse(entry.1 .0));
     for (id, (n, max_us, ok, err)) in sorted.iter().take(40) {
         s.push_str(&format!("| {id} | {n} | {ok} | {err} | {max_us} |\n"));
     }

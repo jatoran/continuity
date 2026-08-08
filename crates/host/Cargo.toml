@@ -1,0 +1,17 @@
+[package]
+name = "continuity-host"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+continuity-buffer = { workspace = true }
+continuity-engine = { workspace = true }
+continuity-text = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+ropey = { workspace = true }
+unicode-segmentation = { workspace = true }

@@ -104,10 +104,9 @@ fn parse_mod_decl(line: &str) -> Option<(&'static str, String)> {
         ("public", rest)
     } else if let Some(rest) = line.strip_prefix("pub(crate) mod ") {
         ("crate", rest)
-    } else if let Some(rest) = line.strip_prefix("mod ") {
-        ("private", rest)
     } else {
-        return None;
+        let rest = line.strip_prefix("mod ")?;
+        ("private", rest)
     };
     let name = rest
         .chars()

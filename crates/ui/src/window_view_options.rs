@@ -150,7 +150,7 @@ pub(crate) struct ViewOptions {
     /// Phase H — focus mode (H1), distraction-free (H2), indent
     /// folding (H3), slash-palette (H5), Ctrl+Tab overlay (H6).
     pub pane_modes: crate::window_pane_modes::PaneModesState,
-    /// Spec §I — time-machine slider (I1) + metrics buffer (I2).
+    /// Time-machine slider state.
     pub time_machine: crate::window_time_machine::TimeMachineState,
     /// Synthetic read-only buffer id for the tutorial tab in this
     /// window, once opened. `None` until the user first invokes
@@ -159,15 +159,14 @@ pub(crate) struct ViewOptions {
     /// the synthetic buffer as a new tab. Cleared when the tab is
     /// closed (the synthetic buffer itself remains in core's
     /// `EditorState` because closing a tab doesn't drop its buffer
-    /// — same pattern as the metrics buffer).
+    /// — the same synthetic-buffer reuse pattern as other special tabs).
     pub tutorial_buffer_id: Option<BufferId>,
     /// Synthetic empty buffer that backs every buffer-history tab in
     /// this window. Allocated lazily on first `view.buffer_history`
     /// dispatch (or first paint of a restored history tab) so the
     /// regular paint pipeline can run with a real `EditorSnapshot`
     /// behind the panel overlay — same pattern as
-    /// [`Self::tutorial_buffer_id`] for the tutorial tab and the
-    /// metrics buffer for the §I2 metrics surface.
+    /// [`Self::tutorial_buffer_id`] for the tutorial tab.
     pub buffer_history_render_buffer_id: Option<BufferId>,
     /// `true` while the image-animation `WM_TIMER` is running. Auto-
     /// armed when an animated GIF first enters the cache; auto-

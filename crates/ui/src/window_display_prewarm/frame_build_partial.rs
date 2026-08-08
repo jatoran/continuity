@@ -59,15 +59,17 @@ impl Window {
         let viewport_source_lines = viewport_source_range
             .end
             .saturating_sub(viewport_source_range.start);
-        let (row_index, stats, dwrite_stats) = if let Some(format) = self.text_format.as_ref() {
+        let (row_index, stats, dwrite_stats) = if let Some(format) =
+            self.surface.render.text_format.as_ref()
+        {
             let mut measure = DirectWriteWidthMeasure::new_with_run_cache(
-                self.dwrite.raw(),
+                self.surface.render.dwrite.raw(),
                 format,
                 self.scaled_font_size(),
                 continuity_render::DEFAULT_HEADING_SCALE,
                 fallback_char_width_dip,
-                Some(std::sync::Arc::clone(&self.walker_run_cache)),
-                self.font_state,
+                Some(std::sync::Arc::clone(&self.surface.render.walker_run_cache)),
+                self.surface.render.font_state,
                 crate::window::FONT_LOCALE,
             );
             let scope = crate::paint_trace::is_trace_enabled().then(|| {
@@ -86,10 +88,10 @@ impl Window {
                 self.markdown_render_toggles(),
                 wrap_width_dip,
                 &mut measure,
-                self.font_state.0,
+                self.surface.render.font_state.0,
                 crate::window::FONT_LOCALE,
-                &self.walker_wrap_cache,
-                &self.walker_segment_cache,
+                &self.surface.render.walker_wrap_cache,
+                &self.surface.render.walker_segment_cache,
                 walker_reason,
                 viewport_source_range,
                 safety_margin,
@@ -115,10 +117,10 @@ impl Window {
                 self.markdown_render_toggles(),
                 wrap_width_dip,
                 &mut measure,
-                self.font_state.0,
+                self.surface.render.font_state.0,
                 crate::window::FONT_LOCALE,
-                &self.walker_wrap_cache,
-                &self.walker_segment_cache,
+                &self.surface.render.walker_wrap_cache,
+                &self.surface.render.walker_segment_cache,
                 walker_reason,
                 viewport_source_range,
                 safety_margin,
@@ -160,15 +162,15 @@ impl Window {
             );
         }
 
-        if let Some(format) = self.text_format.as_ref() {
+        if let Some(format) = self.surface.render.text_format.as_ref() {
             let mut measure = DirectWriteWidthMeasure::new_with_run_cache(
-                self.dwrite.raw(),
+                self.surface.render.dwrite.raw(),
                 format,
                 self.scaled_font_size(),
                 continuity_render::DEFAULT_HEADING_SCALE,
                 fallback_char_width_dip,
-                Some(std::sync::Arc::clone(&self.walker_run_cache)),
-                self.font_state,
+                Some(std::sync::Arc::clone(&self.surface.render.walker_run_cache)),
+                self.surface.render.font_state,
                 crate::window::FONT_LOCALE,
             );
             let _scope = crate::paint_trace::is_trace_enabled()
@@ -234,15 +236,17 @@ impl Window {
         let viewport_source_lines = viewport_source_range
             .end
             .saturating_sub(viewport_source_range.start);
-        let (row_index, stats, dwrite_stats) = if let Some(format) = self.text_format.as_ref() {
+        let (row_index, stats, dwrite_stats) = if let Some(format) =
+            self.surface.render.text_format.as_ref()
+        {
             let mut measure = DirectWriteWidthMeasure::new_with_run_cache(
-                self.dwrite.raw(),
+                self.surface.render.dwrite.raw(),
                 format,
                 self.scaled_font_size(),
                 continuity_render::DEFAULT_HEADING_SCALE,
                 fallback_char_width_dip,
-                Some(std::sync::Arc::clone(&self.walker_run_cache)),
-                self.font_state,
+                Some(std::sync::Arc::clone(&self.surface.render.walker_run_cache)),
+                self.surface.render.font_state,
                 crate::window::FONT_LOCALE,
             );
             let scope = crate::paint_trace::is_trace_enabled().then(|| {
@@ -262,10 +266,10 @@ impl Window {
                     self.markdown_render_toggles(),
                     wrap_width_dip,
                     &mut measure,
-                    self.font_state.0,
+                    self.surface.render.font_state.0,
                     crate::window::FONT_LOCALE,
-                    &self.walker_wrap_cache,
-                    &self.walker_segment_cache,
+                    &self.surface.render.walker_wrap_cache,
+                    &self.surface.render.walker_segment_cache,
                     walker_reason,
                     viewport_source_range,
                     safety_margin,
@@ -294,10 +298,10 @@ impl Window {
                     self.markdown_render_toggles(),
                     wrap_width_dip,
                     &mut measure,
-                    self.font_state.0,
+                    self.surface.render.font_state.0,
                     crate::window::FONT_LOCALE,
-                    &self.walker_wrap_cache,
-                    &self.walker_segment_cache,
+                    &self.surface.render.walker_wrap_cache,
+                    &self.surface.render.walker_segment_cache,
                     walker_reason,
                     viewport_source_range,
                     safety_margin,
@@ -358,15 +362,17 @@ impl Window {
         let viewport_source_lines = viewport_source_range
             .end
             .saturating_sub(viewport_source_range.start);
-        let (row_index, stats, dwrite_stats) = if let Some(format) = self.text_format.as_ref() {
+        let (row_index, stats, dwrite_stats) = if let Some(format) =
+            self.surface.render.text_format.as_ref()
+        {
             let mut measure = DirectWriteWidthMeasure::new_with_run_cache(
-                self.dwrite.raw(),
+                self.surface.render.dwrite.raw(),
                 format,
                 self.scaled_font_size(),
                 continuity_render::DEFAULT_HEADING_SCALE,
                 fallback_char_width_dip,
-                Some(std::sync::Arc::clone(&self.walker_run_cache)),
-                self.font_state,
+                Some(std::sync::Arc::clone(&self.surface.render.walker_run_cache)),
+                self.surface.render.font_state,
                 crate::window::FONT_LOCALE,
             );
             let scope = crate::paint_trace::is_trace_enabled().then(|| {
@@ -386,10 +392,10 @@ impl Window {
                     self.markdown_render_toggles(),
                     wrap_width_dip,
                     &mut measure,
-                    self.font_state.0,
+                    self.surface.render.font_state.0,
                     crate::window::FONT_LOCALE,
-                    &self.walker_wrap_cache,
-                    &self.walker_segment_cache,
+                    &self.surface.render.walker_wrap_cache,
+                    &self.surface.render.walker_segment_cache,
                     walker_reason,
                     viewport_source_range,
                     safety_margin,
@@ -418,10 +424,10 @@ impl Window {
                     self.markdown_render_toggles(),
                     wrap_width_dip,
                     &mut measure,
-                    self.font_state.0,
+                    self.surface.render.font_state.0,
                     crate::window::FONT_LOCALE,
-                    &self.walker_wrap_cache,
-                    &self.walker_segment_cache,
+                    &self.surface.render.walker_wrap_cache,
+                    &self.surface.render.walker_segment_cache,
                     walker_reason,
                     viewport_source_range,
                     safety_margin,
@@ -472,15 +478,15 @@ impl Window {
         row_index: std::sync::Arc<continuity_display_map::DisplayRowIndex>,
         scope_name: &'static str,
     ) -> FrameDisplay {
-        if let Some(format) = self.text_format.as_ref() {
+        if let Some(format) = self.surface.render.text_format.as_ref() {
             let mut measure = DirectWriteWidthMeasure::new_with_run_cache(
-                self.dwrite.raw(),
+                self.surface.render.dwrite.raw(),
                 format,
                 self.scaled_font_size(),
                 continuity_render::DEFAULT_HEADING_SCALE,
                 fallback_char_width_dip,
-                Some(std::sync::Arc::clone(&self.walker_run_cache)),
-                self.font_state,
+                Some(std::sync::Arc::clone(&self.surface.render.walker_run_cache)),
+                self.surface.render.font_state,
                 crate::window::FONT_LOCALE,
             );
             let _scope = crate::paint_trace::is_trace_enabled()

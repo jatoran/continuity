@@ -30,7 +30,7 @@ impl Window {
     /// clamped scale is applied locally to every pane and persisted to
     /// `[editor].text_scale`, fanning out to every other window.
     pub(crate) fn view_adjust_zoom_impl(&mut self, factor: f32) -> Result<(), Error> {
-        let new_scale = (self.view.font_size_scale * factor).clamp(MIN_ZOOM, MAX_ZOOM);
+        let new_scale = (self.surface.view.font_size_scale * factor).clamp(MIN_ZOOM, MAX_ZOOM);
         self.apply_global_text_scale(new_scale);
         Ok(())
     }
@@ -54,7 +54,7 @@ impl Window {
     pub(crate) fn apply_global_text_scale(&mut self, scale: f32) {
         let scale = scale.clamp(MIN_ZOOM, MAX_ZOOM);
         self.with_caret_line_anchored(|w| {
-            w.view.font_size_scale = scale;
+            w.surface.view.font_size_scale = scale;
             for pane in w.panes.values_mut() {
                 pane.view.font_size_scale = scale;
             }

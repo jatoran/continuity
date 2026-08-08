@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "multiCursor": {
+    "initialText": "alpha\nbeta\n",
+    "selections": [
+      {
+        "anchor": { "line": 0, "byteInLine": 5 },
+        "head": { "line": 0, "byteInLine": 5 },
+        "kind": "caret"
+      },
+      {
+        "anchor": { "line": 1, "byteInLine": 4 },
+        "head": { "line": 1, "byteInLine": 4 },
+        "kind": "caret"
+      }
+    ],
+    "insertText": "!",
+    "expectedText": "alpha!\nbeta!\n",
+    "expectedRevision": 2,
+    "expectedCarets": [[0, 6], [1, 5]],
+    "expectedDeltas": [
+      { "at": 10, "removedBytes": 0, "insertedBytes": 1 },
+      { "at": 5, "removedBytes": 0, "insertedBytes": 1 }
+    ]
+  },
+  "deleteBackward": {
+    "initialText": "a😀b",
+    "selection": {
+      "anchor": { "line": 0, "byteInLine": 5 },
+      "head": { "line": 0, "byteInLine": 5 },
+      "kind": "caret"
+    },
+    "expectedText": "ab",
+    "expectedCaret": [0, 1]
+  },
+  "noOp": {
+    "initialText": "unchanged",
+    "expectedRevision": 1,
+    "expectedDeltas": [
+      { "at": 0, "removedBytes": 0, "insertedBytes": 0 }
+    ]
+  },
+  "undo": {
+    "typing": ["a", "b", "c"],
+    "expectedText": "abc",
+    "expectedAfterUndo": "",
+    "expectedAfterRedo": "abc"
+  },
+  "undoBranch": {
+    "inputs": ["old", "branch", "new"],
+    "expectedReplacement": "oldnew",
+    "expectedAlternate": "oldbranch"
+  },
+  "projection": {
+    "source": "# Heading\n\nThis is **bold** and *italic*.\n",
+    "expected": {"blocks":[{"endByte":10,"kind":"heading:1","startByte":0},{"endByte":42,"kind":"paragraph","startByte":11}],"inlines":[{"endByte":2,"kind":"marker:heading","startByte":0},{"endByte":21,"kind":"marker:emphasis","startByte":19},{"endByte":25,"kind":"strong","startByte":21},{"endByte":27,"kind":"marker:emphasis","startByte":25},{"endByte":33,"kind":"marker:emphasis","startByte":32},{"endByte":39,"kind":"emphasis","startByte":33},{"endByte":40,"kind":"marker:emphasis","startByte":39}],"lines":[{"displayToSource":[[0,2],[1,3],[2,4],[3,5],[4,6],[5,7],[6,8],[7,9]],"segments":[{"endByte":2,"kind":"hidden","replacement":"","startByte":0},{"endByte":9,"kind":"visible","replacement":"","startByte":2}],"sourceToDisplay":[[2,0],[3,1],[4,2],[5,3],[6,4],[7,5],[8,6],[9,7]],"text":"Heading","wrapIndentByteEnd":0},{"displayToSource":[[0,10]],"segments":[{"endByte":10,"kind":"visible","replacement":"","startByte":10}],"sourceToDisplay":[[10,0]],"text":"","wrapIndentByteEnd":0},{"displayToSource":[[0,11],[1,12],[2,13],[3,14],[4,15],[5,16],[6,17],[7,18],[8,21],[9,22],[10,23],[11,24],[12,27],[13,28],[14,29],[15,30],[16,31],[17,32],[18,33],[19,34],[20,35],[21,36],[22,37],[23,38],[24,39],[25,40],[26,41]],"segments":[{"endByte":19,"kind":"visible","replacement":"","startByte":11},{"endByte":21,"kind":"hidden","replacement":"","startByte":19},{"endByte":25,"kind":"visible","replacement":"","startByte":21},{"endByte":27,"kind":"hidden","replacement":"","startByte":25},{"endByte":32,"kind":"visible","replacement":"","startByte":27},{"endByte":33,"kind":"visible","replacement":"","startByte":32},{"endByte":39,"kind":"visible","replacement":"","startByte":33},{"endByte":40,"kind":"visible","replacement":"","startByte":39},{"endByte":41,"kind":"visible","replacement":"","startByte":40}],"sourceToDisplay":[[11,0],[12,1],[13,2],[14,3],[15,4],[16,5],[17,6],[18,7],[21,8],[22,9],[23,10],[24,11],[27,12],[28,13],[29,14],[30,15],[31,16],[32,17],[33,18],[34,19],[35,20],[36,21],[37,22],[38,23],[39,24],[40,25],[41,26]],"text":"This is bold and *italic*.","wrapIndentByteEnd":0},{"displayToSource":[[0,42]],"segments":[{"endByte":42,"kind":"visible","replacement":"","startByte":42}],"sourceToDisplay":[[42,0]],"text":"","wrapIndentByteEnd":0}]}
+  }
+}

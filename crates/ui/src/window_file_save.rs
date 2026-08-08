@@ -63,11 +63,12 @@ impl Window {
         content: String,
         expected_hash: Option<u64>,
     ) -> Result<(), CommandError> {
+        let reply = self.file_open_tx.clone();
         let file_io = self
             .file_io
             .as_ref()
             .ok_or(CommandError::UnsupportedContext("file_save"))?;
-        if file_io.save_buffer(buffer_id, path, content, expected_hash) {
+        if file_io.save_buffer(buffer_id, path, content, expected_hash, Some(reply)) {
             Ok(())
         } else {
             Err(CommandError::UnsupportedContext("file_save"))

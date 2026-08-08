@@ -6,12 +6,34 @@
 //! persist-queue motion-timer arm.
 
 use continuity_core::SelectionEdit;
+use continuity_host::EditorOperation;
 
 use crate::edit_trace;
+use crate::editor_surface::selection_dispatch::SelectionDispatchEffects;
 use crate::paint_trace::{is_trace_enabled, log_event, EventScope};
+use crate::window_selection_adapter::NativeSelectionEditEffects;
 use crate::Window;
 
 impl Window {
+    /// Dispatch a portable editor operation through the native surface path.
+    /// Desktop-only operations never enter this enum.
+    pub(crate) fn dispatch_editor_operation(
+        &mut self,
+        operation: EditorOperation,
+    ) -> Result<(), continuity_command::Error> {
+        match operation {
+            EditorOperation::ApplySelectionEdit(edit) => self.dispatch_selection_edit(edit),
+            EditorOperation::Undo => continuity_command::Context::undo(self),
+            EditorOperation::Redo => continuity_command::Context::redo(self),
+            EditorOperation::RedoAlternate => {
+                continuity_command::Context::redo_alternate_branch(self)
+            }
+            _ => Err(continuity_command::Error::UnsupportedContext(
+                "dispatch_editor_operation",
+            )),
+        }
+    }
+
     /// Apply `edit` through the editor handle, then update UI-thread
     /// state that depends on the edit landing: the δ.1 last-edit-cursor
     /// stack, the α.1 edit-region pulse (for structural edits only), and
@@ -27,11 +49,7 @@ impl Window {
         // the caret landed afterward. α.1 reuses the same pre-snapshot
         // for the edit-region pulse range computation.
         let pre = self.editor.snapshot(self.buffer_id);
-        let pre_edit_caret = pre
-            .as_ref()
-            .and_then(|s| s.selections().first().map(|sel| sel.head));
-        let pre_line_count = pre.as_ref().map(|s| s.rope_snapshot().rope().len_lines());
-        let should_pulse = crate::edit_pulse::is_structural_edit(&edit);
+        let surface_effects = SelectionDispatchEffects::capture(&edit, pre.as_ref());
         // ε.7 — bracket the core round-trip with an `EventScope` so
         // `event:edit_apply` reports the UI-thread block on
         // `EditorHandle::apply_selection_edit`. `kind` is captured
@@ -68,40 +86,12 @@ impl Window {
             );
         }
         result?;
-        self.cancel_active_display_prewarm();
-        // ε.5e + early-dispatch coalescing: give the projection
-        // worker a head start on the new revision before the next
-        // WM_PAINT, but only for the *first* edit in a paint cycle.
-        // Subsequent edits in a burst would only redo the same
-        // synchronous input-gathering on the UI thread (snapshot,
-        // rope_deltas_since, fold/heading/reservation computation,
-        // classify, build_request) — work the trace at 2026-05-17
-        // showed costs ~43 ms per keystroke on a 6 k-line buffer
-        // and starves WM_PAINT during held-key bursts. The worker's
-        // latest-wins channel means missed early-dispatches just
-        // make the next paint compute inline via Splice/Dirty.
-        self.maybe_dispatch_projection_worker_early(is_first_edit_since_paint, "selection_edit");
-        if let Some(pos) = pre_edit_caret {
-            self.push_last_edit_position(pos);
-        }
-        if should_pulse {
-            if let (Some(pre_head), Some(pre_lines)) = (pre_edit_caret, pre_line_count) {
-                self.pulse_edit_region_after_dispatch(pre_head.line, pre_lines);
-            }
-        }
-        // α.1 — every edit also makes the persistence queue grow.
-        // Arm the motion timer so the persist-queue chip can fade in
-        // and back out without waiting for the next keystroke's paint.
-        // `start_motion_timer` is a no-op when the timer is already
-        // running, and `has_active_motion` will stop it once the queue
-        // drains.
-        if self
-            .persist_client
-            .as_ref()
-            .is_some_and(|c| c.unflushed_bytes() > 0)
-        {
-            self.start_motion_timer();
-        }
+        let edit_pulse = surface_effects.apply_to(&mut self.surface.selection, self.buffer_id);
+        self.apply_native_selection_edit_effects(NativeSelectionEditEffects {
+            buffer_id: self.buffer_id,
+            is_first_edit_since_paint,
+            edit_pulse,
+        });
         Ok(())
     }
 }

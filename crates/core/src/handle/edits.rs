@@ -69,7 +69,7 @@ impl EditorHandle {
     ) -> Result<Option<Revision>, Error> {
         self.round_trip(|reply| EditorMessage::ApplySelectionEdit {
             buffer_id,
-            edit,
+            operation: continuity_host::EditorOperation::ApplySelectionEdit(edit),
             edit_seq,
             reply,
         })

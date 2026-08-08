@@ -10,9 +10,9 @@ name = "dracula"
 
 "panel.background"                  = "#21222c"
 "panel.foreground"                  = "#bfbfbf"
-"panel.active_tab.background"       = "#31333f"
+"panel.active_tab.background"       = "#282a36"
 "panel.active_tab.foreground"       = "#f8f8f2"
-"panel.inactive_tab.background"     = "#1a1b24"
+"panel.inactive_tab.background"     = "#31333f"
 "panel.inactive_tab.foreground"     = "#6272a4"
 
 "pane.border"                       = "#191a21"

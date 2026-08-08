@@ -16,7 +16,12 @@ impl Window {
         revision_for_projection: u64,
         source_line_count: u32,
     ) -> Option<MouseHitTestFrameCacheEntry> {
-        let entry = self.mouse_hit_test_frame_cache.borrow().clone()?;
+        let entry = self
+            .surface
+            .projection
+            .mouse_hit_test_frame_cache
+            .borrow()
+            .clone()?;
         let Some(mismatch) = entry.query().hit_test_compat_mismatch(display_query) else {
             let stamps = entry.frame_display().row_index().stamps();
             if stamps.rope_revision > revision_for_projection {
@@ -34,8 +39,10 @@ impl Window {
                 .map(|decorations| decorations.revision == stamps.decoration_revision)
                 .unwrap_or(true)
             {
-                self.last_painted_decorations = entry.decorations().cloned();
-                self.last_painted_decoration_parse_revision = entry.parse_revision();
+                self.surface.projection.last_painted_decorations = entry.decorations().cloned();
+                self.surface
+                    .projection
+                    .last_painted_decoration_parse_revision = entry.parse_revision();
                 log_mouse_candidate("hit=rebuild_candidate shadowed=true");
             } else {
                 log_mouse_candidate("hit=rebuild_candidate shadowed=false");

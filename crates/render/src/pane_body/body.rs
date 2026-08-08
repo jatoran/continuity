@@ -2,10 +2,8 @@
 
 use continuity_layout::{FontStateId, LayoutCache};
 use windows::Foundation::Numerics::Matrix3x2;
-use windows::Win32::Graphics::Direct2D::Common::{D2D_POINT_2F, D2D_RECT_F};
-use windows::Win32::Graphics::Direct2D::{
-    ID2D1DeviceContext, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_DRAW_TEXT_OPTIONS_NONE,
-};
+use windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F;
+use windows::Win32::Graphics::Direct2D::{ID2D1DeviceContext, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE};
 use windows::Win32::Graphics::DirectWrite::{IDWriteFactory, IDWriteTextFormat};
 
 use super::table_chrome::{paint_spectator_table_chrome, SpectatorTableChrome};
@@ -288,11 +286,11 @@ pub(super) unsafe fn paint_pane_body(
             );
         }
         apply_role_drawing_effects(entry.layout, spec.style_runs(), &brushes.text_roles);
-        ctx.DrawTextLayout(
-            D2D_POINT_2F { x: 0.0, y: 0.0 },
+        crate::row_text_paint::draw_text_layout_in_fixed_row(
+            ctx,
             entry.layout,
             brushes.fg,
-            D2D1_DRAW_TEXT_OPTIONS_NONE,
+            line_height,
         );
         paint_inline_color_foregrounds_spec(
             ctx,

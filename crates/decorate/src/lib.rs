@@ -36,8 +36,10 @@ pub mod inline_color;
 pub mod inline_text;
 pub mod language;
 pub mod parser;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod pool;
 pub mod rainbow;
+#[cfg(not(target_arch = "wasm32"))]
 mod request_queue;
 pub mod sections;
 pub mod spans;
@@ -50,6 +52,7 @@ pub mod tables;
 pub mod toc;
 pub mod tree_cache;
 pub mod tree_sitter_alloc;
+#[cfg(not(target_arch = "wasm32"))]
 mod worker_watchdog;
 
 pub use autolink::{auto_links, AutoLink, AutoLinkKind};
@@ -65,8 +68,11 @@ pub use inline::{block_inline_spans, ByteRange, InlineKind, InlineSpan, MarkerKi
 pub use inline_color::{inline_color_spans, parse_hex_rgba, InlineColorKind, InlineColorSpan};
 pub use language::{detect, Language};
 pub use parser::MarkdownParser;
+#[cfg(not(target_arch = "wasm32"))]
 pub use pool::parse_trace::{DecorationFullParseReason, DecorationParseTrace};
+#[cfg(not(target_arch = "wasm32"))]
 pub use pool::tree_cache_registry::TreeCacheRegistry;
+#[cfg(not(target_arch = "wasm32"))]
 pub use pool::{
     empty_deltas, DecoratePool, DecorateRequest, DecorateResult, DecorateWorkerRestart,
     PoolShutdown, DEFAULT_WORKER_WATCHDOG_TIMEOUT,

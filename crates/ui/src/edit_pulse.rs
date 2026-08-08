@@ -76,7 +76,7 @@ impl Window {
         kind: EditPulseKind,
     ) {
         if self.motion_policy().is_reduced_motion() {
-            self.edit_pulse = None;
+            self.surface.edit_pulse = None;
             return;
         }
         let (lo, hi) = if first_line <= last_line {
@@ -84,7 +84,7 @@ impl Window {
         } else {
             (last_line, first_line)
         };
-        self.edit_pulse = Some(EditPulse {
+        self.surface.edit_pulse = Some(EditPulse {
             first_line: lo,
             last_line: hi,
             started_ms: unsafe { GetTickCount64() },
@@ -97,10 +97,10 @@ impl Window {
     /// Drop the pulse once its fade window has elapsed. Called from the
     /// shared motion tick.
     pub(crate) fn evict_expired_edit_pulse(&mut self) {
-        if let Some(p) = self.edit_pulse {
+        if let Some(p) = self.surface.edit_pulse {
             let now = unsafe { GetTickCount64() };
             if fade_alpha(p, now).is_none() {
-                self.edit_pulse = None;
+                self.surface.edit_pulse = None;
             }
         }
     }
@@ -168,7 +168,7 @@ impl Window {
     /// Build the per-frame draw payload for the active pulse, or `None`
     /// when nothing is active.
     pub(crate) fn edit_pulse_draw(&self, now_ms: u64) -> Option<EditPulseDraw> {
-        let pulse = self.edit_pulse?;
+        let pulse = self.surface.edit_pulse?;
         let alpha = fade_alpha(pulse, now_ms)?;
         Some(EditPulseDraw {
             first_line: pulse.first_line,

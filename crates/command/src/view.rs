@@ -259,9 +259,9 @@ pub fn register_view_commands(registry: &mut Registry) {
     // keep this file under the 600-line cap.
     crate::view_modes::register_view_modes_commands(registry, &focused);
     // Spec §I — time-machine slider + named snapshots (I1),
-    // metrics buffer (I2). Split into a sibling module for the same
+    // timeline commands. Split into a sibling module for the same
     // reason.
-    crate::view_timeline_metrics::register_view_timeline_metrics_commands(registry, &focused);
+    crate::view_timeline::register_view_timeline_commands(registry, &focused);
     registry.register(
         VIEW_SET_RULER_COLUMNS,
         focused.clone(),

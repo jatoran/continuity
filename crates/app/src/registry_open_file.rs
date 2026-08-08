@@ -10,11 +10,13 @@
 //! externally-changed file showing stale content.
 
 use continuity_buffer::{BufferId, FileAssociation};
+use continuity_ui::window_config::FileOpenDisposition;
 use continuity_ui::WindowControl;
 
 use crate::error::Error;
 use crate::registry::{spawn_window_thread, LiveState, RegistryCtx, SpawnRequest};
 use crate::registry_file_buffers::resolve_open_file_buffer;
+use crate::registry_window_control::try_send_window_control;
 
 /// Inputs for [`handle_open_file_buffer`], grouped so the resolve/reveal/
 /// spawn flow takes one payload instead of a long positional list.
@@ -30,6 +32,38 @@ pub(crate) struct OpenFileBufferArgs {
     /// Launch-time banners to surface in the target window (e.g. an
     /// encoding notice). Empty for ordinary in-process opens.
     pub recovery_notices: Vec<String>,
+    pub disposition: FileOpenDisposition,
+    pub source_window_id: Option<continuity_buffer::WindowId>,
+    pub vault_root: Option<std::path::PathBuf>,
+}
+
+/// Record a spawning window as the home of every file-associated buffer
+/// it will show so later opens can reuse the live buffer and tab.
+pub(crate) fn seed_buffer_home(
+    ctx: &RegistryCtx,
+    state: &mut LiveState,
+    request: &SpawnRequest,
+    window_id: continuity_buffer::WindowId,
+) {
+    let mut candidates = vec![request.initial_buffer_id];
+    candidates.extend(request.startup_open_buffer_ids.iter().copied());
+    if let Some((_, restored)) = request.restored.as_ref() {
+        if let Ok(ids) =
+            continuity_ui::pane_tree_codec::buffer_ids_in_json(&restored.pane_tree_json)
+        {
+            candidates.extend(ids);
+        }
+    }
+    for buffer_id in candidates {
+        if ctx
+            .editor
+            .snapshot(buffer_id)
+            .and_then(|snapshot| snapshot.file)
+            .is_some()
+        {
+            state.buffer_home.insert(buffer_id, window_id);
+        }
+    }
 }
 
 /// Resolve a file open to one buffer and either reveal it in the window
@@ -46,30 +80,52 @@ pub(crate) fn handle_open_file_buffer(
         explicit_origin,
         cascade_from,
         recovery_notices,
+        disposition,
+        source_window_id,
+        vault_root,
     } = args;
     let buffer_id =
         resolve_open_file_buffer(&ctx.editor, &ctx.file_buffer_index, &content, file.clone());
+    if disposition != FileOpenDisposition::NewWindow {
+        if let Some(source) = source_window_id {
+            if try_send_window_control(
+                state,
+                source,
+                WindowControl::OpenBufferTab {
+                    buffer_id,
+                    content: content.clone(),
+                    file: file.clone(),
+                    disposition,
+                    notices: recovery_notices.clone(),
+                },
+            ) {
+                state.buffer_home.insert(buffer_id, source);
+                return Ok(());
+            }
+        }
+    }
     // Prefer revealing in the live window that already owns the buffer —
     // focuses the existing tab rather than spawning a duplicate window.
     // Clone the payload only on this less-common reveal path; the spawn
     // fall-through keeps the originals.
-    if let Some(home) = state.buffer_home.get(&buffer_id).copied() {
-        if let Some(control_tx) = state.control_senders.get(&home) {
-            if control_tx
-                .send(WindowControl::RevealBufferTab {
+    if disposition != FileOpenDisposition::NewWindow {
+        if let Some(home) = state.buffer_home.get(&buffer_id).copied() {
+            if try_send_window_control(
+                state,
+                home,
+                WindowControl::RevealBufferTab {
                     buffer_id,
                     content: content.clone(),
                     file: file.clone(),
                     notices: recovery_notices.clone(),
-                })
-                .is_ok()
-            {
+                },
+            ) {
                 return Ok(());
             }
+            // Home window is gone (or its channel closed) — drop the stale
+            // entry and spawn a fresh window below.
+            state.buffer_home.remove(&buffer_id);
         }
-        // Home window is gone (or its channel closed) — drop the stale
-        // entry and spawn a fresh window below.
-        state.buffer_home.remove(&buffer_id);
     }
     spawn_window_thread(
         ctx,
@@ -81,6 +137,7 @@ pub(crate) fn handle_open_file_buffer(
             explicit_origin,
             cascade_from,
             recovery_notices,
+            vault_root,
         ),
     )
 }
@@ -94,6 +151,7 @@ fn open_file_spawn_request(
     explicit_origin: Option<(i32, i32)>,
     cascade_from: Option<(i32, i32, i32, i32)>,
     recovery_notices: Vec<String>,
+    vault_root: Option<std::path::PathBuf>,
 ) -> SpawnRequest {
     SpawnRequest {
         initial_buffer_id: buffer_id,
@@ -104,7 +162,7 @@ fn open_file_spawn_request(
         recovery_notices,
         open_tutorial_on_init: false,
         startup_open_buffer_ids: Vec::new(),
-        startup_folder_roots: Vec::new(),
+        startup_folder_roots: vault_root.into_iter().collect(),
         reconcile_on_init: Some(continuity_ui::PendingReconcile { content, file }),
     }
 }

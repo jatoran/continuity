@@ -21,6 +21,8 @@ pub const EDITOR_FIND_REPLACE_ALL: CommandId = CommandId("editor.find_replace_al
 pub const EDITOR_FIND_IN_ALL: CommandId = CommandId("editor.find_in_all");
 /// Open the quick-open buffer switcher.
 pub const QUICK_OPEN_SHOW: CommandId = CommandId("quick_open.show");
+/// Open the pinned/recent vault launcher.
+pub const VAULT_LAUNCHER_SHOW: CommandId = CommandId("vault.launcher_show");
 /// Open the command palette.
 pub const PALETTE_SHOW: CommandId = CommandId("palette.show");
 /// Open the goto-line dialog.
@@ -91,6 +93,11 @@ pub fn register_search_commands(registry: &mut Registry) {
         QUICK_OPEN_SHOW,
         always.clone(),
         Arc::new(|_, ctx| ctx.open_quick_open()),
+    );
+    registry.register(
+        VAULT_LAUNCHER_SHOW,
+        always.clone(),
+        Arc::new(|_, ctx| ctx.open_vault_launcher()),
     );
     registry.register(
         PALETTE_SHOW,
@@ -167,6 +174,7 @@ mod tests {
         opened_find: bool,
         opened_palette: bool,
         opened_quick: bool,
+        opened_vault_launcher: bool,
         opened_goto_line: bool,
         opened_goto_heading: bool,
         opened_find_in_all: bool,
@@ -200,6 +208,10 @@ mod tests {
         }
         fn open_quick_open(&mut self) -> Result<(), crate::Error> {
             self.opened_quick = true;
+            Ok(())
+        }
+        fn open_vault_launcher(&mut self) -> Result<(), crate::Error> {
+            self.opened_vault_launcher = true;
             Ok(())
         }
         fn open_goto_line(&mut self) -> Result<(), crate::Error> {
@@ -292,6 +304,18 @@ mod tests {
         quick(&Value::Null, &mut ctx).unwrap();
         assert!(ctx.opened_palette);
         assert!(ctx.opened_quick);
+    }
+
+    #[test]
+    fn dispatches_vault_launcher() {
+        let mut registry = Registry::new();
+        register_search_commands(&mut registry);
+        let mut context = StubContext::default();
+        let handler = registry
+            .handler_for_name(VAULT_LAUNCHER_SHOW.as_str(), &context)
+            .unwrap();
+        handler(&Value::Null, &mut context).unwrap();
+        assert!(context.opened_vault_launcher);
     }
 
     #[test]

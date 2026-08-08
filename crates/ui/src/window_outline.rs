@@ -127,7 +127,7 @@ impl Window {
             }
             None => (line as f32 * line_height, self.estimated_content_height()),
         };
-        self.view.jump_to(target_y, content_h);
+        self.surface.view.jump_to(target_y, content_h);
         invalidate_hwnd(self.hwnd);
         true
     }

@@ -25,6 +25,31 @@ pub(crate) fn write_repo_map(index: &GeneratedIndex) -> String {
         ));
     }
 
+    out.push_str("\n## SDK And Application Surfaces\n\n");
+    out.push_str("| Surface | Source | Distribution / gate |\n");
+    out.push_str("|---|---|---|\n");
+    for (surface, source, gate) in [
+        (
+            "Web Component + WASM",
+            "packages/editor",
+            "npm / `browser-check`",
+        ),
+        ("Python binding", "bindings/python", "PyPI / `sdk-check`"),
+        ("C ABI", "crates/c_api", "GitHub SDK release / `sdk-check`"),
+        (
+            "Cross-platform desktop",
+            "apps/desktop-web",
+            "desktop installers / `desktop-check`",
+        ),
+        (
+            "SDK release identity",
+            "sdk/release.toml",
+            "`sdk-release-check`",
+        ),
+    ] {
+        out.push_str(&format!("| {surface} | `{source}` | {gate} |\n"));
+    }
+
     out.push_str("\n## Command Families\n\n");
     out.push_str("| Family | Commands | Docs |\n");
     out.push_str("|---|---:|---|\n");

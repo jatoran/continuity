@@ -235,7 +235,7 @@ pub(crate) fn paint_post_body(
                 dwrite,
                 params.format,
                 data,
-                viewport_w,
+                params.client_width_dip,
                 params.client_height_dip,
                 status_bar_font_size,
                 &mkb,

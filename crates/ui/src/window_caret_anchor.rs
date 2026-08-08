@@ -15,7 +15,7 @@
 //! 1. Captures the caret's display-line screen y (via the current
 //!    [`continuity_render::FrameDisplay`] projection — wrap-aware,
 //!    fold-aware).
-//! 2. Runs the closure (which mutates `self.view` or other state).
+//! 2. Runs the closure (which mutates `self.surface.view` or other state).
 //! 3. Recomputes the caret's display-line index under the post-reflow
 //!    projection.
 //! 4. Adjusts `view.scroll_y_dip` so the caret line lands at the
@@ -173,8 +173,8 @@ impl Window {
         let sel = snap.selections().first()?;
         let caret = sel.head;
         let display_line = self.resolve_caret_display_line(caret)?;
-        let screen_y =
-            display_line.display_row as f32 * self.effective_line_height() - self.view.scroll_y_dip;
+        let screen_y = display_line.display_row as f32 * self.effective_line_height()
+            - self.surface.view.scroll_y_dip;
         Some((caret, screen_y))
     }
 
@@ -191,7 +191,7 @@ impl Window {
         let content_h = self
             .estimated_content_height()
             .max(display_line_after.total_display_rows.max(1) as f32 * line_height);
-        let viewport_h = self.view.viewport_height_dip;
+        let viewport_h = self.surface.view.viewport_height_dip;
         let new_scroll = anchored_scroll(
             new_line_top,
             line_height,
@@ -199,7 +199,7 @@ impl Window {
             viewport_h,
             content_h,
         );
-        self.view.scroll_y_dip = new_scroll;
+        self.surface.view.scroll_y_dip = new_scroll;
     }
 
     /// Display-line index of the primary caret under the *current*
@@ -257,21 +257,25 @@ impl Window {
             &caret_bytes,
             &[],
             metrics.wrap_width_dip,
-            self.font_state,
+            self.surface.render.font_state,
         );
-        let last_painted =
-            self.last_painted_frame_display
-                .as_ref()
-                .and_then(|(cached_query, painted)| {
-                    if cached_query.is_compatible_for_motion(&query) {
-                        Some(painted.clone())
-                    } else {
-                        None
-                    }
-                });
+        let last_painted = self
+            .surface
+            .projection
+            .last_painted_frame_display
+            .as_ref()
+            .and_then(|(cached_query, painted)| {
+                if cached_query.is_compatible_for_motion(&query) {
+                    Some(painted.clone())
+                } else {
+                    None
+                }
+            });
         // Focus switches can promote the prior spectator projection.
         let spectator = if last_painted.is_none() {
-            self.spectator_frame_cache
+            self.surface
+                .projection
+                .spectator_frame_cache
                 .borrow()
                 .lookup_for_focused_paint(self.tree.focused, &query)
                 .map(|promoted| promoted.frame_display)
@@ -304,7 +308,7 @@ impl Window {
                 let detail = if has_row_index_hit {
                     "source=row_index_cache_hit".to_string()
                 } else {
-                    match self.last_painted_frame_display.as_ref() {
+                    match self.surface.projection.last_painted_frame_display.as_ref() {
                         Some((cached_query, _)) => {
                             let mismatch = cached_query
                                 .motion_compat_mismatch(&query)

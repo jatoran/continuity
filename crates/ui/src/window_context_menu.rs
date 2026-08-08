@@ -24,11 +24,12 @@ use crate::Window;
 
 mod menu;
 use menu::{
-    track_chrome_toggle_menu, track_menu, track_table_cell_menu, ID_CHROME_TOGGLE,
-    ID_PANE_SPLIT_HORIZONTAL, ID_PANE_SPLIT_VERTICAL, ID_TABLE_DELETE_COL, ID_TABLE_DELETE_ROW,
-    ID_TABLE_DELETE_TABLE, ID_TABLE_INSERT_COL_LEFT, ID_TABLE_INSERT_COL_RIGHT,
-    ID_TABLE_INSERT_ROW_ABOVE, ID_TABLE_INSERT_ROW_BELOW, ID_TABLE_TOGGLE_WRAP, ID_TAB_CLOSE,
-    ID_TAB_NEW, ID_WINDOW_NEW,
+    track_chrome_toggle_menu, track_file_tree_entry_menu, track_menu, track_table_cell_menu,
+    ID_CHROME_TOGGLE, ID_FILE_TREE_RENAME, ID_PANE_SPLIT_HORIZONTAL, ID_PANE_SPLIT_VERTICAL,
+    ID_TABLE_DELETE_COL, ID_TABLE_DELETE_ROW, ID_TABLE_DELETE_TABLE, ID_TABLE_INSERT_COL_LEFT,
+    ID_TABLE_INSERT_COL_RIGHT, ID_TABLE_INSERT_ROW_ABOVE, ID_TABLE_INSERT_ROW_BELOW,
+    ID_TABLE_TOGGLE_WRAP, ID_TAB_CLOSE, ID_TAB_NEW, ID_VAULT_CREATE_SHORTCUT, ID_VAULT_DELETE,
+    ID_VAULT_NEW_FILE, ID_VAULT_NEW_FOLDER, ID_VAULT_OPEN_CONFIG, ID_WINDOW_NEW,
 };
 
 impl Window {
@@ -60,6 +61,9 @@ impl Window {
             y: screen_y,
         };
         if unsafe { ScreenToClient(hwnd, &mut pt) }.as_bool() {
+            if self.try_file_tree_context_menu(hwnd, screen_x, screen_y, pt.x, pt.y) {
+                return true;
+            }
             if self.try_chrome_context_menu(hwnd, screen_x, screen_y, pt.x, pt.y) {
                 return true;
             }
@@ -77,6 +81,69 @@ impl Window {
         // (the spell popup itself anchors on the caret pixel).
         let _ = keyboard;
         self.spell_on_context_menu((pt.x, pt.y))
+    }
+
+    fn try_file_tree_context_menu(
+        &mut self,
+        hwnd: HWND,
+        screen_x: i32,
+        screen_y: i32,
+        client_x: i32,
+        client_y: i32,
+    ) -> bool {
+        if !self.file_tree.is_visible()
+            || client_x < 0
+            || client_x as f32 >= self.file_tree.visible_width_dip()
+        {
+            return false;
+        }
+        let row = self.file_tree.row_at(client_x as f32, client_y as f32);
+        let selected = row.as_ref().and_then(|row| {
+            (row.kind != continuity_render::FileTreeEntryKind::Notice)
+                .then_some(row.relative.clone())
+        });
+        let is_vault = self.vault.is_active();
+        if !is_vault && selected.is_none() {
+            return false;
+        }
+        if let Some(relative) = selected.as_ref() {
+            self.file_tree.select(relative.clone());
+            self.file_tree.set_keyboard_focus(true);
+        }
+        let parent = match row.as_ref().map(|row| row.kind) {
+            Some(continuity_render::FileTreeEntryKind::Directory) => {
+                selected.clone().unwrap_or_default()
+            }
+            Some(continuity_render::FileTreeEntryKind::File) => selected
+                .as_deref()
+                .and_then(std::path::Path::parent)
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or_default(),
+            _ => std::path::PathBuf::new(),
+        };
+        let chosen = unsafe {
+            track_file_tree_entry_menu(hwnd, screen_x, screen_y, is_vault, selected.is_some())
+        };
+        match chosen {
+            ID_FILE_TREE_RENAME => self.begin_file_tree_rename(),
+            ID_VAULT_NEW_FILE => {
+                self.create_vault_entry_from_tree(parent, crate::file_io::VaultEntryKind::File)
+            }
+            ID_VAULT_NEW_FOLDER => {
+                self.create_vault_entry_from_tree(parent, crate::file_io::VaultEntryKind::Directory)
+            }
+            ID_VAULT_DELETE => {
+                if let Some(relative) = selected {
+                    self.delete_vault_entry_from_tree(relative);
+                }
+            }
+            ID_VAULT_OPEN_CONFIG => {
+                let _ = self.open_vault_settings();
+            }
+            ID_VAULT_CREATE_SHORTCUT => self.create_current_vault_shortcut(),
+            _ => {}
+        }
+        true
     }
 
     fn try_chrome_context_menu(

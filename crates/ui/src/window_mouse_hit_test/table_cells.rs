@@ -127,12 +127,13 @@ impl Window {
             continuity_render::chrome::BODY_LEFT_PADDING_DIP
         };
         let line_height = self.effective_line_height();
-        let row_top_client = body.y + (dl_idx as f32) * line_height - self.view.scroll_y_dip;
+        let row_top_client =
+            body.y + (dl_idx as f32) * line_height - self.surface.view.scroll_y_dip;
         let row_bottom_client = row_top_client + line_height;
         if client_y < row_top_client || client_y > row_bottom_client {
             return None;
         }
-        let layouts_cache = self.last_focused_table_layouts.borrow();
+        let layouts_cache = self.surface.render.last_focused_table_layouts.borrow();
         let layouts: &Vec<continuity_render::TableLayout> =
             layouts_cache.get(&self.buffer_id)?.as_ref();
         let source_line_u32 = source_line as u32;

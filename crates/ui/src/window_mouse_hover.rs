@@ -28,8 +28,8 @@ impl Window {
     pub(crate) fn on_mouse_leave(&mut self) -> bool {
         self.mouse_state.mouse_leave_tracking = false;
         let mut changed = false;
-        changed |= self.mouse_state.line_hover.take().is_some();
-        changed |= std::mem::take(&mut self.mouse_state.gutter_hovered);
+        changed |= self.surface.pointer.line_hover.take().is_some();
+        changed |= std::mem::take(&mut self.surface.pointer.gutter_hovered);
         changed |= self.clear_tab_hover();
         changed |= self.clear_footnote_hover();
         changed |= self.clear_code_copy_hover();
@@ -38,20 +38,20 @@ impl Window {
 
     /// Update hovered-line and gutter-hover state from a fresh client point.
     pub(crate) fn update_line_hover_from_pixel(&mut self, x: i32, y: i32) -> bool {
-        let previous_hover = self.mouse_state.line_hover;
-        let previous_gutter = self.mouse_state.gutter_hovered;
+        let previous_hover = self.surface.pointer.line_hover;
+        let previous_gutter = self.surface.pointer.gutter_hovered;
         let next_hover = self.compute_line_hover_from_pixel(x, y);
-        self.mouse_state.gutter_hovered = next_hover.is_some_and(|hover| hover.in_gutter);
-        self.mouse_state.line_hover = next_hover;
-        previous_hover != self.mouse_state.line_hover
-            || previous_gutter != self.mouse_state.gutter_hovered
+        self.surface.pointer.gutter_hovered = next_hover.is_some_and(|hover| hover.in_gutter);
+        self.surface.pointer.line_hover = next_hover;
+        previous_hover != self.surface.pointer.line_hover
+            || previous_gutter != self.surface.pointer.gutter_hovered
     }
 
     fn compute_line_hover_from_pixel(
         &self,
         x: i32,
         y: i32,
-    ) -> Option<crate::mouse::MouseLineHover> {
+    ) -> Option<crate::editor_surface::pointer::LineHover> {
         let body = self.focused_body_rect();
         let xf = x as f32;
         let yf = y as f32;
@@ -59,7 +59,11 @@ impl Window {
             return None;
         }
         let display_row = self.display_row_for_client_y(y);
-        let (_, frame_display) = self.last_painted_frame_display.as_ref()?;
+        let (_, frame_display) = self
+            .surface
+            .projection
+            .last_painted_frame_display
+            .as_ref()?;
         let (source_line, _) = frame_display
             .row_index()
             .source_line_for_display_row(display_row)?;
@@ -74,7 +78,7 @@ impl Window {
         );
         let in_gutter =
             self.view_options.line_numbers && xf >= body.x && xf < body.x + gutter_width;
-        Some(crate::mouse::MouseLineHover {
+        Some(crate::editor_surface::pointer::LineHover {
             source_line: source_line.raw(),
             display_row,
             in_gutter,

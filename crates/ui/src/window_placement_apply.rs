@@ -9,7 +9,6 @@ use continuity_command::Error as CommandError; // alias: collides with crate::Er
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
 
-use crate::pane_tree_codec;
 use crate::window::{Window, STATE_SAVE_DEBOUNCE_MS, STATE_SAVE_TIMER_ID};
 use crate::window_placement_persistence::{
     apply_placement, capture_placement, current_desktop_guid, try_move_to_desktop,
@@ -60,15 +59,30 @@ impl Window {
         let Some(p) = self.persistence.as_ref() else {
             return;
         };
+        // An empty folder workspace is a valid UI state but the pane-tree
+        // wire format intentionally requires every group to have an active
+        // tab. Keep the previous durable snapshot until WM_CLOSE installs
+        // the clean restore placeholder.
+        if self.has_empty_folder_workspace() {
+            return;
+        }
         // §H3 — persist `folded_lines` alongside the tree. F5 piggy-
         // backs per-buffer image expand state on the same blob via
         // the codec's state-aware variant; both new fields carry
         // `#[serde(default)]` so older readers still decode the JSON.
         let snapshot = WindowStateSnapshot {
-            pane_tree_json: pane_tree_codec::encode_with_state(
+            pane_tree_json: crate::pane_tree_codec_workspace::encode_with_workspace(
                 &self.tree,
                 &self.view_options.pane_modes.folded_lines,
                 &self.image_expand_state,
+                &crate::pane_tree_codec_workspace::WorkspaceState {
+                    folder_root: self
+                        .file_tree
+                        .root()
+                        .map(|root| root.to_string_lossy().to_string()),
+                    file_tree_visible: self.file_tree.is_visible(),
+                    file_tree_width_dip: self.file_tree.width_dip(),
+                },
             ),
             virtual_desktop_guid: current_desktop_guid(self.hwnd, self.virtual_desktop.as_ref()),
             monitor_id: None,
@@ -118,6 +132,12 @@ impl Window {
             self.state_save_pending = false;
         }
         self.save_window_placement_state();
+        // Mirror the debounced session save into the vault's portable
+        // workspace file so reopening the vault (launcher / shortcut / --vault)
+        // restores its open tabs, focus, and scroll. No-op outside a vault.
+        if self.vault.is_active() {
+            self.persist_vault_workspace_state();
+        }
     }
 
     /// Implementation of `Context::tear_off_focused_tab`. Removes the

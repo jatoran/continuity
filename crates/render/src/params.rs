@@ -521,6 +521,10 @@ pub struct DrawParams<'a> {
     pub frame_display: &'a FrameDisplay,
     /// Hovered focused-pane source/display row, when the pointer is in body.
     pub line_hover: Option<crate::LineHoverDraw>,
+    /// Full window client width in DIPs (post DPI scale). Global chrome
+    /// uses this rather than the editor viewport, which excludes the
+    /// left file tree in folder view.
+    pub client_width_dip: f32,
     /// Full window client height in DIPs (post DPI scale). Used to
     /// position the global status bar at the window's bottom even
     /// when multiple panes stack vertically — `view.viewport_height_dip`

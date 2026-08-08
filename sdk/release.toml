@@ -1,0 +1,23 @@
+[sdk]
+version = "0.2.22"
+channel = "preview"
+msrv = "1.89"
+tag-prefix = "sdk-v"
+repository = "https://github.com/jatoran/continuity"
+
+[cargo]
+packages = ["continuity-text", "continuity-buffer", "continuity-engine"]
+
+[npm]
+package = "@continuity-editor/editor"
+preview-tag = "next"
+stable-tag = "latest"
+
+[python]
+distribution = "continuity-editor"
+minimum-version = "3.10"
+
+[c-abi]
+major = 1
+minor = 0
+target = "x86_64-pc-windows-msvc"

@@ -34,6 +34,14 @@ pub(crate) enum BannerAction {
     Reload,
     KeepMine,
     ShowDiff,
+    InitializeVault,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BannerButtonsKind {
+    None,
+    Conflict,
+    InitializeVault,
 }
 
 /// One clickable conflict-banner button in DIP coordinates.
@@ -55,22 +63,30 @@ impl Window {
     /// Compute the banner panel/field rects and, when `with_buttons`, the
     /// three action-button rects, from the client `width`. Pure geometry —
     /// delegates to [`compute_banner_geometry`] (no window state read).
-    pub(crate) fn banner_geometry(&self, width: f32, with_buttons: bool) -> BannerGeometry {
-        compute_banner_geometry(width, with_buttons)
+    pub(crate) fn banner_geometry(&self, width: f32, kind: BannerButtonsKind) -> BannerGeometry {
+        compute_banner_geometry(width, kind)
     }
 
     /// Try to consume a left click at `(x, y)` (client DIP) as a conflict-
     /// banner button press. Returns `true` when a button was hit and its
     /// command dispatched.
     pub(crate) fn try_file_banner_left_down(&mut self, x: i32, y: i32) -> bool {
-        let is_conflict = self
+        let kind = self
             .file_banner
             .as_ref()
-            .is_some_and(|b| b.pending.is_some());
-        if !is_conflict {
+            .map_or(BannerButtonsKind::None, |banner| {
+                if banner.pending.is_some() {
+                    BannerButtonsKind::Conflict
+                } else if banner.vault_initialization.is_some() {
+                    BannerButtonsKind::InitializeVault
+                } else {
+                    BannerButtonsKind::None
+                }
+            });
+        if kind == BannerButtonsKind::None {
             return false;
         }
-        let geo = compute_banner_geometry(self.client_width_dip(), true);
+        let geo = compute_banner_geometry(self.client_width_dip(), kind);
         let (px, py) = (x as f32, y as f32);
         let Some(action) = geo
             .buttons
@@ -84,6 +100,7 @@ impl Window {
             BannerAction::Reload => self.file_reload_external_impl(),
             BannerAction::KeepMine => self.file_keep_mine_impl(),
             BannerAction::ShowDiff => self.file_show_diff_impl(),
+            BannerAction::InitializeVault => self.initialize_current_folder_as_vault(),
         };
         true
     }
@@ -92,14 +109,14 @@ impl Window {
 /// Resolve banner geometry from the client `width`. Free function so the
 /// layout is unit-testable without constructing a [`Window`] (which would
 /// spawn a real Win32 surface).
-pub(crate) fn compute_banner_geometry(width: f32, with_buttons: bool) -> BannerGeometry {
+pub(crate) fn compute_banner_geometry(width: f32, kind: BannerButtonsKind) -> BannerGeometry {
     let panel_top = TAB_STRIP_HEIGHT_DIP + RIBBON_GAP_DIP;
     let panel_width = (width - 2.0 * PANEL_LEFT_DIP).clamp(240.0, 760.0);
     let field_left = PANEL_LEFT_DIP + FIELD_INSET_X_DIP;
     let field_width = (panel_width - 2.0 * FIELD_INSET_X_DIP).clamp(200.0, 720.0);
     let field_top = panel_top + FIELD_PAD_TOP_DIP;
 
-    let panel_height = if with_buttons {
+    let panel_height = if kind != BannerButtonsKind::None {
         FIELD_PAD_TOP_DIP
             + FIELD_HEIGHT_DIP
             + BUTTON_GAP_TOP_DIP
@@ -109,15 +126,23 @@ pub(crate) fn compute_banner_geometry(width: f32, with_buttons: bool) -> BannerG
         FIELD_PAD_TOP_DIP + FIELD_HEIGHT_DIP + FIELD_PAD_BOTTOM_DIP
     };
 
-    let buttons = if with_buttons {
+    let buttons = if kind != BannerButtonsKind::None {
         let buttons_top = field_top + FIELD_HEIGHT_DIP + BUTTON_GAP_TOP_DIP;
-        let button_width = (field_width - 2.0 * BUTTON_INTER_GAP_DIP) / 3.0;
-        const LABELS: [(&str, BannerAction); 3] = [
-            ("Reload", BannerAction::Reload),
-            ("Keep mine", BannerAction::KeepMine),
-            ("Show diff", BannerAction::ShowDiff),
-        ];
-        LABELS
+        let labels: &[(&str, BannerAction)] = match kind {
+            BannerButtonsKind::Conflict => &[
+                ("Reload", BannerAction::Reload),
+                ("Keep mine", BannerAction::KeepMine),
+                ("Show diff", BannerAction::ShowDiff),
+            ],
+            BannerButtonsKind::InitializeVault => {
+                &[("Initialize vault", BannerAction::InitializeVault)]
+            }
+            BannerButtonsKind::None => &[],
+        };
+        let gap_count = labels.len().saturating_sub(1) as f32;
+        let button_width =
+            (field_width - gap_count * BUTTON_INTER_GAP_DIP) / labels.len().max(1) as f32;
+        labels
             .iter()
             .enumerate()
             .map(|(i, (label, action))| {
@@ -172,17 +197,17 @@ fn rect_contains(rect: &DrawRect, px: f32, py: f32) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_banner_geometry, rect_contains, BannerAction};
+    use super::{compute_banner_geometry, rect_contains, BannerAction, BannerButtonsKind};
 
     #[test]
     fn info_banner_has_no_buttons() {
-        let geo = compute_banner_geometry(1200.0, false);
+        let geo = compute_banner_geometry(1200.0, BannerButtonsKind::None);
         assert!(geo.buttons.is_empty());
     }
 
     #[test]
     fn conflict_banner_lays_out_three_ordered_buttons() {
-        let geo = compute_banner_geometry(1200.0, true);
+        let geo = compute_banner_geometry(1200.0, BannerButtonsKind::Conflict);
         assert_eq!(geo.buttons.len(), 3);
         assert_eq!(geo.buttons[0].action, BannerAction::Reload);
         assert_eq!(geo.buttons[1].action, BannerAction::KeepMine);
@@ -198,13 +223,13 @@ mod tests {
             assert!(btn.rect.y >= geo.field_rect.y + geo.field_rect.h);
         }
         // The conflict panel is taller than the plain info panel.
-        let info = compute_banner_geometry(1200.0, false);
+        let info = compute_banner_geometry(1200.0, BannerButtonsKind::None);
         assert!(geo.panel_rect.h > info.panel_rect.h);
     }
 
     #[test]
     fn hit_test_matches_button_rects() {
-        let geo = compute_banner_geometry(1200.0, true);
+        let geo = compute_banner_geometry(1200.0, BannerButtonsKind::Conflict);
         let mid = &geo.buttons[1].rect;
         let (cx, cy) = (mid.x + mid.w / 2.0, mid.y + mid.h / 2.0);
         assert!(rect_contains(mid, cx, cy));
@@ -213,5 +238,13 @@ mod tests {
             .buttons
             .iter()
             .all(|b| !rect_contains(&b.rect, cx, geo.field_rect.y)));
+    }
+
+    #[test]
+    fn vault_offer_has_one_full_width_action() {
+        let geo = compute_banner_geometry(900.0, BannerButtonsKind::InitializeVault);
+        assert_eq!(geo.buttons.len(), 1);
+        assert_eq!(geo.buttons[0].action, BannerAction::InitializeVault);
+        assert_eq!(geo.buttons[0].label, "Initialize vault");
     }
 }

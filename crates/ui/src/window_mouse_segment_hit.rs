@@ -131,13 +131,18 @@ impl Window {
             line_end_byte,
             &line_text,
         );
-        let key = SegmentCacheKey::new(stamp, self.font_state.0);
+        let key = SegmentCacheKey::new(stamp, self.surface.render.font_state.0);
         // P0.7.1 item 1 — consult the per-source-line segment cache
         // before any fresh layout. Applies to both ASCII and non-ASCII
         // lines: the key is content-stamp based, so the cache returns
         // matching segments at any absolute offset and bypasses the
         // FrameDisplay cold build entirely.
-        if let Some(segments) = self.walker_segment_cache.get_shifted(&key, line_start_byte) {
+        if let Some(segments) = self
+            .surface
+            .render
+            .walker_segment_cache
+            .get_shifted(&key, line_start_byte)
+        {
             log_segment_hit_cache_path("segment_cache");
             return segments
                 .iter()

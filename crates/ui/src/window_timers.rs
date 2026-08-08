@@ -37,11 +37,6 @@ pub(crate) const STATE_SAVE_TIMER_ID: usize = 5;
 pub(crate) const STATE_SAVE_DEBOUNCE_MS: u32 = 250;
 /// Base lines scrolled per mouse-wheel notch before the user speed multiplier.
 pub(crate) const WHEEL_LINES_PER_NOTCH: f32 = 3.0;
-/// Phase-I2 metrics-buffer repaint timer id. Armed while the dedicated
-/// metrics buffer is the focused tab; flushed on focus loss.
-pub(crate) const METRICS_REPAINT_TIMER_ID: usize = 6;
-/// 1 Hz cadence per spec §I2 ("throttled to 1 Hz while active").
-pub(crate) const METRICS_REPAINT_TIMER_MS: u32 = 1_000;
 /// §H6 Ctrl+Tab hold-detection timer id. Armed on the first Ctrl+Tab
 /// press, fires after [`TAB_OVERLAY_HOLD_TIMER_MS`] to open the
 /// positional tab switcher. Cancelled by an early Ctrl release (fast

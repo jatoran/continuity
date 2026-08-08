@@ -33,6 +33,7 @@ impl Window {
             Overlays::FindInAll(_) => self.confirm_find_in_all(),
             Overlays::Palette(_) => self.confirm_palette(),
             Overlays::QuickOpen(_) => self.confirm_quick_open(),
+            Overlays::VaultLauncher(_) => self.confirm_vault_launcher(false),
             Overlays::GotoLine(_) => self.confirm_goto_line(),
             Overlays::GotoHeading(_) => self.confirm_goto_heading(),
             Overlays::FontPicker(_) => self.confirm_font_picker(),

@@ -41,14 +41,18 @@ impl Window {
         let Some(pending) = self.file_banner.as_ref().and_then(|b| b.pending.clone()) else {
             return Err(CommandError::UnsupportedContext("file_keep_mine"));
         };
+        let should_force_export = pending.from_save || self.vault.owns_file(&pending.path);
         self.file_banner = None;
-        if !pending.from_save {
+        if !should_force_export {
+            self.vault.resume_autosave(pending.buffer_id);
             return Ok(());
         }
         let Some(snap) = self.editor.snapshot(pending.buffer_id) else {
+            self.vault.resume_autosave(pending.buffer_id);
             return Ok(());
         };
         let Some(file) = snap.file.as_ref() else {
+            self.vault.resume_autosave(pending.buffer_id);
             return Ok(());
         };
         let path = file.path.clone();
@@ -57,7 +61,11 @@ impl Window {
         self.mark_saved_clean(pending.buffer_id, base, &content);
         // Force the write (no conflict guard) — the user explicitly chose
         // their version over the external change.
-        self.enqueue_save(pending.buffer_id, path, content, None)
+        let result = self.enqueue_save(pending.buffer_id, path, content, None);
+        if result.is_err() {
+            self.vault.resume_autosave(pending.buffer_id);
+        }
+        result
     }
 
     /// Open a scratch tab showing a unified line diff between the editor

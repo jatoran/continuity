@@ -41,6 +41,14 @@ pub(crate) fn resolve_label(tab: &Tab, first_line: Option<&str>) -> String {
     }
 }
 
+/// Resolve a file-backed tab from its filename, regardless of any stale
+/// content-derived override retained by an older workspace snapshot.
+pub(crate) fn resolve_file_label(tab: &Tab, filename: &str) -> String {
+    let mut file_tab = tab.clone();
+    file_tab.label_override = Some(filename.to_string());
+    resolve_label(&file_tab, None)
+}
+
 fn base_label(tab: &Tab, first_line: Option<&str>) -> String {
     if let Some(s) = tab.label_override.as_deref() {
         if !s.is_empty() {
@@ -101,6 +109,13 @@ mod tests {
         assert_eq!(resolve_label(&tab, Some("first line")), "first line");
         assert_eq!(resolve_label(&tab, Some("   ")), "Untitled");
         assert_eq!(resolve_label(&tab, None), "Untitled");
+    }
+
+    #[test]
+    fn file_label_overrides_content_derived_workspace_title() {
+        let mut tab = Tab::new(BufferId::new(), 7);
+        tab.label_override = Some("# Content title".into());
+        assert_eq!(resolve_file_label(&tab, "notes.md"), "notes.md");
     }
 
     #[test]

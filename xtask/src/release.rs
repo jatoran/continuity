@@ -7,11 +7,12 @@ use std::process::Command;
 
 use anyhow::{anyhow, bail, Context, Result};
 
+use crate::artifact_budget::WINDOWS_BINARY_SIZE_BUDGET_BYTES;
+
 pub(crate) const APP_PACKAGE: &str = "continuity-app";
 pub(crate) const EXE_NAME: &str = "continuity.exe";
 pub(crate) const PORTABLE_ZIP: &str = "continuity-portable.zip";
 const RELEASE_PROFILE: &str = "release-small";
-const BINARY_SIZE_BUDGET_BYTES: u64 = 9 * 1024 * 1024;
 
 /// Build the release executable and assemble portable artifacts.
 pub(crate) fn package() -> Result<()> {
@@ -96,12 +97,12 @@ fn build_release_binary() -> Result<()> {
 
 fn check_binary_size(path: &Path) -> Result<()> {
     let bytes = fs::metadata(path)?.len();
-    if bytes > BINARY_SIZE_BUDGET_BYTES {
+    if bytes > WINDOWS_BINARY_SIZE_BUDGET_BYTES {
         bail!(
             "{} is {} bytes, budget {} bytes",
             path.display(),
             bytes,
-            BINARY_SIZE_BUDGET_BYTES
+            WINDOWS_BINARY_SIZE_BUDGET_BYTES
         );
     }
     Ok(())

@@ -17,6 +17,11 @@ use crate::file_io_primitives::{
     install_watch, is_self_write, normalize_path, read_file, send_failed, write_file,
     ReadFileResult,
 };
+use crate::file_io_vault_entries::{create_entry, move_entry, recycle_entry, rename_entry};
+use crate::file_io_vault_workspace::write_vault_workspace;
+use crate::file_io_worker_vault::{
+    handle_vault_notify, register_vault_subscriber, send_vault_change, send_vault_inspection,
+};
 
 pub(crate) const CHANNEL_CAPACITY: usize = 1024;
 
@@ -25,6 +30,12 @@ pub(crate) const CHANNEL_CAPACITY: usize = 1024;
 pub(crate) struct WatchedFile {
     pub(crate) buffer_id: BufferId,
     pub(crate) file: FileAssociation,
+}
+
+/// Vault marker routing owned by the file-I/O worker thread.
+pub(crate) struct WatchedVault {
+    pub(crate) root: PathBuf,
+    pub(crate) subscribers: Vec<Sender<FileIoEvent>>,
 }
 
 pub(crate) fn worker_loop(rx: Receiver<FileIoRequest>, event_tx: Sender<FileIoEvent>) {
@@ -45,16 +56,18 @@ pub(crate) fn worker_loop(rx: Receiver<FileIoRequest>, event_tx: Sender<FileIoEv
     };
     let mut watched: HashMap<PathBuf, WatchedFile> = HashMap::new();
     let mut watched_dirs: HashSet<PathBuf> = HashSet::new();
+    let mut watched_vaults: HashMap<PathBuf, WatchedVault> = HashMap::new();
     loop {
         select! {
             recv(rx) -> msg => {
                 let Ok(msg) = msg else { break; };
-                if handle_request(msg, &event_tx, watcher.as_mut(), &mut watched, &mut watched_dirs) {
+                if handle_request(msg, &event_tx, watcher.as_mut(), &mut watched, &mut watched_dirs, &mut watched_vaults) {
                     break;
                 }
             }
             recv(notify_rx) -> msg => {
                 if let Ok(res) = msg {
+                    handle_vault_notify(&res, &event_tx, &watched_vaults);
                     handle_notify(res, &event_tx, &mut watched);
                 }
             }
@@ -65,15 +78,146 @@ pub(crate) fn worker_loop(rx: Receiver<FileIoRequest>, event_tx: Sender<FileIoEv
 fn handle_request(
     msg: FileIoRequest,
     event_tx: &Sender<FileIoEvent>,
-    watcher: Option<&mut RecommendedWatcher>,
+    mut watcher: Option<&mut RecommendedWatcher>,
     watched: &mut HashMap<PathBuf, WatchedFile>,
     watched_dirs: &mut HashSet<PathBuf>,
+    watched_vaults: &mut HashMap<PathBuf, WatchedVault>,
 ) -> bool {
     match msg {
+        FileIoRequest::InspectFolder { path, reply } => {
+            if let Some((marker, root)) = send_vault_inspection(&reply, "open folder", path, false)
+            {
+                install_watch(watcher, watched_dirs, &marker);
+                register_vault_subscriber(watched_vaults, marker, root, reply);
+            }
+            false
+        }
+        FileIoRequest::InitializeVault { path, reply } => {
+            if let Some((marker, root)) =
+                send_vault_inspection(&reply, "initialize vault", path, true)
+            {
+                install_watch(watcher, watched_dirs, &marker);
+                register_vault_subscriber(watched_vaults, marker, root, reply);
+            }
+            false
+        }
+        FileIoRequest::CreateVaultEntry {
+            root,
+            parent,
+            kind,
+            reply,
+        } => {
+            match create_entry(&root, &parent, kind) {
+                Ok(_) => {
+                    let changed = FileIoEvent::VaultEntriesChanged {
+                        root: root.clone(),
+                        refresh_relative: parent,
+                        moved: None,
+                        deleted: None,
+                    };
+                    send_vault_change(watched_vaults, &root, &reply, changed);
+                }
+                Err(error) => send_failed(&reply, "create vault entry", None, Some(root), error),
+            }
+            false
+        }
+        FileIoRequest::MoveVaultEntry {
+            root,
+            source,
+            destination_directory,
+            reply,
+        } => {
+            match move_entry(&root, &source, &destination_directory) {
+                Ok(moved) => {
+                    let source_absolute = normalize_path(&root.join(&moved.0));
+                    let destination_absolute = normalize_path(&root.join(&moved.1));
+                    let moved_watch_paths =
+                        reassociate_watched_paths(watched, &source_absolute, &destination_absolute);
+                    for moved_path in moved_watch_paths {
+                        install_watch(watcher.as_deref_mut(), watched_dirs, &moved_path);
+                    }
+                    let refresh_relative = source
+                        .parent()
+                        .unwrap_or(std::path::Path::new(""))
+                        .to_path_buf();
+                    let changed = FileIoEvent::VaultEntriesChanged {
+                        root: root.clone(),
+                        refresh_relative,
+                        moved: Some(moved),
+                        deleted: None,
+                    };
+                    send_vault_change(watched_vaults, &root, &reply, changed);
+                }
+                Err(error) => send_failed(&reply, "move vault entry", None, Some(root), error),
+            }
+            false
+        }
+        FileIoRequest::RenameTreeEntry {
+            root,
+            source,
+            new_name,
+            reply,
+        } => {
+            match rename_entry(&root, &source, &new_name) {
+                Ok(moved) => {
+                    let source_absolute = normalize_path(&root.join(&moved.0));
+                    let destination_absolute = normalize_path(&root.join(&moved.1));
+                    let moved_watch_paths =
+                        reassociate_watched_paths(watched, &source_absolute, &destination_absolute);
+                    for moved_path in moved_watch_paths {
+                        install_watch(watcher.as_deref_mut(), watched_dirs, &moved_path);
+                    }
+                    let refresh_relative = source
+                        .parent()
+                        .unwrap_or(std::path::Path::new(""))
+                        .to_path_buf();
+                    let changed = FileIoEvent::VaultEntriesChanged {
+                        root: root.clone(),
+                        refresh_relative,
+                        moved: Some(moved),
+                        deleted: None,
+                    };
+                    send_vault_change(watched_vaults, &root, &reply, changed);
+                }
+                Err(error) => send_failed(&reply, "rename tree entry", None, Some(root), error),
+            }
+            false
+        }
+        FileIoRequest::DeleteVaultEntry {
+            root,
+            relative,
+            reply,
+        } => {
+            match recycle_entry(&root, &relative) {
+                Ok(deleted) => {
+                    let refresh_relative = relative
+                        .parent()
+                        .unwrap_or(std::path::Path::new(""))
+                        .to_path_buf();
+                    let changed = FileIoEvent::VaultEntriesChanged {
+                        root: root.clone(),
+                        refresh_relative,
+                        moved: None,
+                        deleted: Some(deleted),
+                    };
+                    send_vault_change(watched_vaults, &root, &reply, changed);
+                }
+                Err(error) => send_failed(&reply, "recycle vault entry", None, Some(root), error),
+            }
+            false
+        }
+        FileIoRequest::PersistVaultWorkspace { root, state, reply } => {
+            if let Err(error) = write_vault_workspace(&root, &state) {
+                send_failed(&reply, "persist vault workspace", None, Some(root), error);
+            }
+            false
+        }
         FileIoRequest::OpenFiles {
             paths,
             target_pane,
             reply,
+            wake_window,
+            disposition,
         } => {
             let output = reply.as_ref().unwrap_or(event_tx);
             for path in paths {
@@ -94,17 +238,24 @@ fn handle_request(
                             target_pane,
                             content,
                             file,
+                            disposition,
                         });
                     }
                     Err(e) => send_failed(output, "open", None, Some(path), e),
                 }
             }
+            crate::file_io_wake::wake_file_io_window(wake_window);
             false
         }
-        FileIoRequest::ListDirectory { root, relative } => {
-            match read_directory(&root, &relative) {
+        FileIoRequest::ListDirectory {
+            root,
+            relative,
+            config,
+            reply,
+        } => {
+            match read_directory(&root, &relative, config.as_ref()) {
                 Ok(listing) => {
-                    let _ = event_tx.send(FileIoEvent::DirectoryListed {
+                    let _ = reply.send(FileIoEvent::DirectoryListed {
                         root: listing.root,
                         relative: listing.relative,
                         entries: listing.entries,
@@ -114,13 +265,13 @@ fn handle_request(
                 Err(e) => {
                     let path = root.join(&relative);
                     let reason = e.to_string();
-                    let _ = event_tx.send(FileIoEvent::DirectoryListed {
+                    let _ = reply.send(FileIoEvent::DirectoryListed {
                         root,
                         relative,
                         entries: Vec::new(),
                         truncated: false,
                     });
-                    let _ = event_tx.send(FileIoEvent::Failed {
+                    let _ = reply.send(FileIoEvent::Failed {
                         buffer_id: None,
                         operation: "list folder",
                         path: Some(path),
@@ -135,7 +286,12 @@ fn handle_request(
             path,
             content,
             expected_hash,
+            reply,
         } => {
+            // Route completion to the requesting window so a sibling window
+            // draining the shared event channel cannot steal it (which would
+            // wedge the owning window's autosave `in_flight` forever).
+            let output = reply.as_ref().unwrap_or(event_tx);
             // Conflict guard: when an expected fingerprint is given, re-read
             // the file and refuse the save if its raw hash changed since the
             // buffer last synced — overwriting would silently destroy an
@@ -150,7 +306,7 @@ fn handle_request(
                 None => None,
             };
             if let Some(current) = conflict {
-                let _ = event_tx.send(FileIoEvent::SaveConflict {
+                let _ = output.send(FileIoEvent::SaveConflict {
                     buffer_id,
                     path,
                     content: current.content,
@@ -167,9 +323,9 @@ fn handle_request(
                                 file: file.clone(),
                             },
                         );
-                        let _ = event_tx.send(FileIoEvent::Saved { buffer_id, file });
+                        let _ = output.send(FileIoEvent::Saved { buffer_id, file });
                     }
-                    Err(e) => send_failed(event_tx, "save", Some(buffer_id), Some(path), e),
+                    Err(e) => send_failed(output, "save", Some(buffer_id), Some(path), e),
                 }
             }
             false
@@ -254,6 +410,31 @@ fn handle_request(
     }
 }
 
+fn reassociate_watched_paths(
+    watched: &mut HashMap<PathBuf, WatchedFile>,
+    source: &std::path::Path,
+    destination: &std::path::Path,
+) -> Vec<PathBuf> {
+    let updates: Vec<_> = watched
+        .iter()
+        .filter_map(|(path, entry)| {
+            path.strip_prefix(source).ok().map(|suffix| {
+                let mut entry = entry.clone();
+                let next = destination.join(suffix);
+                entry.file.path = next.clone();
+                (path.clone(), next, entry)
+            })
+        })
+        .collect();
+    let mut moved_paths = Vec::with_capacity(updates.len());
+    for (old, next, entry) in updates {
+        watched.remove(&old);
+        moved_paths.push(next.clone());
+        watched.insert(next, entry);
+    }
+    moved_paths
+}
+
 #[cfg(test)]
 pub(crate) fn handle_notify(
     res: notify::Result<Event>,
@@ -329,226 +510,9 @@ fn handle_notify_inner(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::{HashMap, HashSet};
+#[path = "file_io_worker_save_tests.rs"]
+mod save_tests;
 
-    use crossbeam_channel::bounded;
-
-    use super::*;
-
-    #[test]
-    fn open_files_with_reply_uses_reply_channel() {
-        let dir = tempfile::tempdir().expect("create temp dir");
-        let path = dir.path().join("note.md");
-        std::fs::write(&path, "hello").expect("write temp file");
-        let (event_tx, event_rx) = bounded(CHANNEL_CAPACITY);
-        let (reply_tx, reply_rx) = bounded(CHANNEL_CAPACITY);
-        let mut watched = HashMap::new();
-        let mut watched_dirs = HashSet::new();
-
-        let should_shutdown = handle_request(
-            FileIoRequest::OpenFiles {
-                paths: vec![path.clone()],
-                target_pane: None,
-                reply: Some(reply_tx),
-            },
-            &event_tx,
-            None,
-            &mut watched,
-            &mut watched_dirs,
-        );
-
-        assert!(!should_shutdown);
-        assert!(event_rx.try_recv().is_err());
-        let event = reply_rx.try_recv().expect("receive open reply");
-        let FileIoEvent::Opened {
-            target_pane,
-            content,
-            file,
-        } = event
-        else {
-            panic!("expected opened event");
-        };
-        assert_eq!(target_pane, None);
-        assert_eq!(content, "hello");
-        assert_eq!(file.path, path);
-    }
-
-    #[test]
-    fn recheck_file_replies_with_current_disk_bytes_and_arms_watch() {
-        let dir = tempfile::tempdir().expect("create temp dir");
-        let path = dir.path().join("restored.md");
-        std::fs::write(&path, "fresh disk bytes").expect("write temp file");
-        let (event_tx, _event_rx) = bounded(CHANNEL_CAPACITY);
-        let (reply_tx, reply_rx) = bounded(CHANNEL_CAPACITY);
-        let mut watched = HashMap::new();
-        let mut watched_dirs = HashSet::new();
-        let buffer_id = continuity_buffer::BufferId::new();
-
-        let should_shutdown = handle_request(
-            FileIoRequest::RecheckFile {
-                buffer_id,
-                path: path.clone(),
-                reply: Some(reply_tx),
-            },
-            &event_tx,
-            None,
-            &mut watched,
-            &mut watched_dirs,
-        );
-
-        assert!(!should_shutdown);
-        let event = reply_rx.try_recv().expect("receive recheck reply");
-        let FileIoEvent::Rechecked {
-            buffer_id: got_id,
-            content,
-            file,
-        } = event
-        else {
-            panic!("expected rechecked event");
-        };
-        assert_eq!(got_id, buffer_id);
-        assert_eq!(content, "fresh disk bytes");
-        assert_eq!(file.path, path);
-        // The recheck arms the external-change watch so a restored buffer
-        // that was never watched this session begins observing edits.
-        assert!(watched.contains_key(&normalize_path(&path)));
-    }
-
-    #[test]
-    fn save_refuses_when_disk_changed_since_expected() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let path = dir.path().join("note.md");
-        std::fs::write(&path, "external content").expect("seed file");
-        let (event_tx, event_rx) = bounded(CHANNEL_CAPACITY);
-        let mut watched = HashMap::new();
-        let mut watched_dirs = HashSet::new();
-        let buffer_id = continuity_buffer::BufferId::new();
-
-        // expected_hash is deliberately stale (0) — it can't match the
-        // current on-disk hash, so the save must be refused.
-        handle_request(
-            FileIoRequest::SaveBuffer {
-                buffer_id,
-                path: path.clone(),
-                content: "my unsaved edits".into(),
-                expected_hash: Some(0),
-            },
-            &event_tx,
-            None,
-            &mut watched,
-            &mut watched_dirs,
-        );
-
-        match event_rx.try_recv().expect("conflict event") {
-            FileIoEvent::SaveConflict {
-                buffer_id: got,
-                content,
-                file,
-                ..
-            } => {
-                assert_eq!(got, buffer_id);
-                // The current disk content is surfaced for the diff/reload.
-                assert_eq!(content, "external content");
-                assert_eq!(file.path, path);
-            }
-            other => panic!("expected SaveConflict, got {other:?}"),
-        }
-        // The write was refused: the external content is intact on disk.
-        assert_eq!(
-            std::fs::read_to_string(&path).expect("read"),
-            "external content"
-        );
-    }
-
-    #[test]
-    fn save_writes_when_expected_hash_matches_disk() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let path = dir.path().join("note.md");
-        std::fs::write(&path, "in sync").expect("seed file");
-        let current = read_file(&path).expect("read");
-        let (event_tx, event_rx) = bounded(CHANNEL_CAPACITY);
-        let mut watched = HashMap::new();
-        let mut watched_dirs = HashSet::new();
-
-        handle_request(
-            FileIoRequest::SaveBuffer {
-                buffer_id: continuity_buffer::BufferId::new(),
-                path: path.clone(),
-                content: "updated".into(),
-                expected_hash: Some(current.file.hash),
-            },
-            &event_tx,
-            None,
-            &mut watched,
-            &mut watched_dirs,
-        );
-
-        assert!(matches!(
-            event_rx.try_recv().expect("saved event"),
-            FileIoEvent::Saved { .. }
-        ));
-        assert_eq!(std::fs::read_to_string(&path).expect("read"), "updated");
-    }
-
-    #[test]
-    fn save_with_no_expected_hash_force_writes() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let path = dir.path().join("note.md");
-        std::fs::write(&path, "external content").expect("seed file");
-        let (event_tx, event_rx) = bounded(CHANNEL_CAPACITY);
-        let mut watched = HashMap::new();
-        let mut watched_dirs = HashSet::new();
-
-        // expected_hash None = "keep mine" / save-as → unconditional write.
-        handle_request(
-            FileIoRequest::SaveBuffer {
-                buffer_id: continuity_buffer::BufferId::new(),
-                path: path.clone(),
-                content: "forced over external".into(),
-                expected_hash: None,
-            },
-            &event_tx,
-            None,
-            &mut watched,
-            &mut watched_dirs,
-        );
-
-        assert!(matches!(
-            event_rx.try_recv().expect("saved event"),
-            FileIoEvent::Saved { .. }
-        ));
-        assert_eq!(
-            std::fs::read_to_string(&path).expect("read"),
-            "forced over external"
-        );
-    }
-
-    #[test]
-    fn recheck_missing_file_is_silent() {
-        let dir = tempfile::tempdir().expect("create temp dir");
-        let path = dir.path().join("gone.md");
-        let (event_tx, event_rx) = bounded(CHANNEL_CAPACITY);
-        let (reply_tx, reply_rx) = bounded(CHANNEL_CAPACITY);
-        let mut watched = HashMap::new();
-        let mut watched_dirs = HashSet::new();
-
-        let should_shutdown = handle_request(
-            FileIoRequest::RecheckFile {
-                buffer_id: continuity_buffer::BufferId::new(),
-                path,
-                reply: Some(reply_tx),
-            },
-            &event_tx,
-            None,
-            &mut watched,
-            &mut watched_dirs,
-        );
-
-        assert!(!should_shutdown);
-        // A missing file produces neither a reply nor a failure banner —
-        // the rope stays canonical and a later save recreates the path.
-        assert!(reply_rx.try_recv().is_err());
-        assert!(event_rx.try_recv().is_err());
-    }
-}
+#[cfg(test)]
+#[path = "file_io_worker_open_tests.rs"]
+mod open_tests;

@@ -6,9 +6,9 @@ name = "deep_minimal"
 
 "panel.background"                  = "#202024"
 "panel.foreground"                  = "#c8c8cc"
-"panel.active_tab.background"       = "#2a2a30"
+"panel.active_tab.background"       = "#191919"
 "panel.active_tab.foreground"       = "#f0f0f0"
-"panel.inactive_tab.background"     = "#1a1a1d"
+"panel.inactive_tab.background"     = "#2a2a30"
 "panel.inactive_tab.foreground"     = "#888890"
 
 "pane.border"                       = "#2a2a30"

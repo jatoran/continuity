@@ -2,7 +2,7 @@
 //!
 //! A parsed `tree_sitter::Tree` costs ~35 MB for a 10k-line buffer (the
 //! dominant per-buffer memory cost; see
-//! `.docs/development/memory_optimization_plan.md`). The tree is retained
+//! `.docs/development/archive/memory_optimization_plan.md`). The tree is retained
 //! by the decoration worker pool's `BufferTreeCache` *only* to make the
 //! next edit's reparse incremental — rendering reads the separately-cached
 //! `Decorations`, never the tree. So we can drop the tree for any buffer

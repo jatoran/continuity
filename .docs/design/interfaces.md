@@ -12,6 +12,85 @@
 - **`SelectionEdit`**: the typed payload for every buffer mutation. 39+ variants today.
 - **`EditorMessage`**: the channel payload UI → core.
 - **`EditEvent`**: the channel payload core → subscribers.
+- **`FileIoRequest` / `FileIoEvent`**: routed UI ↔ file-I/O payloads; window-specific work carries a bounded reply sender, while watched vault changes fan out to every subscribed window.
+
+## Synchronous engine
+
+`continuity_engine::Engine` is the storage-neutral mutation contract. The host
+owns it on one selected thread and calls construct/load, snapshot, text and
+selection access, raw/grouped/selection edits, undo/redo, revision-checked
+replacement, delta queries, and event draining synchronously. Mutation calls
+accept a host timestamp and return an ordered `ChangeBatch` containing
+operations, removed text, per-op revisions/checksums/selections, undo-group
+identity, batch-level before/after selections, point deltas, command identity,
+timestamp, and final revision.
+
+The engine creates no database, file, worker, window, or callback. Native core
+keeps desktop file association in its host-facing snapshot and projects each
+batch through `persistence_bridge::PersistenceBridge`; embedders may discard,
+serialize, or otherwise manage the batch after the mutable engine call ends.
+`replay_change_batches` validates a host log and reconstructs text, selections,
+revision, and checksum. Full-document reconcile requires an expected revision;
+identical text returns no batch and stale host state cannot overwrite typing.
+
+The npm `Editor` is the WASM facade over this same engine. Its raw
+`wasm-bindgen` exports are internal; the stable JavaScript/TypeScript contract
+and exact method/report shapes live in `packages/editor/index.js` and
+`index.d.ts`. See [`../technical/wasm-sdk.md`](../technical/wasm-sdk.md).
+
+## Browser component interface
+
+`<continuity-editor>` composes one npm `Editor` with a semantic textarea and a
+visual DOM projection. Its public state surface is initial/current `value`,
+`readOnly`, `ready`, `snapshot`, revision-checked `replaceValue`, `focus`, and
+`destroy`. Browser inputs are normalized before synchronous mutation; no host
+callback runs during the engine borrow.
+
+`continuity-change` carries protocol version `1`, a component-local monotonic
+sequence, normalized source, `Change`, and post-change `Snapshot`.
+`continuity-request` carries link, context-menu, dropped-file, or clipboard
+mediation. Clipboard kinds (`copyText`, `pasteText`) are raised when the browser
+refuses the page clipboard access; `insertText(text)` is how a host answers
+`pasteText`.
+`continuity-frame` records input-to-paint-ready timing. All events bubble and are
+composed across the shadow boundary. See
+[`features/web-component.md`](features/web-component.md).
+
+## Platform-neutral host protocol
+
+`continuity_host::EditorOperation` is the reusable mutation vocabulary.
+`OperationRequest` adds buffer id, optional expected revision, and host time.
+`EditorIntent` adds surface inputs that do not directly mutate the rope:
+navigation, selections, command ownership, viewport/scroll, focus, pointer,
+composition, and clipboard/context-menu/link/dropped-file mediation.
+
+Pointer input is expressed in surface DIPs with an explicit down/up/move/
+leave/cancel phase, active and held buttons, click count, and normalized
+Shift/Control/Alt state. Plain-text clipboard work is a `HostRequest`, so a
+surface never assumes Win32 clipboard ownership. The Windows composition
+translates native messages and resolves requests in responsibility-scoped
+adapters; other hosts supply equivalent services.
+
+`HostRuntime::dispatch` is synchronous and returns one ordered
+`HostEventBatch`. It never invokes a callback. Delivering the returned batch is
+therefore necessarily post-borrow and may safely trigger the next dispatch.
+The optional runtime is ephemeral; native core consumes the same operation
+type but retains its actor and persistence bridge.
+
+## Native child-control interface
+
+`continuity_ui::EditorControl::new` is the Rust-native visual embedding
+boundary. It takes a parent HWND, child bounds, `ControlRuntime`,
+`ControlOptions`, and bounded `ControlEventSink`. Ephemeral, prepared-runtime,
+and prepared-engine modes all converge on `HostRuntime`; `snapshot` exposes
+immutable engine state and `dispatch_command` routes context-free editor
+commands to typed operations while returning unknown/host commands as
+`CommandRequested` events.
+
+The host owns the receiver and must preserve batch order. The control never
+claims persistence or durability. HWND/focus/resize/DPI/clipboard/IME/UIA
+ownership is specified in
+[`features/embeddable-windows-control.md`](features/embeddable-windows-control.md).
 
 ## `EditorMessage`
 
@@ -24,7 +103,7 @@ enum EditorMessage {
                         reply: Sender<BufferId> },
     ApplyEdit         { buffer_id: BufferId, op: EditOp,
                         reply: Sender<Result<Revision, Error>> },
-    ApplySelectionEdit{ buffer_id: BufferId, edit: SelectionEdit,
+    ApplySelectionEdit{ buffer_id: BufferId, operation: EditorOperation,
                         reply: Sender<Result<Option<Revision>, Error>> },
     ApplyEditGroup    { buffer_id: BufferId, ops: Vec<EditOp>,
                         selections_after: Vec<Selection>,
@@ -153,7 +232,7 @@ Default impls return `Err(Error::UnsupportedContext("name"))` so headless tests 
 
 ## Edit pipeline contract
 
-`SelectionEdit::*` → `crate::selection_edit::plan(buf, &edit) -> Option<SelectionEditPlan>`.
+`SelectionEdit::*` → `continuity_engine::selection_edit::plan(buf, &edit) -> Option<SelectionEditPlan>`.
 
 ```rs
 struct SelectionEditPlan {
@@ -166,7 +245,7 @@ struct SelectionEditPlan {
 Contract:
 - `ops` is descending by `start` byte so sequential `Buffer::apply` keeps pre-edit offsets valid.
 - `selections_before` is what the caller saw when planning began.
-- `selections_after` is what `Buffer::set_selections` will be set to *after* all ops apply. Plan authors must shift positions through their own ops (legacy line-spanning indent/outdent used to ship `selections_before` unchanged — that bug was fixed in `edit_indent_shift`).
+- `selections_after` is what `Buffer::set_selections` will be set to *after* all ops apply. Plan authors must shift positions through their complete op sequence. `edit_planning::finalize_specs_with_transformed_selections` mirrors the buffer's cumulative descending-op transform for ordinary insertion/replacement endpoints; structural commands with bespoke landing positions provide an explicit post-edit list. Line-prefix indent/outdent uses `edit_indent_shift`.
 - Returning `Ok(None)` from a planner means "no effect" — no undo group is minted.
 
 ## Persistence client
@@ -253,7 +332,8 @@ Startup file paths (`continuity.exe <path>`) do not enter the `FileIoRequest` qu
 - **Unknown command name** ⇒ `Error::UnknownCommand`; logged at dispatch; chord stays unbound (no-op).
 
 ## References
-- `.docs/development/spec.md` §§2, 7 (threading + commands).
+- `.docs/development/archive/spec.md` §§2, 7 (historical threading and command
+  rationale).
 - `crates/command/src/context.rs` for the live method surface.
 - `crates/core/src/message.rs` for the live `EditorMessage` enum.
 - `.docs/design/features/command-system.md` for usage patterns + extension recipes.

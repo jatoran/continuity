@@ -1,7 +1,8 @@
-//! Thin wrapper around `IVirtualDesktopManager` (Phase 14).
+//! Thin wrapper around `IVirtualDesktopManager`.
 //!
 //! Provides only the documented, stable surface: query a window's desktop
-//! GUID, and move a window to a known GUID. The undocumented
+//! GUID, test whether it is on the current desktop, and move it to a known
+//! GUID. The undocumented
 //! `IVirtualDesktopManagerInternal` (which can list desktops, create new
 //! ones, switch the active desktop) is intentionally out of scope — the
 //! editor never auto-switches the user between desktops, per spec §6.
@@ -14,6 +15,9 @@ use windows::core::GUID;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
 use windows::Win32::UI::Shell::IVirtualDesktopManager;
+use windows::Win32::UI::WindowsAndMessaging::{
+    IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE,
+};
 
 use crate::Error;
 
@@ -54,6 +58,15 @@ impl VirtualDesktopManager {
             .map(guid_to_bytes)
     }
 
+    /// Return whether `hwnd` is hosted on the currently active virtual
+    /// desktop, or `None` when the shell cannot answer the query.
+    #[must_use]
+    pub fn is_window_on_current_desktop(&self, hwnd: HWND) -> Option<bool> {
+        unsafe { self.inner.IsWindowOnCurrentVirtualDesktop(hwnd) }
+            .ok()
+            .map(|is_current| is_current.as_bool())
+    }
+
     /// Move `hwnd` to the desktop identified by `guid_bytes`. Returns
     /// `Ok(true)` when the call succeeds; the manager rejects unknown
     /// GUIDs with `E_INVALIDARG`, in which case we return `Ok(false)` so
@@ -81,6 +94,28 @@ impl VirtualDesktopManager {
     pub fn raw(&self) -> &IVirtualDesktopManager {
         &self.inner
     }
+}
+
+/// Activate `raw_window` only when it is on the currently active virtual
+/// desktop. Query failure is treated as not-current so callers never warp the
+/// user to another desktop.
+#[must_use]
+pub fn activate_window_if_on_current_desktop(raw_window: usize) -> bool {
+    let manager = match VirtualDesktopManager::new() {
+        Ok(manager) => manager,
+        Err(_) => return false,
+    };
+    let hwnd = HWND(raw_window as *mut std::ffi::c_void);
+    if manager.is_window_on_current_desktop(hwnd) != Some(true) {
+        return false;
+    }
+    unsafe {
+        if IsIconic(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        }
+        let _ = SetForegroundWindow(hwnd);
+    }
+    true
 }
 
 fn guid_to_bytes(g: GUID) -> [u8; 16] {

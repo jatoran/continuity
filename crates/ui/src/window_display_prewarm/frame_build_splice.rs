@@ -58,7 +58,12 @@ impl Window {
         wrap_width_dip: u32,
         fallback_char_width_dip: f32,
     ) -> Option<SplicedRowIndex> {
-        let previous = self.row_index_cache.borrow().get_for_splice(live_key)?;
+        let previous = self
+            .surface
+            .projection
+            .row_index_cache
+            .borrow()
+            .get_for_splice(live_key)?;
         let prev_rope_revision = previous.stamps().rope_revision;
         // Splice forward only. A "future" cached revision relative to
         // this paint's revision would require reversing deltas, which
@@ -71,15 +76,15 @@ impl Window {
         if !covered {
             return None;
         }
-        let (row_index, stats) = if let Some(format) = self.text_format.as_ref() {
+        let (row_index, stats) = if let Some(format) = self.surface.render.text_format.as_ref() {
             let mut measure = DirectWriteWidthMeasure::new_with_run_cache(
-                self.dwrite.raw(),
+                self.surface.render.dwrite.raw(),
                 format,
                 self.scaled_font_size(),
                 continuity_render::DEFAULT_HEADING_SCALE,
                 fallback_char_width_dip,
-                Some(Arc::clone(&self.walker_run_cache)),
-                self.font_state,
+                Some(Arc::clone(&self.surface.render.walker_run_cache)),
+                self.surface.render.font_state,
                 crate::window::FONT_LOCALE,
             );
             FrameDisplay::splice_row_index_forward_measured_with_caches(
@@ -94,10 +99,10 @@ impl Window {
                 self.markdown_render_toggles(),
                 wrap_width_dip,
                 &mut measure,
-                self.font_state.0,
+                self.surface.render.font_state.0,
                 crate::window::FONT_LOCALE,
-                &self.walker_wrap_cache,
-                &self.walker_segment_cache,
+                &self.surface.render.walker_wrap_cache,
+                &self.surface.render.walker_segment_cache,
             )?
         } else {
             let mut measure =
@@ -114,10 +119,10 @@ impl Window {
                 self.markdown_render_toggles(),
                 wrap_width_dip,
                 &mut measure,
-                self.font_state.0,
+                self.surface.render.font_state.0,
                 crate::window::FONT_LOCALE,
-                &self.walker_wrap_cache,
-                &self.walker_segment_cache,
+                &self.surface.render.walker_wrap_cache,
+                &self.surface.render.walker_segment_cache,
             )?
         };
         Some(SplicedRowIndex {

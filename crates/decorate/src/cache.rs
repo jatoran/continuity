@@ -81,7 +81,7 @@ impl DecorationCache {
             .iter()
             .map(|(buffer_id, arc)| (*buffer_id, arc.byte_size_estimate()))
             .collect();
-        sized.sort_by(|a, b| b.1.cmp(&a.1));
+        sized.sort_by_key(|entry| std::cmp::Reverse(entry.1));
         sized.truncate(n);
         sized
     }

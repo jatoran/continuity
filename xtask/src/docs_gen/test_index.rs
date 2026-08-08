@@ -9,12 +9,19 @@ use crate::docs_gen::{escape_md_cell, new_doc, relative_path};
 
 pub(crate) fn write_test_index(workspace: &Path) -> Result<String> {
     let crates = collect_crate_tests(workspace)?;
+    let portable = collect_portable_tests(workspace)?;
     let mut out = new_doc("Test Index");
-    out.push_str("Generated from `crates/*/src`, `crates/*/tests`, and `crates/*/benches`.\n\n");
+    out.push_str("Generated from Rust crate tests/benches plus maintained tests under `packages/`, `bindings/`, and `apps/`.\n\n");
     write_summary(&mut out, &crates);
     write_integration_files(&mut out, &crates);
     write_special_suites(&mut out, &crates);
+    write_portable_suites(&mut out, &portable);
     Ok(out)
+}
+
+struct PortableTestFile {
+    path: String,
+    command: &'static str,
 }
 
 pub(crate) struct CrateTests {
@@ -136,6 +143,59 @@ fn write_special_suites(out: &mut String, crates: &[CrateTests]) {
             command_for_file(krate, file)
         ));
     }
+}
+
+fn write_portable_suites(out: &mut String, files: &[PortableTestFile]) {
+    out.push_str("\n## SDK And Application Tests\n\n");
+    out.push_str("| File | Owning gate |\n");
+    out.push_str("|---|---|\n");
+    for file in files {
+        out.push_str(&format!("| `{}` | `{}` |\n", file.path, file.command));
+    }
+}
+
+fn collect_portable_tests(workspace: &Path) -> Result<Vec<PortableTestFile>> {
+    let mut output = Vec::new();
+    for (directory, command) in [
+        ("packages/editor/tests", "cargo xtask browser-check"),
+        ("bindings/python/tests", "cargo xtask sdk-check"),
+        ("apps/desktop-web/tests", "cargo xtask desktop-check"),
+    ] {
+        let mut paths = Vec::new();
+        collect_portable_test_files(&workspace.join(directory), &mut paths)?;
+        for path in paths {
+            output.push(PortableTestFile {
+                path: relative_path(workspace, &path)?,
+                command,
+            });
+        }
+    }
+    output.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(output)
+}
+
+fn collect_portable_test_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+    let mut entries = fs::read_dir(dir)
+        .with_context(|| format!("listing {}", dir.display()))?
+        .collect::<std::io::Result<Vec<_>>>()
+        .with_context(|| format!("reading {}", dir.display()))?;
+    entries.sort_by_key(|entry| entry.path());
+    for entry in entries {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_portable_test_files(&path, out)?;
+        } else if path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| matches!(extension, "js" | "mjs" | "cjs" | "py"))
+        {
+            out.push(path);
+        }
+    }
+    Ok(())
 }
 
 fn workspace_members(workspace: &Path) -> Result<Vec<String>> {

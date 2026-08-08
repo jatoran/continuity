@@ -4,7 +4,7 @@
 //! edit instead of redoing — the new edit becomes a sibling rather than
 //! overwriting the redo branch (per spec §8).
 //!
-//! **Thread ownership**: only the editor core thread mutates an `UndoTree`;
+//! **Thread ownership**: only the caller-selected engine thread mutates an `UndoTree`;
 //! it lives inside [`crate::Buffer`].
 
 use ahash::AHashMap;
@@ -78,11 +78,35 @@ impl UndoTree {
         Self::default()
     }
 
+    /// Rebuild a tree from previously recorded groups and a head pointer.
+    ///
+    /// Distinct from replaying [`Self::insert_group`] per group: that call
+    /// re-parents a `None` parent onto whatever the head currently is, which
+    /// silently re-roots every root-level branch onto the group inserted
+    /// before it. A restore has to preserve the recorded shape exactly, so it
+    /// takes the groups as given. Unknown `current` ids fall back to
+    /// pre-history rather than panicking, because the input crossed a
+    /// serialization boundary and is not a caller invariant.
+    #[must_use]
+    pub fn restore(groups: Vec<UndoGroup>, current: Option<UndoGroupId>) -> Self {
+        let by_id = groups
+            .iter()
+            .enumerate()
+            .map(|(index, group)| (group.id, index))
+            .collect::<AHashMap<_, _>>();
+        let current = current.and_then(|id| by_id.get(&id).copied());
+        Self {
+            groups,
+            by_id,
+            current,
+        }
+    }
+
     /// Insert an empty group rooted at `parent` (or at the current head if
     /// `parent` is `None` and a current group exists). Returns the group's
     /// stable id.
     ///
-    /// Used both at edit time (when the core thread mints a new group) and
+    /// Used both at edit time (when the engine mints a new group) and
     /// at recovery time (when persisted rows are replayed).
     pub fn insert_group(
         &mut self,
@@ -337,6 +361,35 @@ mod tests {
         t.append_record(c, record(3));
         t.set_current(Some(a));
         assert_eq!(t.group_to_redo().map(|g| g.id), Some(c));
+    }
+
+    #[test]
+    fn restore_preserves_shape_and_head() {
+        let mut original = UndoTree::new();
+        let a = UndoGroupId::new();
+        original.insert_group(a, None, 0, "x");
+        original.append_record(a, record(1));
+        let b = UndoGroupId::new();
+        original.insert_group(b, Some(a), 1, "y");
+        original.append_record(b, record(2));
+        original.set_current(Some(a));
+
+        let restored = UndoTree::restore(original.groups().to_vec(), original.current_id());
+        assert_eq!(restored.len(), 2);
+        assert_eq!(restored.current_id(), Some(a));
+        assert_eq!(restored.get(b).unwrap().parent, Some(a));
+        assert_eq!(restored.group_to_redo().map(|g| g.id), Some(b));
+    }
+
+    #[test]
+    fn restore_with_unknown_head_falls_back_to_pre_history() {
+        let mut original = UndoTree::new();
+        let a = UndoGroupId::new();
+        original.insert_group(a, None, 0, "x");
+        original.append_record(a, record(1));
+        let restored = UndoTree::restore(original.groups().to_vec(), Some(UndoGroupId::new()));
+        assert!(restored.current().is_none());
+        assert_eq!(restored.len(), 1);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! Window-side footnote hover-peek wiring.
 //!
-//! Thread ownership: the hover state is stored in `Window::mouse_state`
+//! Thread ownership: the hover state is stored in `EditorSurface::pointer`
 //! and is mutated only on the owning window's UI thread.
 
 use continuity_decorate::ByteRange;
@@ -20,7 +20,7 @@ impl Window {
         client_width: f32,
         client_height: f32,
     ) -> Option<OverlayDraw> {
-        let hover = self.mouse_state.footnote_hover.as_ref()?;
+        let hover = self.surface.pointer.footnote_hover.as_ref()?;
         if !hover.ready {
             return None;
         }
@@ -59,7 +59,7 @@ impl Window {
             return self.clear_footnote_hover();
         };
         let now_ms = self.now_ms();
-        if let Some(hover) = self.mouse_state.footnote_hover.as_mut() {
+        if let Some(hover) = self.surface.pointer.footnote_hover.as_mut() {
             if hover.is_same_reference(&label, reference_range) {
                 let was_ready = hover.ready;
                 hover.anchor_x = x;
@@ -71,11 +71,12 @@ impl Window {
             }
         }
         let was_ready = self
-            .mouse_state
+            .surface
+            .pointer
             .footnote_hover
             .as_ref()
             .is_some_and(|hover| hover.ready);
-        self.mouse_state.footnote_hover = Some(FootnoteHover {
+        self.surface.pointer.footnote_hover = Some(FootnoteHover {
             label,
             reference_range,
             body_text,
@@ -98,7 +99,7 @@ impl Window {
     /// Dwell timer callback for the passive footnote hover-peek.
     pub(crate) fn on_footnote_hover_timer(&mut self, hwnd: HWND) {
         let now_ms = self.now_ms();
-        let Some(hover) = self.mouse_state.footnote_hover.as_mut() else {
+        let Some(hover) = self.surface.pointer.footnote_hover.as_mut() else {
             self.stop_footnote_hover_timer(hwnd);
             return;
         };
@@ -110,7 +111,7 @@ impl Window {
 
     /// Clear any pending or visible footnote hover-peek.
     pub(crate) fn clear_footnote_hover(&mut self) -> bool {
-        let had_hover = self.mouse_state.footnote_hover.take().is_some();
+        let had_hover = self.surface.pointer.footnote_hover.take().is_some();
         if had_hover {
             self.stop_footnote_hover_timer(self.hwnd);
         }

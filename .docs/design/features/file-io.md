@@ -3,13 +3,13 @@
 Open, save, save-as, drag-drop import, bounded directory listing, external-change detection. A dedicated worker thread serialises disk operations; the UI thread never blocks on filesystem I/O. External edits surface as a non-modal banner with reload / keep-mine / diff actions.
 
 ## What it is
-- A dedicated thread that handles interactive file reads, writes, shallow folder listings, drag-drop, and external-change watching. Never on the UI thread, ever. UI talks to it via `FileIoClient` (`Sender<FileIoRequest>`) and drains `FileIoEvent` on a 250 ms `WM_TIMER`. File-watching uses `notify` so external edits show up as a non-blocking banner.
+- A dedicated thread that handles interactive file reads, writes, shallow folder listings, vault discovery/mutation, drag-drop, and external-change watching. Never on the UI thread, ever. UI talks to it via `FileIoClient` (`Sender<FileIoRequest>`). Routed file-open completions post an immediate drain tick to the requesting HWND; the ordinary 100 ms timer remains a lost-wake and maintenance fallback. File-watching uses `notify` so external edits and vault-config reloads show up without blocking input.
 - Process-startup paths (`continuity.exe <path>`, Windows "Open with") are partitioned before any window thread spawns. Files are read synchronously and installed into the first restored window as file-associated tabs; folders are forwarded as file-tree roots. This avoids multi-window `FileIoEvent` receiver races and keeps session restore intact.
 
 ## Key concepts
 - **`FileIoClient`** — clonable `Sender` into the file-I/O thread.
-- **`FileIoRequest`** — `OpenFiles | ListDirectory | SaveBuffer | ReloadBuffer | RecheckFile | WatchFile | Shutdown`.
-- **`FileIoEvent`** — `Opened | DirectoryListed | Saved | SaveConflict | Reloaded | Rechecked | ExternalChanged | Deleted | EncodingNotice | Failed`.
+- **`FileIoRequest`** — file open/save/watch requests plus `InspectFolder | InitializeVault | ListDirectory | CreateVaultEntry | MoveVaultEntry | RenameTreeEntry | DeleteVaultEntry | PersistVaultWorkspace | Shutdown`.
+- **`FileIoEvent`** — file completions plus `FolderInspected | DirectoryListed | VaultEntriesChanged | VaultConfigChanged | Failed`.
 - **`StartupOpenedFile`** — sync startup-read result: decoded content + `FileAssociation` + optional encoding notice.
 - **`FileAssociation { path, mtime_ms, hash, content_hash }`** — link between a buffer and a real file on disk; `hash` fingerprints raw file bytes, `content_hash` fingerprints decoded rope text.
 - **`FileBanner`** — non-blocking status banner painted below the tab ribbon. Transient (auto-dismiss) for confirm/info text (save / reload); sticky for decision-required prompts (external-change, deletion, encoding, failures, recovery). See [Banner placement and lifetime](#banner-placement-and-lifetime).
@@ -19,21 +19,22 @@ Open, save, save-as, drag-drop import, bounded directory listing, external-chang
 
 ### Open / import
 1. UI dispatches `file.open` → native `IFileOpenDialog` (Phase D9). User picks a file.
-2. UI sends `FileIoRequest::OpenFiles { paths, target_pane }`.
+2. UI sends `FileIoRequest::OpenFiles { paths, target_pane, reply, wake_window, disposition }`.
 3. File-I/O thread reads the file, decodes UTF-8 / UTF-16 BOMs / lossy non-UTF-8 fallback, computes mtime + raw-byte hash + decoded-content hash.
-4. File-I/O sends `FileIoEvent::Opened { target_pane, content, file }`.
-5. UI tick drains the event and forwards it to the registry as `RegistryEvent::OpenFileBuffer`. The registry resolves the path to one buffer (reusing the existing file buffer when already loaded — one file never spans two edit logs) and either **reveals** the existing tab in its owning window or **spawns** a fresh window, reconciling against the disk bytes in both cases (see [Reconciliation](#reconciliation)). Without a registry (tests) the window creates the buffer locally.
+4. File-I/O sends `FileIoEvent::Opened { target_pane, content, file, disposition }` to the requesting window's reply channel and wakes that HWND immediately.
+5. UI forwards it to the registry as `RegistryEvent::OpenFileBuffer`. Preview replaces the source window's focused tab, NewTab inserts there, and NewWindow spawns a top-level window. Registry control delivery also wakes the destination HWND immediately; its 250 ms poll remains fallback-only for this path. The registry still resolves the path to one shared buffer/edit log and reconciles against disk (see [Reconciliation](#reconciliation)). Without a registry, tests use the local adoption path.
 6. For a new buffer, core creates it at the adopted revision with the `FileAssociation` attached; persistence writes an initial snapshot — not an edit.
 
 Drag-drop: `WM_DROPFILES` path. `DragQueryFileW` enumerates dropped paths; image paths route to image import first, files go through the same `OpenFiles` flow, and the first folder opens the file-tree pane.
 
 ### Folder open / file tree
 1. UI dispatches `file.open_folder` or receives a folder via startup argv, `file.open`, or drag-drop.
-2. `Window::open_folder_root` canonicalizes the root, opens the left file-tree pane, and requests the root listing.
-3. UI sends `FileIoRequest::ListDirectory { root, relative }` for one directory at a time.
-4. Worker calls `file_io_directory::read_directory`, canonicalizes target under root, skips symlinks/artifacts, sorts dirs first, and caps returned entries.
+2. `Window::open_folder_root` sends `InspectFolder`; the worker canonicalizes the selection and finds the nearest `.continuity/vault.toml` ancestor.
+3. `FolderInspected` activates ordinary browsing or validated vault policy, applies optional `.continuity/workspace.toml` tree state, opens the left tree, and requests the root listing. Ordinary folders offer non-modal vault initialization.
+4. UI sends routed `ListDirectory { root, relative, config, reply }` requests. The worker canonicalizes target under root, skips symlinks/artifacts/ignored paths, applies configured sort and display labels, and caps returned entries.
 5. Worker sends `FileIoEvent::DirectoryListed { root, relative, entries, truncated }`.
-6. UI installs the bounded children into `FileTreeState`; file clicks route back through `file_open_paths_impl`.
+6. UI installs the bounded children into `FileTreeState`; plain/Ctrl/Shift clicks route as Preview/NewTab/NewWindow.
+7. Inline rename sends `RenameTreeEntry { root, source, new_name, reply }`. The worker validates a single Windows-safe name, contains both paths under the tree root, rejects collisions and the protected config directory, renames, reassociates watched paths, then emits `VaultEntriesChanged` so every interested window refreshes and open buffers follow the new path.
 
 See [File tree](file-tree.md) for directory caps, artifact skip list, row caps, and direct-open file-size guard.
 
@@ -61,6 +62,10 @@ Rules:
 6. On `Saved`, UI updates the `FileAssociation` (via `SetFileAssociation`) and shows a transient `FileBanner::transient("Saved <path>")`. On `SaveConflict`, UI rolls back the optimistic `mark_saved_clean` (so the buffer is dirty again) and runs reconciliation, which raises the reload / keep-mine / show-diff banner — here "keep mine" force-writes the editor's version (`from_save`), since the user was actively trying to persist.
 
 `file.save_as` (`window_file.rs::file_save_as_impl`) opens the `GetSaveFileNameW` common dialog via `window_file_dialogs.rs::save_file_dialog`; on commit the buffer becomes file-associated and the regular save path runs. `Ctrl+S` on an ephemeral buffer falls through to `save_as` (Phase D8).
+
+### Vault autosave
+
+An active vault continuously exports only file-associated buffers lexically under its root and not matched by ignore policy. Edits debounce for 750 ms by default; the 100 ms tick also discovers dirty vault buffers, while focus loss, tab/pane switches, and shutdown force pending work. Automatic writes use the same `expected_hash` conflict guard as manual save, do not trim text, and suppress successful-save banners. Files outside the vault retain ordinary manual-save behavior. See [Vaults](vaults.md).
 
 #### Save-dialog defaults (Markdown-first)
 - **`lpstrDefExt = "md"`** — a name typed without an extension is saved as `.md`. An explicit extension (`notes.txt`) is respected verbatim.
@@ -190,6 +195,7 @@ The sniff is conservative on purpose. We don't try to fingerprint Latin-1 / Wind
 - `editor.auto_revert_unmodified` (default `true`) — silently reload a clean file-associated buffer when its file changes on disk; a dirty buffer always banners. Mirrored onto `ViewOptions::auto_revert_unmodified`.
 - `file.default_encoding` (default `"utf-8"`).
 - `file.watch_external_changes` (default `true`).
+- `.continuity/vault.toml` controls vault-only autosave delay, ignore/sort/label policy, and appearance. It is parsed by `config::VaultConfig`, watched by the file-I/O worker, and never changes save behavior outside its owning root.
 
 ## Key files
 - startup argv intake: `crates/app/src/main.rs`
@@ -214,3 +220,4 @@ The sniff is conservative on purpose. We don't try to fingerprint Latin-1 / Wind
 - [Settings](settings.md) — `[file]` and `[editor]` blocks carry the relevant toggles.
 - [Overlays](overlays.md) — `FileBanner` is a non-blocking banner (not an overlay; doesn't preempt input).
 - [File tree](file-tree.md) — folder browsing surface built on `ListDirectory` events.
+- [Vaults](vaults.md) — folder marker, continuous export, tree mutations, and per-folder policy.

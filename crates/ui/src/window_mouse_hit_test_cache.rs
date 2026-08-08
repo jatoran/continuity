@@ -8,7 +8,7 @@
 //! index a second time.
 //!
 //! Thread ownership: UI thread of one window. Stored under
-//! `Window::mouse_hit_test_frame_cache`.
+//! `EditorSurface::projection.mouse_hit_test_frame_cache`.
 
 use std::sync::Arc;
 

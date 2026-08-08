@@ -81,6 +81,15 @@ impl Window {
                 } => {
                     self.reveal_file_buffer_tab(buffer_id, content, file, notices);
                 }
+                crate::WindowControl::OpenBufferTab {
+                    buffer_id,
+                    content,
+                    file,
+                    disposition,
+                    notices,
+                } => {
+                    self.open_file_buffer_tab(buffer_id, content, file, disposition, notices);
+                }
             }
             dirty = true;
         }
@@ -248,7 +257,7 @@ impl Window {
             0
         };
         self.image_cache_bytes_target = target_cap;
-        if let Some(renderer) = self.renderer.as_ref() {
+        if let Some(renderer) = self.surface.render.renderer.as_ref() {
             renderer.set_image_cache_capacity(target_cap);
         }
         // G2: mirror `[find].persist_per_buffer`. Flipping the toggle off
@@ -326,14 +335,14 @@ impl Window {
             .editor
             .text_scale
             .clamp(continuity_layout::MIN_ZOOM, continuity_layout::MAX_ZOOM);
-        if (self.view.font_size_scale - new_scale).abs() > f32::EPSILON
+        if (self.surface.view.font_size_scale - new_scale).abs() > f32::EPSILON
             || self
                 .panes
                 .values()
                 .any(|p| (p.view.font_size_scale - new_scale).abs() > f32::EPSILON)
         {
             self.with_caret_line_anchored(|w| {
-                w.view.font_size_scale = new_scale;
+                w.surface.view.font_size_scale = new_scale;
                 for pane in w.panes.values_mut() {
                     pane.view.font_size_scale = new_scale;
                 }
@@ -342,13 +351,13 @@ impl Window {
         }
 
         // -- soft wrap -------------------------------------------------
-        if self.view.soft_wrap != s.editor.word_wrap {
+        if self.surface.view.soft_wrap != s.editor.word_wrap {
             let new_wrap = s.editor.word_wrap;
             self.with_caret_line_anchored(|w| {
-                w.view.soft_wrap = new_wrap;
+                w.surface.view.soft_wrap = new_wrap;
                 // Wrap-width changes drop other-wrap-width entries.
-                let key = w.view.wrap_width_key();
-                w.cache.invalidate_other_wrap_widths(key);
+                let key = w.surface.view.wrap_width_key();
+                w.surface.render.cache.invalidate_other_wrap_widths(key);
             });
         }
 
@@ -440,6 +449,14 @@ impl Window {
             s.backup.daily_retention,
             &s.backup.location,
         );
+
+        // A vault appearance overlays the newly committed global theme.
+        // Refresh its saved base first so leaving the vault restores the
+        // current global choice rather than the value from before reload.
+        if let Some(config) = self.vault.config().cloned() {
+            self.vault.set_theme_base(self.active_theme.current.clone());
+            self.apply_vault_appearance(Some(&config));
+        }
     }
 
     /// §H2 — apply `[focus].distraction_free_on_launch` at window

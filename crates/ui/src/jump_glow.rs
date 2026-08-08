@@ -10,7 +10,7 @@
 //!
 //! This module owns the data model and the pure decision functions —
 //! the paint side is wired into `window_paint.rs` via the active glow
-//! state on `Window`. Theme key: `editor.caret_jump_glow`.
+//! state on `EditorSurface`. Theme key: `editor.caret_jump_glow`.
 
 /// Default vertical-distance threshold (in display rows) above which a
 /// motion-driven caret movement triggers the glow. Cross-buffer and
@@ -35,7 +35,7 @@ impl Window {
     /// — used for cross-buffer / cross-pane jumps), arm the glow.
     pub(crate) fn maybe_trigger_jump_glow(&mut self, from_line: Option<u32>) {
         if self.motion_policy().is_reduced_motion() {
-            self.jump_glow = None;
+            self.surface.jump_glow = None;
             return;
         }
         let Some(snap) = self.current_snapshot() else {
@@ -46,7 +46,7 @@ impl Window {
         };
         let to_line = sel.head.line;
         if should_glow(from_line, to_line, JUMP_GLOW_THRESHOLD_ROWS) {
-            self.jump_glow = Some(JumpGlow {
+            self.surface.jump_glow = Some(JumpGlow {
                 line: to_line,
                 started_ms: unsafe { GetTickCount64() },
             });
@@ -57,10 +57,10 @@ impl Window {
     /// Drop the glow if its fade window has elapsed. Called from the
     /// blink tick so eviction piggybacks on existing wakeups.
     pub(crate) fn evict_expired_jump_glow(&mut self) {
-        if let Some(g) = self.jump_glow {
+        if let Some(g) = self.surface.jump_glow {
             let now = unsafe { GetTickCount64() };
             if fade_alpha(g, now, u64::from(crate::motion::ACK_MOTION_MS)).is_none() {
-                self.jump_glow = None;
+                self.surface.jump_glow = None;
             }
         }
     }

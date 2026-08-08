@@ -17,11 +17,10 @@ pub mod file_assoc;
 pub mod handle;
 pub mod handle_buffer_history;
 pub mod handle_buffer_listing;
-pub mod handle_metrics;
 pub mod handle_snapshots;
 pub mod handle_timeline;
+mod known_vault;
 pub mod message;
-pub mod metrics;
 pub mod paths;
 mod persist_loop;
 pub mod recover;
@@ -45,16 +44,14 @@ pub use error::Error;
 pub use events::{PersistEvent, PersistOperation};
 pub use file_assoc::{load_active_buffer_ids, load_buffer_file, set_buffer_file, BufferFileRow};
 pub use handle::{PersistClient, PersistHandle, CHANNEL_CAPACITY};
+pub use known_vault::KnownVault;
 pub use message::PersistMessage;
 pub use paths::{backups_dir, db_path, tutorial_seen_path};
 pub use recover::{
     rebuild_buffer, rebuild_buffer_with_halt, recover_buffer, RecoveredBuffer, RecoveryHalt,
     RecoveryHaltReason,
 };
-pub use store::{
-    EditRow, MetricsDailyDelta, MetricsDailyRow, SnapshotRow, SnapshotSummaryRow, Store,
-    TopBufferRow, UndoGroupRow,
-};
+pub use store::{EditRow, SnapshotRow, SnapshotSummaryRow, Store, UndoGroupRow};
 pub use window_state::{
     delete_window as delete_window_row, load_active_windows, save_window, WindowRow,
 };

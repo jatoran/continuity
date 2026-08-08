@@ -26,12 +26,12 @@ impl Window {
     /// never wrap, so the wrap width is `f32::INFINITY`. Returns `None` before
     /// the first paint has a live `text_format`.
     fn overlay_caret_byte_at_x(&self, field: &FocusField, client_x: f32) -> Option<usize> {
-        let format = self.text_format.as_ref()?;
+        let format = self.surface.render.text_format.as_ref()?;
         let inner_left = field.rect.x + 8.0;
         let x_in_text = (client_x - inner_left).max(0.0);
-        let overlay_font = self.scaled_font_size() / self.view.font_size_scale.max(0.01);
+        let overlay_font = self.scaled_font_size() / self.surface.view.font_size_scale.max(0.01);
         continuity_render::hit_test_x_to_byte_sized(
-            self.dwrite.raw(),
+            self.surface.render.dwrite.raw(),
             format,
             &field.text,
             x_in_text,
@@ -100,6 +100,24 @@ impl Window {
                     self.invalidate(self.hwnd);
                     return true;
                 }
+            }
+        }
+        if matches!(self.overlays, Overlays::VaultLauncher(_)) {
+            if let Some(row_index) = hit_list_row(&draw, xf, yf) {
+                if let Some(launcher) = self.overlays.vault_launcher_mut() {
+                    launcher.selected = match draw
+                        .list_rows
+                        .get(row_index)
+                        .map(|row| row.primary_text.as_str())
+                    {
+                        Some("Browse for Folder…") => launcher.filtered.len(),
+                        Some("Initialize Vault…") => launcher.filtered.len() + 1,
+                        _ => row_index,
+                    };
+                }
+                self.overlay_confirm();
+                self.invalidate(self.hwnd);
+                return true;
             }
         }
         if !rect_contains(draw.panel.rect, xf, yf) {

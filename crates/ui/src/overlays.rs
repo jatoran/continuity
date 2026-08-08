@@ -16,6 +16,7 @@ use crate::quick_open::QuickOpen;
 use crate::slash_palette::{SlashPalette, SlashPaletteEntry, SlashTrigger};
 use crate::tab_switcher::{TabSwitcher, TabSwitcherRow};
 use crate::theme_picker::ThemePicker;
+use crate::vault_launcher::VaultLauncher;
 
 /// Which overlay (if any) currently has input focus.
 #[derive(Default)]
@@ -31,6 +32,8 @@ pub enum Overlays {
     Palette(Palette),
     /// Quick-open buffer switcher.
     QuickOpen(QuickOpen),
+    /// Machine-local pinned/recent vault launcher.
+    VaultLauncher(VaultLauncher),
     /// Goto-line dialog.
     GotoLine(GotoLine),
     /// Goto-heading picker.
@@ -72,6 +75,7 @@ impl Overlays {
             Self::FindInAll(_) => OverlayKind::FindInAll,
             Self::Palette(_) => OverlayKind::Palette,
             Self::QuickOpen(_) => OverlayKind::QuickOpen,
+            Self::VaultLauncher(_) => OverlayKind::VaultLauncher,
             Self::GotoLine(_) => OverlayKind::GotoLine,
             Self::GotoHeading(_) => OverlayKind::GotoHeading,
             Self::FontPicker(_) => OverlayKind::FontPicker,
@@ -98,6 +102,7 @@ impl Overlays {
             OverlayKind::FindInAll => Self::FindInAll(FindInAll::new()),
             OverlayKind::Palette => Self::Palette(Palette::new()),
             OverlayKind::QuickOpen => Self::QuickOpen(QuickOpen::new()),
+            OverlayKind::VaultLauncher => return,
             OverlayKind::GotoLine => Self::GotoLine(GotoLine::new()),
             OverlayKind::GotoHeading => Self::GotoHeading(GotoHeading::new()),
             OverlayKind::FontPicker => return,
@@ -174,6 +179,20 @@ impl Overlays {
         browser.set_filter(filter);
         browser.set_candidates(rows);
         *self = Self::PreviousBufferBrowser(browser);
+    }
+
+    /// Open the vault launcher with a snapshot of pinned/recent roots.
+    pub(crate) fn open_vault_launcher(&mut self, vaults: Vec<continuity_persist::KnownVault>) {
+        *self = Self::VaultLauncher(VaultLauncher::new(vaults));
+    }
+
+    /// Borrow the active vault launcher mutably.
+    pub(crate) fn vault_launcher_mut(&mut self) -> Option<&mut VaultLauncher> {
+        if let Self::VaultLauncher(launcher) = self {
+            Some(launcher)
+        } else {
+            None
+        }
     }
 
     /// δ.4 — mutably borrow the active previous-buffer browser, if any.
@@ -360,6 +379,8 @@ pub enum OverlayKind {
     Palette,
     /// Quick-open buffer switcher.
     QuickOpen,
+    /// Machine-local known-vault launcher.
+    VaultLauncher,
     /// Goto-line dialog.
     GotoLine,
     /// Goto-heading picker.

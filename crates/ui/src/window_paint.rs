@@ -29,10 +29,8 @@ mod projection_stale_trace;
 mod snapshot;
 mod view_options;
 
-// Keep the long-standing `crate::window_paint::...` viewport-row import path stable.
-pub(crate) use crate::window_paint_viewport_rows::{
-    visible_display_row_range, VIEWPORT_OVERSCAN_ROWS,
-};
+pub(crate) use crate::window_paint_viewport_rows::visible_display_row_range;
+pub(crate) use crate::window_paint_viewport_rows::VIEWPORT_OVERSCAN_ROWS;
 
 impl Window {
     pub(crate) fn on_paint(&mut self, hwnd: HWND) -> Result<(), Error> {
@@ -73,7 +71,7 @@ impl Window {
             &caret_bytes_for_projection,
             &undecorated_folds,
             projection_metrics.wrap_width_dip,
-            self.font_state,
+            self.surface.render.font_state,
         );
         // Only fall back to the undecorated prewarm path when the
         // cache has *no* decorations at all. Stale decorations are
@@ -99,7 +97,7 @@ impl Window {
                 &self.registry,
                 self.client_width_dip(),
                 self.client_height_dip(),
-                self.overlay_input_focused,
+                self.surface.focus.overlay_input_focused,
             )
         } else if let Some(hover) =
             self.footnote_hover_overlay(self.client_width_dip(), self.client_height_dip())
@@ -115,11 +113,13 @@ impl Window {
         let jump_glow = self.jump_glow_draw(motion_now_ms);
         let edit_pulse = self.edit_pulse_draw(motion_now_ms);
         let format = self
+            .surface
+            .render
             .text_format
             .as_ref()
             .expect("text format ready")
             .clone();
-        let font_state = self.font_state;
+        let font_state = self.surface.render.font_state;
         // Reuse stale cached decorations by transforming their byte ranges forward.
         let resolved_decorations =
             self.resolve_decorations_for_paint(decoration_id, revision_for_projection);
@@ -127,7 +127,12 @@ impl Window {
         let current_decoration_parse_revision = resolved_decorations.current_parse_revision;
         let decoration_parse_advanced = resolved_decorations.parse_advanced;
         let decorations = decorations_owned.as_deref();
-        let renderer = self.renderer.as_ref().expect("renderer ready");
+        let renderer = self
+            .surface
+            .render
+            .renderer
+            .as_ref()
+            .expect("renderer ready");
         let scaled_font_size = self.scaled_font_size();
         let line_height = self.effective_line_height();
         let editor_colors = self.active_theme.editor_colors();
@@ -146,7 +151,7 @@ impl Window {
         // Phase 13: focused pane's body rect drives body_origin.
         let body_rect = self.focused_body_rect();
         let body_origin = (body_rect.x, body_rect.y);
-        let mut chrome = build_pane_chrome(self);
+        let mut chrome = crate::window_paint_builders::build_pane_chrome(self);
         if let Some(chrome_draw) = chrome.as_mut() {
             self.chrome_motion.update(
                 chrome_draw,
@@ -162,13 +167,16 @@ impl Window {
         // (line, byte_in_line) pairs the renderer can draw against the
         // active document's cached layouts. Spell-check off ⇒ empty
         // slice ⇒ zero squiggle paint.
-        let spell_spans = build_spell_squiggle_spans(self, snap.rope_snapshot().rope());
+        let spell_spans = crate::window_paint_builders::build_spell_squiggle_spans(
+            self,
+            snap.rope_snapshot().rope(),
+        );
         trace.mark("spell_spans");
         // Phase 16.5: snapshots + view state for every *non-focused*
         // pane leaf, so the renderer can paint each one's text in its
         // own clip rect. The Vec must outlive `pane_bodies` because
         // each `PaneBodyDraw` borrows into it.
-        let mut other_panes: Vec<NonFocusedPaneRender> = collect_non_focused_panes(self);
+        let mut other_panes = crate::window_paint_builders::collect_non_focused_panes(self);
         // Phase 17.6: build the per-frame display projection. The renderer
         // uses this to build each `IDWriteTextLayout` from the *visible*
         // display string — markers, fence ticks, and bullet-marker source
@@ -244,7 +252,7 @@ impl Window {
             &caret_bytes_for_projection,
             &folds_for_projection,
             projection_metrics.wrap_width_dip,
-            self.font_state,
+            self.surface.render.font_state,
         )
         .with_image_reservations(&image_reservations);
         // ε.2 — compute the absolute display-row range the painter will
@@ -253,8 +261,8 @@ impl Window {
         // the viewport (e.g. after a scroll) fall through to a fresh
         // cold build.
         let viewport_rows = visible_display_row_range(
-            self.view.scroll_y_dip,
-            self.view.viewport_height_dip,
+            self.surface.view.scroll_y_dip,
+            self.surface.view.viewport_height_dip,
             line_height,
         );
         // Resolve which `FrameDisplay` to paint with: try motion-reuse
@@ -289,7 +297,7 @@ impl Window {
             should_skip_cache_seed,
             scroll_strip_rows,
         } = frame_outputs;
-        if let Some(r) = self.renderer.as_ref() {
+        if let Some(r) = self.surface.render.renderer.as_ref() {
             r.set_last_scroll_strip_rows(scroll_strip_rows);
         }
         crate::window_paint_trace::log_projection_stats(
@@ -341,7 +349,11 @@ impl Window {
         // supersedes it; the next hover sequence will see
         // `last_painted_frame_display` and reuse without seeding the
         // mouse cache.
-        self.mouse_hit_test_frame_cache.borrow_mut().take();
+        self.surface
+            .projection
+            .mouse_hit_test_frame_cache
+            .borrow_mut()
+            .take();
         // Phase C1: build the status-bar segment payload. Owned `Vec`s
         // live in `build` so the `&[…]` borrows inside `status_bar_data`
         // stay valid through `renderer.draw_buffer`.
@@ -390,11 +402,13 @@ impl Window {
         self.view_options.status_bar_layout = status_bar_data.as_ref().map(|d| {
             let top =
                 (self.client_height_dip() - continuity_render::STATUS_BAR_HEIGHT_DIP).max(0.0);
+            let status_bar_font_size =
+                scaled_font_size / self.surface.view.font_size_scale.max(0.01);
             continuity_render::compute_status_bar_layout(
                 d,
                 self.client_width_dip(),
                 top,
-                scaled_font_size,
+                status_bar_font_size,
             )
         });
         // Phase F2: build the per-frame outline-sidebar payload + cache
@@ -448,7 +462,7 @@ impl Window {
         // *after* all the upstream `&mut self` calls have run. The three
         // borrowed slots in `ViewOptionsDraw` and the `&self.decoration_cache`
         // capture in `pane_bodies` only borrow narrow sub-fields, so they
-        // do not block the `&mut self.cache` borrow that
+        // do not block the `&mut self.surface.render.cache` borrow that
         // `dispatch_renderer_draw` needs below.
         self.apply_deferred_renderer_resize(hwnd)?;
         let file_tree_draw = self.build_file_tree_draw_payload(editor_colors);
@@ -472,11 +486,11 @@ impl Window {
         let draw_view = doc_end_snap_action
             .previous_scroll_y_dip
             .map(|scroll_y_dip| {
-                let mut view = self.view.clone();
+                let mut view = self.surface.view.clone();
                 view.scroll_y_dip = scroll_y_dip;
                 view
             });
-        let view_ref = draw_view.as_ref().unwrap_or(&self.view);
+        let view_ref = draw_view.as_ref().unwrap_or(&self.surface.view);
         let (scroll_target_pane_id, scroll_focused_pane_id, scroll_hover_routed) =
             self.scroll_trace_state();
         let params = DrawParams {
@@ -513,11 +527,12 @@ impl Window {
             spell_spans: &spell_spans,
             pane_bodies: &pane_bodies,
             frame_display: &frame_display,
-            line_hover: self.mouse_state.line_hover.map(|hover| LineHoverDraw {
+            line_hover: self.surface.pointer.line_hover.map(|hover| LineHoverDraw {
                 source_line: hover.source_line,
                 display_row: hover.display_row,
                 in_gutter: hover.in_gutter,
             }),
+            client_width_dip: self.client_width_dip().max(1.0),
             client_height_dip: self.client_height_dip().max(1.0),
             status_bar: status_bar_data.as_ref(),
             file_tree: file_tree_draw.as_ref(),
@@ -534,22 +549,25 @@ impl Window {
             loading_overlay_motion,
             code_copy_button: build_code_copy_button_draw(self),
         };
-        let metrics_overlay = self.is_metrics_buffer_active();
         let history_overlay = self.has_visible_buffer_history_panes();
         {
-            let renderer = self.renderer.as_ref().expect("renderer ready");
+            let renderer = self
+                .surface
+                .render
+                .renderer
+                .as_ref()
+                .expect("renderer ready");
             crate::window_paint::dispatch::dispatch_renderer_draw(
-                &mut self.cache,
+                &mut self.surface.render.cache,
                 renderer,
                 snap.rope_snapshot().rope(),
                 snap.selections(),
                 &params,
-                metrics_overlay,
                 history_overlay,
                 &trace,
             )?;
         }
-        self.paint_overlay_after_dispatch(metrics_overlay, history_overlay, body_rect)?;
+        self.paint_overlay_after_dispatch(history_overlay)?;
         // ε.5b — dispatch unless a doc-end snap moved the view; then
         // the resolved stamp still names the pre-snap viewport.
         if doc_end_snap_action.previous_scroll_y_dip.is_none() {
@@ -579,7 +597,4 @@ impl Window {
     }
 }
 
-pub(crate) use crate::window_paint_builders::{
-    build_pane_chrome, build_spell_squiggle_spans, collect_non_focused_panes, NonFocusedPaneRender,
-};
 pub(crate) use dispatch::should_skip_projection_worker_request_for_frame_source;

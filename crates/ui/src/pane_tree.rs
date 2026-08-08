@@ -116,7 +116,7 @@ impl Tab {
 // Tab-label resolution moved to `pane_tree_label.rs` (Phase H6 split,
 // 2026-05-13) to keep this file under the 600-line cap. Re-exported
 // for the existing pane-tree callers.
-pub(crate) use crate::pane_tree_label::resolve_label;
+pub(crate) use crate::pane_tree_label::{resolve_file_label, resolve_label};
 
 // TabKind enum + per-tab predicate methods + the `_opt` accessors on
 // PaneTree live in `pane_tree_kind.rs`; callers import the type from
@@ -436,7 +436,7 @@ impl PaneTree {
 
     /// Pin `label` as the explicit `label_override` on every tab whose
     /// `buffer_id` matches. Used for synthetic surfaces (e.g. the
-    /// metrics dashboard buffer) whose rope stays empty and would
+    /// special synthetic buffers whose rope stays empty and would
     /// otherwise resolve to `"Untitled"` in the tab strip. Idempotent;
     /// returns the number of tabs relabeled.
     pub(crate) fn set_label_override_for_buffer(

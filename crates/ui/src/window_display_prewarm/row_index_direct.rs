@@ -31,15 +31,15 @@ impl Window {
         wrap_width_dip: u32,
         fallback_char_width_dip: f32,
     ) -> Option<Arc<DisplayRowIndex>> {
-        if let Some(format) = self.text_format.as_ref() {
+        if let Some(format) = self.surface.render.text_format.as_ref() {
             let mut measure = DirectWriteWidthMeasure::new_with_run_cache(
-                self.dwrite.raw(),
+                self.surface.render.dwrite.raw(),
                 format,
                 self.scaled_font_size(),
                 continuity_render::DEFAULT_HEADING_SCALE,
                 fallback_char_width_dip,
-                Some(Arc::clone(&self.walker_run_cache)),
-                self.font_state,
+                Some(Arc::clone(&self.surface.render.walker_run_cache)),
+                self.surface.render.font_state,
                 crate::window::FONT_LOCALE,
             );
             return FrameDisplay::refresh_row_index_source_lines_measured_with_caches(
@@ -54,10 +54,10 @@ impl Window {
                 self.markdown_render_toggles(),
                 wrap_width_dip,
                 &mut measure,
-                self.font_state.0,
+                self.surface.render.font_state.0,
                 crate::window::FONT_LOCALE,
-                &self.walker_wrap_cache,
-                &self.walker_segment_cache,
+                &self.surface.render.walker_wrap_cache,
+                &self.surface.render.walker_segment_cache,
             );
         }
 
@@ -75,10 +75,10 @@ impl Window {
             self.markdown_render_toggles(),
             wrap_width_dip,
             &mut measure,
-            self.font_state.0,
+            self.surface.render.font_state.0,
             crate::window::FONT_LOCALE,
-            &self.walker_wrap_cache,
-            &self.walker_segment_cache,
+            &self.surface.render.walker_wrap_cache,
+            &self.surface.render.walker_segment_cache,
         )
     }
 
@@ -98,9 +98,9 @@ impl Window {
         overscan: u32,
         row_index: Arc<DisplayRowIndex>,
     ) -> FrameDisplay {
-        if let Some(format) = self.text_format.as_ref() {
+        if let Some(format) = self.surface.render.text_format.as_ref() {
             let mut measure = DirectWriteWidthMeasure::new(
-                self.dwrite.raw(),
+                self.surface.render.dwrite.raw(),
                 format,
                 self.scaled_font_size(),
                 continuity_render::DEFAULT_HEADING_SCALE,

@@ -10,7 +10,10 @@ Pure layout + paint modules live as `foo.rs` / `foo_paint.rs` siblings.
 F1 ships `breadcrumb.rs`; F2 ships `outline.rs` + `outline_paint.rs`;
 the left file-tree pane ships `file_tree.rs` + `file_tree_paint.rs`;
 the UI supplies only visible rows and the painter clips each one-line
-label to its row so long paths cannot overlap; the scaled-text minimap
+label to its row so long paths cannot overlap. Rows may carry vault-local
+file/folder/path color overrides, while width, resize state, and filesystem
+policy remain UI/worker concerns. An optional drag payload paints the moving
+entry beside the pointer and highlights the hovered destination row; the scaled-text minimap
 ships `minimap.rs` + `minimap_paint.rs`
 (`paint_minimap_scaled` called from `Renderer::draw_buffer_no_present`
 when `view_options.minimap` is set — one tiny `IDWriteTextLayout` per
@@ -37,6 +40,11 @@ the window has an active text format. The display-map still owns the pure row
 split, but the widths now come from the same font family, size, weight, and
 heading scale that `DrawTextLayout` paints; `FixedCharWidth` is only the
 fallback for tests and pre-render setup.
+
+Heading glyphs retain fixed editor geometry: the modest default hierarchy is
+painted through `row_text_paint.rs`, which clips each focused and spectator
+layout to its existing display row. It does not alter row stride, scroll
+extent, hit testing, or caret anchoring.
 
 Motion inputs are immutable paint data. `motion.rs` defines
 `SurfaceMotion`, `StatusTransientDraw`, `JumpGlowDraw`, and `EditPulseDraw`;
@@ -152,6 +160,14 @@ paints after the scrollbar / gutter and before overlays.
 (soft-wrap path publishes per-frame client-DIP hit rects via
 `Renderer::inline_code_hits()` for hover detection; the no-wrap
 painter renders the background only).
+
+`DrawParams::client_width_dip` is the full HWND client width, distinct from
+`ViewState::viewport_width_dip` after folder chrome is reserved. Global status
+text uses the client width, keeping its right-aligned icon lane coincident with
+UI hit-testing while editor and outline passes continue using viewport width.
+`status_bar/icons.rs` paints vault actions as fixed Direct2D strokes using the
+normal status foreground brush. Slot geometry, not font fallback, determines
+shape, size, and hit width; the settings slot is deliberately narrower.
 
 `decoration_paint.rs` translates block-decoration Y math through
 `FrameDisplay`: `paint_block_backgrounds` and `paint_horizontal_rules`

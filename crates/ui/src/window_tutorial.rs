@@ -1,14 +1,13 @@
 //! Tutorial-tab open / focus.
 //!
-//! Mirrors the metrics-buffer flow in [`crate::window_time_machine`] —
-//! "open or focus a buffer that already exists; allocate it the first
-//! time" — but routes through
+//! Opens or focuses a buffer that already exists, allocating it on the
+//! first request, and routes through
 //! [`continuity_buffer::Buffer::synthetic_read_only`] so the buffer is
 //! never persisted and rejects all edits before they reach the rope.
 //!
 //! Thread ownership: UI thread (owner of [`crate::Window`]).
 
-use continuity_buffer::Buffer;
+use continuity_buffer::{Buffer, BufferId};
 use continuity_command::TUTORIAL_MD;
 
 use crate::Window;
@@ -61,5 +60,39 @@ impl Window {
         if let Err(e) = self.show_tutorial_buffer_impl() {
             eprintln!("continuity: tutorial open on first launch failed: {e}");
         }
+    }
+
+    /// Focus an existing tab for `target`, if one is open in this window.
+    pub(crate) fn focus_existing_tab_for(&mut self, target: BufferId) -> bool {
+        let mut found = None;
+        for (pane_id, group) in &self.tree.groups {
+            for tab_id in &group.tabs {
+                if self
+                    .tree
+                    .tabs
+                    .get(tab_id)
+                    .is_some_and(|tab| tab.buffer_id == target)
+                {
+                    found = Some((*pane_id, *tab_id));
+                    break;
+                }
+            }
+            if found.is_some() {
+                break;
+            }
+        }
+        let Some((pane_id, tab_id)) = found else {
+            return false;
+        };
+        self.save_current_right_edge_chrome_state();
+        self.tree.focus(pane_id);
+        if let Some(group) = self.tree.groups.get_mut(&pane_id) {
+            group.activate(tab_id);
+        }
+        self.apply_new_pane_state(target);
+        self.refresh_focused_viewport();
+        self.refresh_language();
+        self.maybe_submit_decoration();
+        true
     }
 }

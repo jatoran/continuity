@@ -17,10 +17,7 @@
 use continuity_layout::LayoutCache;
 use ropey::Rope;
 use windows::Foundation::Numerics::Matrix3x2;
-use windows::Win32::Graphics::Direct2D::Common::D2D_POINT_2F;
-use windows::Win32::Graphics::Direct2D::{
-    ID2D1DeviceContext, ID2D1SolidColorBrush, D2D1_DRAW_TEXT_OPTIONS_NONE,
-};
+use windows::Win32::Graphics::Direct2D::{ID2D1DeviceContext, ID2D1SolidColorBrush};
 use windows::Win32::Graphics::DirectWrite::IDWriteFactory;
 
 use crate::chrome::ContentMargins;
@@ -188,14 +185,12 @@ pub(crate) fn paint_line_text_pass(
             );
         }
         apply_role_drawing_effects(entry.layout, spec.style_runs(), &brushes.text_roles);
-        unsafe {
-            device_context.DrawTextLayout(
-                D2D_POINT_2F { x: 0.0, y: 0.0 },
-                entry.layout,
-                brushes.fg,
-                D2D1_DRAW_TEXT_OPTIONS_NONE,
-            );
-        }
+        crate::row_text_paint::draw_text_layout_in_fixed_row(
+            device_context,
+            entry.layout,
+            brushes.fg,
+            line_height,
+        );
         crate::markdown_extension_paint::paint_inline_color_post_text(
             device_context,
             dwrite,

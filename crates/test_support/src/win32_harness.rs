@@ -40,7 +40,7 @@ use continuity_persist::PersistHandle;
 use continuity_ui::window_config::{WindowCommands, WindowConfig};
 use continuity_ui::window_control::{WindowControl, WindowControlTx};
 use continuity_ui::window_timers::CONFIG_POLL_TIMER_ID;
-use continuity_ui::Window;
+use continuity_ui::{DesktopShell, Window};
 use continuity_win::ComGuard;
 use crossbeam_channel::unbounded;
 use tempfile::TempDir;
@@ -226,6 +226,8 @@ impl Win32Harness {
                         file_io: None,
                         open_file_window: None,
                         register_file_buffer: None,
+                        open_vault_window: None,
+                        vault_activated: None,
                         persist_client: None,
                         initial_banners: Vec::new(),
                         open_tutorial_on_init: false,
@@ -237,7 +239,7 @@ impl Win32Harness {
                 .expect("Window::new on harness worker");
                 let hwnd_raw = window.hwnd().0 as isize;
                 tx.send(hwnd_raw).expect("hwnd handoff");
-                let _ = window.run_hidden();
+                let _ = DesktopShell::new(window).run_hidden();
             })
             .map_err(|e| format!("spawn worker: {e}"))?;
 
@@ -305,6 +307,8 @@ impl Win32Harness {
                         file_io: None,
                         open_file_window: None,
                         register_file_buffer: None,
+                        open_vault_window: None,
+                        vault_activated: None,
                         persist_client: None,
                         initial_banners: Vec::new(),
                         open_tutorial_on_init: false,
@@ -316,7 +320,7 @@ impl Win32Harness {
                 .expect("Window::new on secondary harness worker");
                 let hwnd_raw = window.hwnd().0 as isize;
                 tx.send(hwnd_raw).expect("hwnd handoff");
-                let _ = window.run_hidden();
+                let _ = DesktopShell::new(window).run_hidden();
             })
             .map_err(|e| format!("spawn secondary worker: {e}"))?;
 

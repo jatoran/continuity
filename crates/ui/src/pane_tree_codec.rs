@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::pane_tree::{ClosedTab, Group, PaneId, PaneTree, SplitAxis, Tab, TabId};
+use crate::pane_tree_codec_workspace::WorkspaceState;
 use crate::pane_tree_kind::TabKind;
 
 pub(super) type WireUuid = [u8; 16];
@@ -26,7 +27,7 @@ fn enc_uuid(u: Uuid) -> WireUuid {
     *u.as_bytes()
 }
 
-fn dec_uuid(b: WireUuid) -> Uuid {
+pub(super) fn dec_uuid(b: WireUuid) -> Uuid {
     Uuid::from_bytes(b)
 }
 
@@ -183,7 +184,7 @@ pub fn active_buffer_id_in_json(json: &str) -> Result<BufferId, CodecError> {
 }
 
 #[derive(Serialize, Deserialize)]
-struct WireTree {
+pub(super) struct WireTree {
     root: WireNode,
     groups: Vec<WireGroup>,
     tabs: Vec<WireTab>,
@@ -196,14 +197,16 @@ struct WireTree {
     /// `u32::MAX` is the "fold all top-level" sentinel preserved verbatim.
     /// `#[serde(default)]` so older blobs round-trip without folds.
     #[serde(default)]
-    folded_lines: Vec<u32>,
+    pub(super) folded_lines: Vec<u32>,
     /// F5 redesign — per-(buffer, URL) inline-image expand state. Each
     /// entry is one image whose user toggled it away from the default
     /// (collapsed). Entries with `expanded: false` are stripped at
     /// encode time so the wire shape stays small. Older blobs decode
     /// with an empty vector.
     #[serde(default)]
-    image_expand_state: Vec<WireImageExpand>,
+    pub(super) image_expand_state: Vec<WireImageExpand>,
+    #[serde(default)]
+    pub(super) workspace: WorkspaceState,
 }
 
 #[derive(Serialize)]
@@ -361,6 +364,7 @@ impl WireTree {
             maximized: tree.maximized.map(|p| p.0),
             folded_lines: Vec::new(),
             image_expand_state: Vec::new(),
+            workspace: WorkspaceState::default(),
         }
     }
 
@@ -371,7 +375,7 @@ impl WireTree {
     }
 
     /// F5 — encode the tree plus the per-buffer image expand state.
-    fn from_tree_with_state(
+    pub(super) fn from_tree_with_state(
         tree: &PaneTree,
         folded_lines: &[u32],
         image_expand_state: &std::collections::HashMap<(continuity_buffer::BufferId, usize), bool>,
@@ -389,7 +393,7 @@ impl WireTree {
         wire
     }
 
-    fn into_tree(self) -> Result<PaneTree, CodecError> {
+    pub(super) fn into_tree(self) -> Result<PaneTree, CodecError> {
         let mut groups = HashMap::new();
         for g in self.groups {
             let id = PaneId(g.id);

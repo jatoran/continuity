@@ -157,7 +157,7 @@ fn format_summary_detail(label: &str, hist: &LabelHistogram) -> String {
     for (i, b) in hist.buckets.iter().enumerate() {
         buckets[i] = b.load(Ordering::Relaxed);
     }
-    let mean = if n > 0 { sum / n } else { 0 };
+    let mean = sum.checked_div(n).unwrap_or(0);
     let p50 = percentile_from_buckets(&buckets, n, 50);
     let p95 = percentile_from_buckets(&buckets, n, 95);
     let p99 = percentile_from_buckets(&buckets, n, 99);

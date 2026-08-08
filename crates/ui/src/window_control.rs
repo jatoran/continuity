@@ -46,6 +46,19 @@ pub enum WindowControl {
         /// encoding notice from a forwarded open). Usually empty.
         notices: Vec<String>,
     },
+    /// Open a freshly resolved buffer in the requesting window.
+    OpenBufferTab {
+        /// Canonical shared buffer.
+        buffer_id: BufferId,
+        /// Current disk content for reconciliation.
+        content: String,
+        /// Current filesystem association.
+        file: FileAssociation,
+        /// Preview or permanent-tab semantics.
+        disposition: crate::window_config::FileOpenDisposition,
+        /// Notices raised by the file decoder.
+        notices: Vec<String>,
+    },
 }
 
 /// Sender end of a registry → window control channel. Owned by the
@@ -55,3 +68,25 @@ pub type WindowControlTx = Sender<WindowControl>;
 /// Receiver end of a registry → window control channel. Owned by a
 /// single window's UI thread.
 pub type WindowControlRx = Receiver<WindowControl>;
+
+/// Post an immediate control-channel drain tick to a live window.
+///
+/// The ordinary 250 ms timer remains as a lost-wake fallback; registry
+/// routing calls this after enqueueing latency-sensitive file opens.
+pub fn wake_window_control(raw_window: usize) {
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_TIMER};
+
+    if raw_window == 0 {
+        return;
+    }
+    let hwnd = HWND(raw_window as *mut core::ffi::c_void);
+    unsafe {
+        let _ = PostMessageW(
+            Some(hwnd),
+            WM_TIMER,
+            WPARAM(crate::window_timers::CONFIG_POLL_TIMER_ID),
+            LPARAM(0),
+        );
+    }
+}

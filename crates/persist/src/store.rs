@@ -30,6 +30,7 @@ use crate::{schema, Error};
 mod backup;
 mod buffers;
 mod edits;
+mod known_vaults;
 mod snapshots;
 mod trash;
 mod undo_groups;
@@ -80,68 +81,6 @@ pub struct SnapshotSummaryRow {
     pub created_at_ms: i64,
     /// Optional user-supplied label.
     pub label: Option<String>,
-}
-
-/// One row of [`Store::load_metrics_range`] (Phase I2). Each entry
-/// covers exactly one local-calendar day.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct MetricsDailyRow {
-    /// `YYYY-MM-DD` (caller-supplied; the persist layer treats it as
-    /// opaque).
-    pub day_iso: String,
-    /// Total key events that produced visible characters or commands
-    /// counted as "active typing".
-    pub keystrokes: u64,
-    /// Characters inserted (delta over the day).
-    pub chars_typed: u64,
-    /// Characters removed (delta over the day).
-    pub chars_deleted: u64,
-    /// Wall-clock milliseconds the editor was actively used.
-    pub active_ms: u64,
-    /// Peak WPM (5-char-word convention) over any rolling 60 s window.
-    pub wpm_peak: u32,
-    /// Sum of recorded WPM samples (for cheap rolling-average compute).
-    pub wpm_sum: u64,
-    /// Count of WPM samples contributing to `wpm_sum`.
-    pub wpm_samples: u64,
-    /// Most-recent update unix-ms.
-    pub updated_at_ms: i64,
-}
-
-/// One row of [`Store::load_top_buffers_by_edits`] (Phase I2). One
-/// entry per buffer that produced at least one edit in the requested
-/// time window, ordered by `edit_count` descending.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TopBufferRow {
-    /// Buffer the row aggregates.
-    pub buffer_id: BufferId,
-    /// Derived title from the latest snapshot, when one can be decoded.
-    pub title: Option<String>,
-    /// File path from the `buffers` row, when present.
-    pub file_path: Option<String>,
-    /// Edit-log rows for this buffer inside the window.
-    pub edit_count: u64,
-}
-
-/// One delta applied atomically to [`MetricsDailyRow`] (Phase I2). All
-/// fields are *additions* except `wpm_peak`, which is `max`-merged.
-#[derive(Debug, Clone, Default)]
-pub struct MetricsDailyDelta {
-    /// Calendar day (`YYYY-MM-DD`).
-    pub day_iso: String,
-    /// Keystrokes to add.
-    pub keystrokes: u64,
-    /// Inserted-char count to add.
-    pub chars_typed: u64,
-    /// Deleted-char count to add.
-    pub chars_deleted: u64,
-    /// Active milliseconds to add.
-    pub active_ms: u64,
-    /// New WPM sample — `max`-merged into `wpm_peak`, added into
-    /// `wpm_sum` with `wpm_samples += 1`.
-    pub wpm_sample: Option<u32>,
-    /// Now (unix ms) — recorded as `updated_at_ms`.
-    pub now_ms: i64,
 }
 
 /// One edit-log row.

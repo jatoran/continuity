@@ -11,16 +11,13 @@
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::Graphics::Gdi::ScreenToClient;
-use windows::Win32::UI::Controls::WM_MOUSELEAVE;
 use windows::Win32::UI::WindowsAndMessaging::{
-    DefWindowProcW, DestroyWindow, GetWindowLongPtrW, PostQuitMessage, SetWindowLongPtrW,
-    CREATESTRUCTW, GWLP_USERDATA, HTCLIENT, SIZE_MINIMIZED, WM_ACTIVATEAPP, WM_CAPTURECHANGED,
-    WM_CHAR, WM_CLOSE, WM_CONTEXTMENU, WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_ENTERSIZEMOVE,
-    WM_ERASEBKGND, WM_EXITSIZEMOVE, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
-    WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_NCCREATE, WM_PAINT,
-    WM_SETCURSOR, WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP,
-    WM_TIMER,
+    DefWindowProcW, GetWindowLongPtrW, SetWindowLongPtrW, CREATESTRUCTW, GWLP_USERDATA, HTCLIENT,
+    SIZE_MINIMIZED, WM_ACTIVATEAPP, WM_CHAR, WM_CLOSE, WM_CONTEXTMENU, WM_DESTROY, WM_DPICHANGED,
+    WM_DROPFILES, WM_ENABLE, WM_ENTERSIZEMOVE, WM_ERASEBKGND, WM_EXITSIZEMOVE, WM_GETOBJECT,
+    WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP,
+    WM_KILLFOCUS, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_NCCREATE, WM_PAINT, WM_SETCURSOR,
+    WM_SETFOCUS, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
 };
 
 mod panic_barrier;
@@ -31,7 +28,7 @@ use crate::window_theme::{lparam_is_immersive_color_set, read_system_dark};
 use crate::window_timers::{
     CARET_BLINK_TIMER_ID, CODE_COPY_FEEDBACK_TIMER_ID, CONFIG_POLL_TIMER_ID,
     DECORATION_WATCHDOG_TIMER_ID, DISPLAY_PREWARM_TIMER_ID, FILE_IO_TIMER_ID,
-    FOOTNOTE_HOVER_TIMER_ID, IMAGE_ANIMATION_TIMER_ID, METRICS_REPAINT_TIMER_ID, MOTION_TIMER_ID,
+    FOOTNOTE_HOVER_TIMER_ID, IMAGE_ANIMATION_TIMER_ID, MOTION_TIMER_ID,
     MOUSE_DRAG_AUTOSCROLL_TIMER_ID, SCROLL_ANIM_TIMER_ID, STATE_SAVE_TIMER_ID,
     TAB_OVERLAY_HOLD_TIMER_ID, TRACE_SUMMARY_TIMER_ID,
 };
@@ -121,7 +118,7 @@ impl Window {
                         self.mouse_state.dragging,
                         self.mouse_state.splitter_drag.is_some(),
                         self.mouse_state.tab_drag.is_some(),
-                        self.mouse_state.scrollbar_drag.is_some(),
+                        self.surface.pointer.scrollbar_drag.is_some(),
                     )
                 }
                 _ => format!("wparam={}", wparam.0),
@@ -130,7 +127,19 @@ impl Window {
         } else {
             None
         };
+        if let Some(result) = self.handle_native_pointer_message(hwnd, msg, wparam, lparam) {
+            return Some(result);
+        }
         match msg {
+            m if m == crate::window_accessibility::ACCESSIBILITY_SELECTION_MESSAGE => {
+                Some(self.handle_accessibility_selection(lparam))
+            }
+            WM_GETOBJECT => self.handle_get_object(hwnd, wparam, lparam),
+            WM_ENABLE => {
+                self.publish_accessibility_from_core();
+                self.invalidate(hwnd);
+                Some(LRESULT(0))
+            }
             WM_PAINT => {
                 if let Err(e) = self.on_paint(hwnd) {
                     eprintln!("paint error: {e}");
@@ -278,7 +287,7 @@ impl Window {
                 // — committed text is delivered via WM_IME_COMPOSITION's
                 // GCS_RESULTSTR path instead, and double-insertion would
                 // otherwise occur.
-                if self.ime_state.composing {
+                if self.surface.ime.composing {
                     return Some(LRESULT(0));
                 }
                 if self.on_char(wparam.0 as u32) {
@@ -349,60 +358,6 @@ impl Window {
             // chord routes through the keymap above, so the synthesized
             // SYSCHAR is always garbage we want to drop on the floor.
             WM_SYSCHAR => Some(LRESULT(0)),
-            WM_LBUTTONDOWN => {
-                let (x, y) = lparam_to_xy(lparam);
-                let (x, y) = self.physical_point_to_dip(x, y);
-                if self.on_left_button_down(x, y, wparam.0 as u32) {
-                    self.invalidate(hwnd);
-                }
-                Some(LRESULT(0))
-            }
-            WM_LBUTTONDBLCLK => {
-                let (x, y) = lparam_to_xy(lparam);
-                let (x, y) = self.physical_point_to_dip(x, y);
-                if self.on_left_button_dbl(x, y) {
-                    self.invalidate(hwnd);
-                }
-                Some(LRESULT(0))
-            }
-            WM_LBUTTONUP => {
-                let (x, y) = lparam_to_xy(lparam);
-                let (x, y) = self.physical_point_to_dip(x, y);
-                if self.on_left_button_up(x, y) {
-                    self.invalidate(hwnd);
-                }
-                self.mouse_state.dragging = false;
-                self.mouse_state.tab_drag = None;
-                self.mouse_state.splitter_drag = None;
-                Some(LRESULT(0))
-            }
-            WM_MOUSEMOVE => {
-                let (x, y) = lparam_to_xy(lparam);
-                let (x, y) = self.physical_point_to_dip(x, y);
-                self.ensure_mouse_leave_tracking(hwnd);
-                if self.on_mouse_move(x, y, wparam.0 as u32) {
-                    self.invalidate(hwnd);
-                }
-                Some(LRESULT(0))
-            }
-            WM_MOUSELEAVE => {
-                if self.on_mouse_leave() {
-                    self.invalidate(hwnd);
-                }
-                Some(LRESULT(0))
-            }
-            WM_CAPTURECHANGED => {
-                self.on_capture_changed();
-                Some(LRESULT(0))
-            }
-            WM_MBUTTONDOWN => {
-                let (x, y) = lparam_to_xy(lparam);
-                let (x, y) = self.physical_point_to_dip(x, y);
-                if self.on_middle_button_down(x, y) {
-                    self.invalidate(hwnd);
-                }
-                Some(LRESULT(0))
-            }
             WM_SETCURSOR => {
                 // Only own the cursor over our own client area. Title bar,
                 // borders, and the like stay with the system's defaults.
@@ -457,8 +412,6 @@ impl Window {
                     self.on_file_io_tick(hwnd);
                 } else if wparam.0 == STATE_SAVE_TIMER_ID {
                     self.on_state_save_tick(hwnd);
-                } else if wparam.0 == METRICS_REPAINT_TIMER_ID {
-                    self.on_metrics_repaint_tick(hwnd);
                 } else if wparam.0 == TAB_OVERLAY_HOLD_TIMER_ID {
                     self.on_tab_overlay_hold_tick(hwnd);
                     self.invalidate(hwnd);
@@ -499,34 +452,8 @@ impl Window {
                 }
                 Some(LRESULT(0))
             }
-            WM_CLOSE => {
-                // The user clicked the title-bar X, hit Alt+F4, or the
-                // pane-collapse path posted WM_CLOSE because the last
-                // tab went away. Prompt if any tab has unsaved typing;
-                // returning `LRESULT(0)` without calling `DestroyWindow`
-                // cancels the close. On confirm we explicitly destroy
-                // so `WM_DESTROY` still fires the placement-save +
-                // cleanup arm below.
-                if !self.confirm_close_window() {
-                    return Some(LRESULT(0));
-                }
-                let _ = unsafe { DestroyWindow(hwnd) };
-                Some(LRESULT(0))
-            }
-            WM_DESTROY => {
-                // Phase 16.5: snapshot stays per-window; tombstone-vs-
-                // preserve lives in the registry's Closed-event handler.
-                self.save_window_placement_state();
-                // Phase I2: flush any in-flight metrics delta before the
-                // persist client is dropped so the day's row reflects the
-                // session's final keystrokes.
-                let now_ms = self.now_ms();
-                self.flush_metrics_now(now_ms);
-                self.stop_metrics_repaint_timer();
-                crate::window_registry::unregister(hwnd);
-                unsafe { PostQuitMessage(0) };
-                Some(LRESULT(0))
-            }
+            WM_CLOSE => Some(self.handle_window_close(hwnd)),
+            WM_DESTROY => Some(self.handle_window_destroy(hwnd)),
             // Phase 17.6 cross-window tab-drop signal.
             m if m == windows::Win32::UI::WindowsAndMessaging::WM_USER + 1 => {
                 if self.drain_cross_window_adoptions(hwnd) {
@@ -548,7 +475,7 @@ impl Window {
             // integration tests; floats are not Send-portable through
             // LRESULT, so the harness scales back on receipt.
             m if m == windows::Win32::UI::WindowsAndMessaging::WM_USER + 2 => {
-                let scaled = (self.view.scroll_y_dip * 1000.0).round() as isize;
+                let scaled = (self.surface.view.scroll_y_dip * 1000.0).round() as isize;
                 Some(LRESULT(scaled))
             }
             // Spectator cache probe — `(hits << 32) | misses` packed
@@ -557,7 +484,7 @@ impl Window {
             // paint when typing in a small focused pane against a
             // large non-focused buffer.
             m if m == windows::Win32::UI::WindowsAndMessaging::WM_USER + 3 => {
-                let cache = self.spectator_frame_cache.borrow();
+                let cache = self.surface.projection.spectator_frame_cache.borrow();
                 let hits = cache.hits() as isize;
                 let misses = cache.misses() as isize;
                 let packed = ((hits & 0xFFFF_FFFF) << 32) | (misses & 0xFFFF_FFFF);
@@ -575,14 +502,17 @@ impl Window {
             }
             // Font-state probe: returns the active key bits.
             m if m == windows::Win32::UI::WindowsAndMessaging::WM_USER + 6 => {
-                Some(LRESULT(self.font_state.0 as isize))
+                Some(LRESULT(self.surface.render.font_state.0 as isize))
             }
             // Layout-cache probe: WPARAM carries a FontStateId bit pattern;
             // return how many cached layouts still use that key.
             m if m == windows::Win32::UI::WindowsAndMessaging::WM_USER + 7 => {
                 let font_state = continuity_layout::FontStateId(wparam.0 as u64);
                 Some(LRESULT(
-                    self.cache.entry_count_for_font_state(font_state) as isize
+                    self.surface
+                        .render
+                        .cache
+                        .entry_count_for_font_state(font_state) as isize,
                 ))
             }
             // Caret-line screen-y probe, returned in milli-DIPs.

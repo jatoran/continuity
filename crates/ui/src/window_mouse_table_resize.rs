@@ -15,7 +15,7 @@ use continuity_render::{TableColWidthOverride, MAX_TABLE_COL_WIDTH_DIP, MIN_TABL
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::{LoadCursorW, SetCursor, IDC_SIZEWE};
 
-use crate::mouse::TableColDrag;
+use crate::editor_surface::pointer::TableColumnDrag;
 use crate::window_helpers::invalidate_hwnd;
 use crate::Window;
 
@@ -76,7 +76,7 @@ impl Window {
         let source_line = spec.source_line.raw();
         let body = self.focused_body_rect();
         let left_margin = self.focused_table_body_left_margin_dip(rope.len_lines());
-        let layouts_cache = self.last_focused_table_layouts.borrow();
+        let layouts_cache = self.surface.render.last_focused_table_layouts.borrow();
         let layouts = layouts_cache.get(&self.buffer_id)?.as_ref();
         for layout in layouts.iter() {
             if !layout.covers_source_line(source_line) {
@@ -118,7 +118,7 @@ impl Window {
         let Some(hit) = self.table_col_border_at_pixel(x, y) else {
             return false;
         };
-        self.mouse_state.table_col_drag = Some(TableColDrag {
+        self.surface.pointer.table_col_drag = Some(TableColumnDrag {
             block_start: hit.block_start,
             col: hit.col,
             start_client_x: x as f32,
@@ -135,7 +135,7 @@ impl Window {
     /// live width and repaint the preview. Returns `true` when a drag is
     /// in flight.
     pub(crate) fn drag_table_col_resize(&mut self, x: i32) -> bool {
-        let Some(drag) = self.mouse_state.table_col_drag.as_mut() else {
+        let Some(drag) = self.surface.pointer.table_col_drag.as_mut() else {
             return false;
         };
         let delta = x as f32 - drag.start_client_x;
@@ -152,7 +152,7 @@ impl Window {
     /// table directive and release capture. Returns `true` when a drag
     /// was active.
     pub(crate) fn finish_table_col_resize(&mut self) -> bool {
-        let Some(drag) = self.mouse_state.table_col_drag.take() else {
+        let Some(drag) = self.surface.pointer.table_col_drag.take() else {
             return false;
         };
         unsafe {
@@ -173,7 +173,8 @@ impl Window {
     /// layout build, derived from an in-flight resize drag. `None` when
     /// no drag is active.
     pub(crate) fn active_table_col_override(&self) -> Option<TableColWidthOverride> {
-        self.mouse_state
+        self.surface
+            .pointer
             .table_col_drag
             .as_ref()
             .map(|drag| TableColWidthOverride {
@@ -186,6 +187,7 @@ impl Window {
     /// `true` when the cursor sits over a focused-table column boundary
     /// (or a resize drag is in flight) — drives the `IDC_SIZEWE` cursor.
     pub(crate) fn cursor_over_table_col_border(&self, x: i32, y: i32) -> bool {
-        self.mouse_state.table_col_drag.is_some() || self.table_col_border_at_pixel(x, y).is_some()
+        self.surface.pointer.table_col_drag.is_some()
+            || self.table_col_border_at_pixel(x, y).is_some()
     }
 }

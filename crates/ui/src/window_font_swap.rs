@@ -72,7 +72,7 @@ pub(crate) struct PendingFontChange {
 
 impl Window {
     /// Stamp-side accessor: the font_state projection requests should
-    /// use right now. Equals `self.font_state` outside of a pending
+    /// use right now. Equals `self.surface.render.font_state` outside of a pending
     /// change, and `pending.target_font_state` while one is in flight.
     /// Wire every `PaintProjectionInputs.font_state` call site through
     /// this helper.
@@ -80,7 +80,7 @@ impl Window {
     pub(crate) fn effective_font_state(&self) -> FontStateId {
         match self.pending_font_change.as_ref() {
             Some(pending) => pending.target_font_state,
-            None => self.font_state,
+            None => self.surface.render.font_state,
         }
     }
 
@@ -111,7 +111,7 @@ impl Window {
         });
         let target_font_state = FontStateId::from_parts(
             &target_family,
-            target_size_dip * self.view.font_size_scale,
+            target_size_dip * self.surface.view.font_size_scale,
             crate::window::FONT_LOCALE,
             self.dpi_scale(),
         )
@@ -120,7 +120,7 @@ impl Window {
         // already-active font_state. Caller is then free to invoke
         // this on every keystroke / settings reload without churning
         // the projection worker.
-        if target_font_state == self.font_state
+        if target_font_state == self.surface.render.font_state
             && self
                 .pending_font_change
                 .as_ref()
@@ -141,7 +141,10 @@ impl Window {
                 return;
             }
         }
-        self.cache.invalidate_other_font_states(target_font_state);
+        self.surface
+            .render
+            .cache
+            .invalidate_other_font_states(target_font_state);
         self.pending_font_change = Some(next_pending);
         crate::window_helpers::invalidate_hwnd(self.hwnd);
     }
@@ -164,7 +167,7 @@ impl Window {
             Some(pending) => pending.target_font_state,
             None => return false,
         };
-        let Some(worker) = self.projection_worker.as_ref() else {
+        let Some(worker) = self.surface.projection.projection_worker.as_ref() else {
             return false;
         };
         let result_font_state = match worker.peek_latest_result_font_state_for_target(focused_pane)
@@ -189,7 +192,7 @@ impl Window {
             // size, recomputes the FontStateId, updates the layout
             // cache invalidation set, and drops `text_format` so the
             // next `ensure_renderer` call rebuilds it against the
-            // new family. After this call, `w.font_state` lags by one
+            // new family. After this call, `w.surface.render.font_state` lags by one
             // `ensure_renderer` — that's already how the rest of the
             // file picks up `set_font_family` mutations.
             w.invalidate_font_state();
@@ -209,7 +212,7 @@ impl Window {
     /// While [`Window::font_swap_settle_deadline`] is `Some` and
     /// unexpired, this checks whether any spectator's
     /// [`crate::window_spectator_cache::SpectatorFrameCache`] entry
-    /// still carries a `font_state` other than `self.font_state`.
+    /// still carries a `font_state` other than `self.surface.render.font_state`.
     /// If so, schedules another paint via `invalidate_hwnd` so the
     /// next `drain_spectator_projection_worker_results` can pick up
     /// any worker results that have landed since the focused-pane
@@ -217,7 +220,7 @@ impl Window {
     /// chain takes over once the first spectator result drains.
     ///
     /// Clears the deadline when (a) every spectator cache entry
-    /// matches `self.font_state`, or (b) the deadline expires — the
+    /// matches `self.surface.render.font_state`, or (b) the deadline expires — the
     /// latter caps any infinite-spin risk in case a spectator pane
     /// is somehow stuck (worker hung, ungrowable cache, …). The
     /// next user interaction will fire the normal drain regardless.
@@ -229,8 +232,10 @@ impl Window {
             self.font_swap_settle_deadline = None;
             return;
         }
-        let current = self.font_state;
+        let current = self.surface.render.font_state;
         let any_lagging = self
+            .surface
+            .projection
             .spectator_frame_cache
             .borrow()
             .any_entry_lags_font_state(current);

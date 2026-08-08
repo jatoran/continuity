@@ -33,7 +33,7 @@ windows           = { workspace = true, features = [
 thiserror         = { workspace = true }
 
 [dev-dependencies]
-continuity-test-support = { workspace = true }
+continuity-test-support = { workspace = true, default-features = false }
 # §H3 — integration tests cross core's indent-fold provider into
 # render's display projection. Test-only dep; production render does
 # NOT depend on core (the layer graph forbids render → core).

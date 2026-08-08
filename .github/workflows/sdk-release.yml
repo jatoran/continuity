@@ -1,0 +1,216 @@
+name: sdk release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["sdk-v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  performance:
+    name: packed browser performance preflight
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      CC_wasm32_unknown_unknown: clang
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+      - name: Install browser test display
+        run: sudo apt-get update && sudo apt-get install --yes dbus-x11 xvfb
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: sdk-release-performance-linux
+      - name: Install matching wasm-bindgen CLI
+        run: cargo install wasm-bindgen-cli --version 0.2.121 --locked
+      - name: Gate the exact npm artifact and browser surface
+        run: cargo xtask browser-check
+
+  stage:
+    name: build immutable SDK bundle
+    needs: performance
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust and WASM target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc,wasm32-unknown-unknown
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: sdk-release-windows
+
+      - name: Install matching wasm-bindgen CLI
+        run: cargo install wasm-bindgen-cli --version 0.2.121 --locked
+
+      - name: Build, test, audit, and stage once
+        run: cargo xtask sdk-release-dry-run
+
+      - name: Resolve bundle
+        id: bundle
+        shell: pwsh
+        run: |
+          $directory = Get-Content target/sdk-release/latest-output.txt
+          "directory=$directory" >> $env:GITHUB_OUTPUT
+          $sbom = Get-ChildItem -LiteralPath $directory -Filter *.cdx.json | Select-Object -First 1
+          "sbom=$($sbom.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Verify staged hashes
+        run: cargo xtask sdk-release-verify "${{ steps.bundle.outputs.directory }}"
+
+      - name: Attest bundle provenance
+        if: startsWith(github.ref, 'refs/tags/sdk-v')
+        uses: actions/attest@v4
+        with:
+          subject-path: "${{ steps.bundle.outputs.directory }}/*"
+
+      - name: Attest bundle SBOM
+        if: startsWith(github.ref, 'refs/tags/sdk-v')
+        uses: actions/attest@v4
+        with:
+          subject-path: "${{ steps.bundle.outputs.directory }}/*"
+          sbom-path: "${{ steps.bundle.outputs.sbom }}"
+
+      - name: Upload immutable bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: continuity-sdk-bundle
+          path: "${{ steps.bundle.outputs.directory }}/*"
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-npm:
+    name: publish npm package
+    needs: stage
+    if: startsWith(github.ref, 'refs/tags/sdk-v')
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global npm@11.5.1
+      - uses: actions/download-artifact@v4
+        with:
+          name: continuity-sdk-bundle
+          path: sdk-bundle
+      - run: cargo xtask sdk-release-verify sdk-bundle
+      - name: Publish exact tarball to the preview channel
+        run: npm publish sdk-bundle/*.tgz --access public --tag next
+
+  publish-crates:
+    name: publish Cargo closure
+    needs: stage
+    if: startsWith(github.ref, 'refs/tags/sdk-v')
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v4
+        with:
+          name: continuity-sdk-bundle
+          path: sdk-bundle
+      - run: cargo xtask sdk-release-verify sdk-bundle
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: Publish in dependency order and compare Cargo's uploaded archives
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for package in continuity-text continuity-buffer continuity-engine; do
+            staged="$(find sdk-bundle -maxdepth 1 -name "$package-*.crate" -print -quit)"
+            package_flags=()
+            if test "$package" != continuity-text; then
+              package_flags+=(--no-verify)
+            fi
+            cargo package --locked --package "$package" "${package_flags[@]}"
+            produced="$(find target/package -maxdepth 1 -name "$package-*.crate" -print -quit)"
+            test "$(sha256sum "$produced" | cut -d' ' -f1)" = \
+              "$(sha256sum "$staged" | cut -d' ' -f1)"
+            cargo publish --locked --package "$package" "${package_flags[@]}"
+            test "$(sha256sum "$produced" | cut -d' ' -f1)" = \
+              "$(sha256sum "$staged" | cut -d' ' -f1)"
+          done
+
+  publish-pypi:
+    name: publish Python wheel
+    needs: stage
+    if: startsWith(github.ref, 'refs/tags/sdk-v')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: continuity-sdk-bundle
+          path: sdk-bundle
+      - run: cargo xtask sdk-release-verify sdk-bundle
+      - name: Select the exact wheel
+        run: mkdir pypi-dist && cp sdk-bundle/*.whl pypi-dist/
+      - name: Publish through PyPI trusted publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: pypi-dist
+
+  github-release:
+    name: publish SDK release assets
+    needs: [stage, publish-npm, publish-crates, publish-pypi]
+    if: startsWith(github.ref, 'refs/tags/sdk-v')
+    runs-on: ubuntu-latest
+    environment: sdk-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: continuity-sdk-bundle
+          path: sdk-bundle
+      - name: Create the separate SDK GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" sdk-bundle/* \
+            --verify-tag \
+            --generate-notes \
+            --title "Continuity SDK $GITHUB_REF_NAME"

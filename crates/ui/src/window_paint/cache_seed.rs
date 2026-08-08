@@ -3,7 +3,7 @@
 //! Extracted from `window_paint.rs::on_paint` so the orchestrator
 //! stays under the conventions cap. The single responsibility here is
 //! deciding when to install the just-painted frame as
-//! [`crate::window::Window::last_painted_frame_display`] and into the
+//! `EditorSurface::projection.last_painted_frame_display` and into the
 //! per-pane spectator cache so the next paint can either motion-reuse
 //! the projection or skip cold rebuilds via spectator-promote.
 //!
@@ -22,9 +22,9 @@
 //!   instead of falling to Cold).
 //!
 //! Thread ownership: UI thread of one window. Mutates
-//! [`crate::window::Window::last_painted_frame_display`],
-//! [`crate::window::Window::last_painted_decorations`],
-//! [`crate::window::Window::last_painted_decoration_parse_revision`],
+//! `EditorSurface::projection.last_painted_frame_display`,
+//! `EditorSurface::projection.last_painted_decorations`,
+//! `EditorSurface::projection.last_painted_decoration_parse_revision`,
 //! and the [`crate::window_spectator_cache::SpectatorFrameCache`].
 
 use std::sync::Arc;
@@ -69,6 +69,8 @@ impl Window {
         // `event:projection_worker_result seq=…` for the worker time.
         if crate::paint_trace::is_trace_enabled() {
             let prev_partial = self
+                .surface
+                .projection
                 .last_painted_frame_display
                 .as_ref()
                 .map(|(_, prev)| prev.row_index())
@@ -90,16 +92,23 @@ impl Window {
                 }
             }
         }
-        self.last_painted_frame_display = Some((display_query.clone(), frame_display.clone()));
-        self.last_painted_decorations = decorations_owned.cloned();
-        self.last_painted_decoration_parse_revision = current_decoration_parse_revision;
-        self.spectator_frame_cache.borrow_mut().insert(
-            self.tree.focused,
-            display_query.clone(),
-            frame_display.clone(),
-            decorations_owned.cloned(),
-            current_decoration_parse_revision,
-        );
+        self.surface.projection.last_painted_frame_display =
+            Some((display_query.clone(), frame_display.clone()));
+        self.surface.projection.last_painted_decorations = decorations_owned.cloned();
+        self.surface
+            .projection
+            .last_painted_decoration_parse_revision = current_decoration_parse_revision;
+        self.surface
+            .projection
+            .spectator_frame_cache
+            .borrow_mut()
+            .insert(
+                self.tree.focused,
+                display_query.clone(),
+                frame_display.clone(),
+                decorations_owned.cloned(),
+                current_decoration_parse_revision,
+            );
         if crate::paint_trace::is_trace_enabled() {
             let stamps = frame_display.row_index().stamps();
             crate::paint_trace::log_event(

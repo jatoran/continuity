@@ -1,10 +1,18 @@
 [package]
 name             = "continuity-text"
-version          = "0.1.0"
+version          = "0.2.22"
 edition.workspace      = true
 rust-version.workspace = true
 license.workspace      = true
-publish.workspace      = true
+repository.workspace   = true
+homepage.workspace     = true
+description            = "Text coordinates, selections, and edit primitives for the Continuity editor engine"
+documentation          = "https://docs.rs/continuity-text"
+keywords               = ["editor", "text", "selection", "rope"]
+categories             = ["text-editors", "data-structures"]
+readme                 = "README.md"
+include                = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md"]
+publish                = true
 
 [dependencies]
 ropey                = { workspace = true }

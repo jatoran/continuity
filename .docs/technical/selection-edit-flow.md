@@ -61,56 +61,49 @@ fn apply_selection_edit(&mut self, edit: SelectionEdit) -> Result<(), Error> {
 }
 ```
 
-`dispatch_selection_edit` (in `crates/ui/src/selection_dispatch.rs`) applies the edit through the editor handle, then updates UI-thread state that depends on the edit landing:
+`dispatch_selection_edit` (in `crates/ui/src/selection_dispatch.rs`) captures
+surface-local effects, applies the edit through the editor handle, then routes
+surface and desktop side effects explicitly:
 
 ```rs
 pub(crate) fn dispatch_selection_edit(&mut self, edit: SelectionEdit) -> Result<(), Error> {
+    let effects = SelectionDispatchEffects::capture(&edit, pre_snapshot.as_ref());
     let result = self.editor.apply_selection_edit(self.buffer_id, edit);
     result?;
-    // update last-edit, edit-pulse, projection-worker, and persist-chip state
+    let pulse = effects.apply_to(&mut self.surface.selection, self.buffer_id);
+    self.apply_native_selection_edit_effects(native_effects);
     Ok(())
 }
 ```
+
+`SelectionDispatchEffects` does not mutate the engine or call host services.
+It owns only the surface contract: pre-edit caret memory and structural-edit
+pulse intent. `window_selection_adapter` is the single native boundary that
+applies the returned effects to vault/file autosave, the projection worker,
+edit-pulse presentation, and SQLite-adjacent persistence status.
 
 ### 5. Crossing into `core`
 `EditorHandle::apply_selection_edit` sends `EditorMessage::ApplySelectionEdit { buffer_id, edit, reply }` over `crossbeam-channel` and blocks on `reply`.
 
 ### 6. Core thread dispatch
-`crates/core/src/handle.rs` routes to `crate::dispatch::apply_selection_edit`.
+`crates/core/src/handle/core_loop.rs` calls the synchronous engine, then gives
+the returned batch to native persistence policy.
 
 ```rs
-// crates/core/src/dispatch.rs
-pub fn apply_selection_edit(
-    state, trackers, undo, persist, clock, policy, buffer_id, edit,
-) -> Result<Option<Revision>, Error> {
-    let coalesce = coalesce_kind_for(&edit);
-    let command  = command_name_for(&edit);
-    let buf      = state.get_mut(buffer_id).ok_or(Error::UnknownBuffer)?;
-    let Some(plan) = plan(buf, &edit)? else {
-        return Ok(None);              // planner: no effect → no undo group
-    };
-    let final_revision = undo.apply_planner_group(
-        buf, &plan.ops, &plan.selections_before, &plan.selections_after,
-        command, coalesce, clock.now_ms(), persist,
-    )?;
-    // … snapshot policy hook …
-    Ok(final_revision)
+let batch = engine.apply_selection_edit(buffer_id, &edit, clock.now_ms())?;
+if let Some(batch) = batch {
+    record_change_batch(engine.state_mut(), trackers, bridge, persist, &batch);
 }
 ```
 
-### 7. Planner — `crate::selection_edit::plan`
+### 7. Planner — `continuity_engine::selection_edit::plan`
 Each `SelectionEdit` variant routes to a per-family planner. For `Indent`:
 
 ```rs
-// crates/core/src/edit_line_text.rs
+// crates/engine/src/edit_line_text.rs
 pub(crate) fn plan_indent(buffer, unit) -> Result<Option<SelectionEditPlan>, Error> {
     let prefix = indent_text(unit);
     let selections_before = buffer.selections().to_vec();
-    let all_caret = !selections_before.is_empty()
-                 && selections_before.iter().all(|s| s.is_caret());
-    if all_caret {
-        // ... B10 caret-on-list-line branch + legacy insert-at-caret ...
-    }
     let lines = lines_covered(buffer);
     let mut specs = Vec::new();
     for &line in &lines {
@@ -124,15 +117,17 @@ pub(crate) fn plan_indent(buffer, unit) -> Result<Option<SelectionEditPlan>, Err
 
 The planner returns a `SelectionEditPlan { ops, selections_before, selections_after }` with ops in **descending byte order** so each `Buffer::apply` keeps pre-edit offsets valid.
 
+For ordinary text insertion and smart-newline endpoints, `finalize_specs_with_transformed_selections` computes `selections_after` by walking those descending specs with the same position transform `Buffer::apply` will perform. This is required for multi-cursor edits: a newline at an earlier cursor changes the final line number of every later cursor.
+
 Most planners are stateless line/range rewrites like the above, but a few branch on document structure inside the single returned plan (still one undo group): `MoveLineUp/Down` reorders **and** renumbers a contiguous ordered run when the move stays inside it (`edit_lines_movement::try_move_within_ordered_run`, else verbatim block move); `InsertNewlineSmart` with a single caret continuing an ordered run renumbers that run (`edit_list::renumber::try_ordered_continue_with_renumber`) and continues a task line with a fresh `- [ ] `; `MarkdownToggleEmphasis` strips the enclosing delimiter pair when a bare caret is inside a span (`edit_markdown::emphasis::enclosing_delimiter_runs`) rather than inserting an empty pair. See [`selection-edits.md`](../design/features/selection-edits.md) for the per-variant behavior and [`.docs/generated/SELECTION_EDITS.md`](../generated/SELECTION_EDITS.md) for the full variant→planner table.
 
 ### 8. Apply + undo group
-`crates/core/src/undo.rs::UndoOrchestrator::apply_planner_group` mints (or coalesces into) one undo group:
+Engine undo management mints or coalesces one undo group:
 
 ```rs
-let group_id = self.mint_or_coalesce_group(buffer_id, buf, command, coalesce_kind, selections_before, ts_ms, persist);
+let group_id = self.mint_or_coalesce_group(buffer, command, kind, before, timestamp, ids);
 for op in ops {
-    let revision = self.apply_op_into_group(buf, buffer_id, op, before, after, group_id, ts_ms, persist)?;
+    changes.push(apply_recorded_op(buffer, op, before, after, group_id)?);
 }
 buf.set_selections(selections_after.to_vec());      // OVERRIDES the auto-transform
 ```
@@ -142,12 +137,18 @@ buf.set_selections(selections_after.to_vec());      // OVERRIDES the auto-transf
 2. `buf.apply(op)` — mutates the rope, bumps revision, auto-transforms existing selections.
 3. `compute_inverse_op(op, removed, new_rope)` — builds the inverse for redo.
 4. `buf.undo_tree_mut().append_record(group_id, record)` — appends the record to the tree.
-5. `persist.enqueue_edit_row(…)` — fires off the durability message; persist thread batches.
+5. Append the operation and checksum to storage-neutral `ChangeBatch`.
+
+After the synchronous call, Windows core's `PersistenceBridge` assigns
+database sequence numbers, encodes rows, and sends them to persist. Direct
+hosts can discard or manage the same batch themselves.
 
 After all ops, `buf.set_selections(plan.selections_after)` overrides the per-op auto-transform with the planner's explicit selection result.
 
 ### 9. Coalesce + reply
-`buf.set_selections(...)` runs through the dispatch arms in `core::handle::*` for `SetSelections` / `MutateSelections`, which call `crate::selection_coalesce::coalesce_selections` to dedup identical `(anchor, head, kind)` tuples (Phase B1).
+Engine selection paths call
+`continuity_engine::selection_coalesce::coalesce_selections` to dedup identical
+`(anchor, head, kind)` tuples.
 
 Then the reply channel fires:
 
@@ -176,10 +177,10 @@ UI threads subscribe to `EditEvent` via `EditorHandle::events()`. On `EditApplie
 | Registry dispatch | `crates/command/src/registry.rs::Registry::dispatch` |
 | Context impl | `crates/ui/src/window_commanding.rs` (and family modules) |
 | Editor handle | `crates/core/src/handle.rs::EditorHandle::apply_selection_edit` |
-| Core dispatch | `crates/core/src/dispatch.rs::apply_selection_edit` |
-| Planner entry | `crates/core/src/selection_edit.rs::plan` |
-| Per-family planners | `crates/core/src/edit_*.rs` (some split into responsibility submodules: `edit_lines/toggle_bullet.rs`, `edit_lines_movement.rs`, `edit_line_text/trim.rs`, `edit_list/renumber.rs`, `edit_markdown/emphasis.rs`) |
+| Core dispatch | `crates/core/src/handle/core_loop.rs` |
+| Planner entry | `crates/engine/src/selection_edit.rs::plan` |
+| Per-family planners | `crates/engine/src/edit_*.rs` (with responsibility submodules) |
 | Mouse multi-cursor adds | `crates/ui/src/selection/region_select.rs` (`select_word_on_last`) + `crates/ui/src/window_mouse.rs` |
-| Undo orchestrator | `crates/core/src/undo.rs::UndoOrchestrator` |
+| Undo/coalescing | `crates/engine/src/undo.rs` |
 | Buffer apply + auto-transform | `crates/buffer/src/buffer.rs::Buffer::{apply, SelectionTransform}` |
-| Coalesce | `crates/core/src/selection_coalesce.rs::coalesce_selections` |
+| Coalesce | `crates/engine/src/selection_coalesce.rs::coalesce_selections` |

@@ -49,7 +49,7 @@ impl Window {
             // Gutter expands from caret-line-only to full line numbers
             // while the cursor hovers over the gutter strip.
             gutter_caret_line_only: self.view_options.gutter_caret_line_only
-                && !self.mouse_state.gutter_hovered,
+                && !self.surface.pointer.gutter_hovered,
             relative_line_numbers: self.view_options.relative_line_numbers,
             current_line_highlight: self.view_options.current_line_highlight,
             indent_guides: self.view_options.indent_guides,
@@ -60,7 +60,7 @@ impl Window {
             tab_width: self.view_options.tab_width,
             ruler_columns,
             caret_shape: caret_shape_for(self.view_options.caret_style),
-            caret_visible: self.caret_blink_visible,
+            caret_visible: self.surface.caret_blink_visible,
             caret_bar_width_px: self.view_options.caret_width_px,
             show_status_bar: self.view_options.show_status_bar,
             show_sticky_breadcrumb: self.view_options.show_sticky_breadcrumb,

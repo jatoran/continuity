@@ -69,7 +69,7 @@ impl Window {
     /// (typically captured via `capture_caret_line_for_jump`).
     pub(crate) fn maybe_start_caret_tween(&mut self, from_line: u32) {
         if self.motion_policy().is_reduced_motion() {
-            self.caret_tween = None;
+            self.surface.caret_tween = None;
             return;
         }
         let Some(snap) = self.current_snapshot() else {
@@ -85,7 +85,7 @@ impl Window {
             to_line,
             self.view_options.caret_tween_threshold_rows,
         ) {
-            self.caret_tween = Some(CaretTween {
+            self.surface.caret_tween = Some(CaretTween {
                 from_line,
                 to_line,
                 started_ms: unsafe { GetTickCount64() },
@@ -98,10 +98,10 @@ impl Window {
     /// Drop the tween once its duration has elapsed. Piggy-backs on
     /// the caret-blink tick so we avoid a dedicated timer.
     pub(crate) fn evict_expired_caret_tween(&mut self) {
-        if let Some(t) = self.caret_tween {
+        if let Some(t) = self.surface.caret_tween {
             let now = unsafe { GetTickCount64() };
             if tween_progress(t, now).is_none() {
-                self.caret_tween = None;
+                self.surface.caret_tween = None;
             }
         }
     }

@@ -43,7 +43,7 @@
 //! anchor stands down and re-baselines, leaving placement to the caret
 //! reveal path.
 //!
-//! Thread ownership: UI-thread-only. Mutates `self.view.scroll_y_dip`,
+//! Thread ownership: UI-thread-only. Mutates `self.surface.view.scroll_y_dip`,
 //! `frame_display`, `last_painted_frame_display`, and
 //! `prev_paint_caret_line_anchor`.
 
@@ -145,13 +145,17 @@ impl Window {
         char_width_dip: f32,
     ) {
         let Some(snap) = self.editor.snapshot(self.buffer_id) else {
-            self.geometry_anchor.previous_paint_caret_line_anchor = None;
-            self.geometry_anchor.pending_caret_reveal = false;
+            self.surface
+                .geometry_anchor
+                .previous_paint_caret_line_anchor = None;
+            self.surface.geometry_anchor.pending_caret_reveal = false;
             return;
         };
         let Some(sel) = snap.selections().first().copied() else {
-            self.geometry_anchor.previous_paint_caret_line_anchor = None;
-            self.geometry_anchor.pending_caret_reveal = false;
+            self.surface
+                .geometry_anchor
+                .previous_paint_caret_line_anchor = None;
+            self.surface.geometry_anchor.pending_caret_reveal = false;
             return;
         };
         let caret_line = sel.head.line;
@@ -162,13 +166,15 @@ impl Window {
             .estimated_content_height()
             .max(total_rows.max(1) as f32 * line_height);
 
-        let mut target_scroll = self.view.scroll_y_dip;
+        let mut target_scroll = self.surface.view.scroll_y_dip;
 
         // (1) Hold the caret line at the same screen y across an implicit
         // geometry reflow (rows above the caret appearing / disappearing as
         // the served frame's geometry swings while typing).
-        if let Some((prev_line, prev_first_row)) =
-            self.geometry_anchor.previous_paint_caret_line_anchor
+        if let Some((prev_line, prev_first_row)) = self
+            .surface
+            .geometry_anchor
+            .previous_paint_caret_line_anchor
         {
             if prev_line == caret_line && now_first_row != prev_first_row {
                 target_scroll = geometry_shift_scroll(
@@ -177,7 +183,7 @@ impl Window {
                     now_first_row,
                     line_height,
                     content_height,
-                    self.view.viewport_height_dip,
+                    self.surface.view.viewport_height_dip,
                 );
             }
         }
@@ -189,8 +195,8 @@ impl Window {
         // first paint after a click can leave it off screen — and the
         // pre-paint reveal's estimate may have wrongly concluded "visible"
         // against a different geometry. This is the authoritative check.
-        let reveal_pending = self.geometry_anchor.pending_caret_reveal;
-        self.geometry_anchor.pending_caret_reveal = false;
+        let reveal_pending = self.surface.geometry_anchor.pending_caret_reveal;
+        self.surface.geometry_anchor.pending_caret_reveal = false;
         if reveal_pending {
             let caret_display_row = frame_display
                 .display_line_index_for_source_pos(
@@ -217,11 +223,11 @@ impl Window {
                 caret_display_row,
                 line_height,
                 content_height,
-                self.view.viewport_height_dip,
+                self.surface.view.viewport_height_dip,
             );
         }
 
-        if (target_scroll - self.view.scroll_y_dip).abs() > 0.5 {
+        if (target_scroll - self.surface.view.scroll_y_dip).abs() > 0.5 {
             if crate::paint_trace::is_trace_enabled() {
                 crate::paint_trace::log_event(
                     "geometry_anchor_shift",
@@ -229,17 +235,18 @@ impl Window {
                         "caret_line={caret_line} prev_first_row={} \
                          now_first_row={now_first_row} reveal={reveal_pending} \
                          scroll={:.0}->{target_scroll:.0}",
-                        self.geometry_anchor
+                        self.surface
+                            .geometry_anchor
                             .previous_paint_caret_line_anchor
                             .map_or(now_first_row, |(_, r)| r),
-                        self.view.scroll_y_dip,
+                        self.surface.view.scroll_y_dip,
                     ),
                 );
             }
-            self.view.scroll_y_dip = target_scroll;
+            self.surface.view.scroll_y_dip = target_scroll;
             let visible_rows = visible_display_row_range(
                 target_scroll,
-                self.view.viewport_height_dip,
+                self.surface.view.viewport_height_dip,
                 line_height,
             );
             // Re-realize the corrected viewport from the *resolved frame's
@@ -265,12 +272,15 @@ impl Window {
             *frame_display = rebuilt;
             // Keep motion-reuse + the next anchor pass consistent with what
             // was actually drawn.
-            self.last_painted_frame_display = Some((display_query.clone(), frame_display.clone()));
+            self.surface.projection.last_painted_frame_display =
+                Some((display_query.clone(), frame_display.clone()));
         }
 
         // Re-baseline: the re-realize reuses the same row index, so the
         // caret line's first display row is unchanged by the correction.
-        self.geometry_anchor.previous_paint_caret_line_anchor = Some((
+        self.surface
+            .geometry_anchor
+            .previous_paint_caret_line_anchor = Some((
             caret_line,
             frame_display.first_display_line_index_for_source(caret_line as usize),
         ));

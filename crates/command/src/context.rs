@@ -432,6 +432,11 @@ pub trait Context: ViewContext + FindContext + EditConfigContext {
         Err(Error::UnsupportedContext("open_quick_open"))
     }
 
+    /// Open the machine-local pinned/recent vault launcher.
+    fn open_vault_launcher(&mut self) -> Result<(), Error> {
+        Err(Error::UnsupportedContext("open_vault_launcher"))
+    }
+
     /// Open the goto-line dialog.
     ///
     /// # Errors

@@ -15,7 +15,7 @@ TOML-loaded color sets keyed by stable name. Seventeen bundled themes ship with 
 
 ## Required key namespaces
 - `window.*` — full-window chrome (window background, foreground).
-- `panel.*` — tab strip backgrounds, active/inactive tab fg/bg. `panel.inactive_tab.background` is intentionally distinct from `panel.background` in every bundled theme (previously equal in most), and `panel.active_tab.background`'s offset is widened, so active / inactive / strip-gap tabs are all visually separable.
+- `panel.*` — tab strip backgrounds, active/inactive tab fg/bg. `panel.active_tab.background` equals `editor.background` in every bundled theme so the active tab fuses with the editing surface below it into one continuous unit. `panel.inactive_tab.background` sits at chrome level — a shade *lighter* than `panel.background` in dark themes / *darker* in light themes — so inactive tabs read as recessed behind the active surface and stay distinct from both the active tab and the strip-gap.
 - `pane.border` / `pane.border_active` — focused-pane accent.
 - `editor.*` — body fg/bg, cursor, selection, line highlight, line numbers, indent guides, search match colors, find-bar bg.
 - **`editor.line_highlight` vs `editor.caret_line_highlight` — two distinct keys, two distinct bands.** `editor.line_highlight` now drives **only** the mouse-hover band (the renderer scales its alpha down: 0.42 body / 0.62 gutter via `line_bands::scaled_alpha`). `editor.caret_line_highlight` is the distinct fill painted behind the **caret's own line**. Bundled TOMLs set the caret-line key slightly brighter / more saturated than the hover band so the caret line reads "where I am" while the hover band reads "where the pointer is." Caret-line presentation + default-on behavior lives in [caret.md](caret.md) § "Caret-line highlight".
@@ -29,6 +29,8 @@ TOML-loaded color sets keyed by stable name. Seventeen bundled themes ship with 
 ## Typed accessors
 
 Themes expose `Theme::editor_background()`, `Theme::editor_cursor_primary()`, `Theme::editor_line_highlight()`, `Theme::editor_caret_line_highlight()`, `Theme::editor_caret_jump_glow()`, `Theme::editor_pair_rainbow(level)`, `Theme::editor_soft_wrap_indicator()`, `Theme::markdown_heading(level)`, etc. Each typed accessor calls `self.required(KEY).expect("invariant: REQUIRED_KEYS")` — a panic here means the key was added to `REQUIRED_KEYS` but a bundled theme TOML wasn't updated, which the asset test catches.
+
+An active vault may choose a base theme and override existing color tokens through `.continuity/vault.toml`; it may also supply default file/folder and path-pattern label colors for the file tree. The window stores the global theme as the vault base, reapplies the vault overlay after global settings reload, and restores the current global base when leaving the vault. Unknown override tokens are ignored rather than extending the required-key surface. See [Vaults](vaults.md).
 
 ## Operations
 

@@ -163,7 +163,7 @@ caret accent.
 
 Consequence: `Decorations::revision` is an "applies-to" label, not a "parsed-at" identifier. Two `Decorations` snapshots can share the same `revision` while their underlying parse content differs — e.g. a stale-transformed prior parse and a fresh worker parse delivered against the same rope rev.
 
-The UI side compensates with `Window::last_painted_decoration_parse_revision: Option<u64>`, sampled from `decoration_cache.get(id).revision` **before** the transform applies. The projection classifier's covering-cache fast path consults this via `ProjectionClassifyInputs::decoration_parse_advanced` and falls through to a rebuild when the parse rev has advanced — see `display-map.md` § dirty-set spill + decoration parse-revision invalidation.
+The UI side compensates with `EditorSurface::projection.last_painted_decoration_parse_revision: Option<u64>`, sampled from `decoration_cache.get(id).revision` **before** the transform applies. The projection classifier's covering-cache fast path consults this via `ProjectionClassifyInputs::decoration_parse_advanced` and falls through to a rebuild when the parse rev has advanced — see `display-map.md` § dirty-set spill + decoration parse-revision invalidation.
 
 ## Relates to
 - [Buffer](buffer.md) — workers consume `RopeSnapshot`.

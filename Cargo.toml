@@ -3,6 +3,11 @@ resolver = "2"
 members = [
     "crates/text",
     "crates/buffer",
+    "crates/engine",
+    "crates/wasm",
+    "crates/host",
+    "crates/c_api",
+    "bindings/python",
     "crates/core",
     "crates/persist",
     "crates/decorate",
@@ -20,6 +25,7 @@ members = [
     "crates/ui",
     "crates/app",
     "crates/test_support",
+    "crates/test_fixtures",
     "xtask",
 ]
 
@@ -28,11 +34,16 @@ edition      = "2021"
 rust-version = "1.89"
 license      = "MIT"
 publish      = false
+repository   = "https://github.com/jatoran/continuity"
+homepage     = "https://github.com/jatoran/continuity"
 
 [workspace.dependencies]
 # Internal crates
-continuity-text         = { path = "crates/text" }
-continuity-buffer       = { path = "crates/buffer" }
+continuity-text         = { path = "crates/text", version = "0.2.22" }
+continuity-buffer       = { path = "crates/buffer", version = "0.2.22" }
+continuity-engine       = { path = "crates/engine", version = "0.2.22" }
+continuity-wasm         = { path = "crates/wasm" }
+continuity-host         = { path = "crates/host" }
 continuity-core         = { path = "crates/core" }
 continuity-persist      = { path = "crates/persist" }
 continuity-decorate     = { path = "crates/decorate" }
@@ -48,7 +59,8 @@ continuity-config       = { path = "crates/config" }
 continuity-win          = { path = "crates/win" }
 continuity-trace        = { path = "crates/trace" }
 continuity-ui           = { path = "crates/ui" }
-continuity-test-support = { path = "crates/test_support" }
+continuity-test-support = { path = "crates/test_support", version = "0.1.0", default-features = false }
+continuity-test-fixtures = { path = "crates/test_fixtures", version = "0.1.0" }
 
 # Buffer / text
 ropey                = "1.6"
@@ -65,8 +77,8 @@ rusqlite = { version = "0.32", features = ["bundled", "blob", "uuid", "backup"] 
 zstd     = "0.13"
 
 # Decoration / markdown
-tree-sitter    = "0.23"
-tree-sitter-md = "0.3"
+tree-sitter    = "0.26.11"
+tree-sitter-md = "0.5.3"
 pulldown-cmark = { version = "0.12", default-features = false }
 
 # Image encoding — F5. PNG encoder only; smallest reasonable
@@ -87,13 +99,19 @@ regex-syntax  = "0.8"
 # D3D11, DXGI, DWM) — these were removed from windows-sys.
 windows-sys = "0.59"
 windows     = "0.59"
+windows-core = "0.59"
 
 # Config / IO
 toml       = "0.8"
 toml_edit  = "0.22"
 serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2       = "0.10"
 notify     = "6"
+getrandom  = "0.3.4"
+wasm-bindgen = "0.2.121"
+js-sys = "0.3.81"
+pyo3 = "0.29"
 
 # Errors
 thiserror = "1"
@@ -117,6 +135,18 @@ opt-level     = 3
 inherits      = "release"
 opt-level     = "z"
 panic         = "unwind"
+
+[profile.release-sdk]
+inherits      = "release"
+panic         = "unwind"
+
+[profile.release-wasm]
+inherits      = "release"
+opt-level     = "z"
+lto           = "fat"
+codegen-units = 1
+panic         = "abort"
+strip         = "symbols"
 
 [profile.dev]
 opt-level = 1

@@ -26,6 +26,12 @@ impl Window {
         }
         let xf = pt.x as f32;
         let yf = pt.y as f32;
+        if self.cursor_over_file_tree_resize_band(xf, yf) {
+            if let Ok(cursor) = unsafe { LoadCursorW(None, IDC_SIZEWE) } {
+                unsafe { SetCursor(Some(cursor)) };
+                return true;
+            }
+        }
         if let Some(overlay_cursor) = self.overlay_cursor_at(xf, yf) {
             let name = match overlay_cursor {
                 OverlayCursor::Arrow => IDC_ARROW,
@@ -33,6 +39,12 @@ impl Window {
                 OverlayCursor::IBeam => IDC_IBEAM,
             };
             if let Ok(cursor) = unsafe { LoadCursorW(None, name) } {
+                unsafe { SetCursor(Some(cursor)) };
+                return true;
+            }
+        }
+        if self.cursor_over_clickable_status_bar(xf, yf) {
+            if let Ok(cursor) = unsafe { LoadCursorW(None, IDC_HAND) } {
                 unsafe { SetCursor(Some(cursor)) };
                 return true;
             }
@@ -113,5 +125,13 @@ impl Window {
             source_line_count,
         );
         xf < body.x + gutter_width
+    }
+
+    fn cursor_over_clickable_status_bar(&self, x: f32, y: f32) -> bool {
+        let Some(layout) = self.view_options.status_bar_layout.as_ref() else {
+            return false;
+        };
+        crate::window_status_bar::hit_test::hit_test(&layout.bounds, layout.top, x, y)
+            .is_some_and(crate::window_status_bar::hit_test::is_clickable)
     }
 }

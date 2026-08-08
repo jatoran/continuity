@@ -30,7 +30,7 @@ impl Window {
             caret_bytes,
             &folds,
             wrap_width_dip,
-            self.font_state,
+            self.surface.render.font_state,
         );
         (query, folds)
     }
@@ -57,7 +57,9 @@ impl Window {
             caret_bytes,
             wrap_width_dip,
         );
-        if let Some((cached_query, fd)) = self.last_painted_frame_display.as_ref() {
+        if let Some((cached_query, fd)) =
+            self.surface.projection.last_painted_frame_display.as_ref()
+        {
             if cached_query.is_compatible_for_hit_test(&hit_test_query) {
                 // Clamp the probe to this candidate frame's own last display
                 // row so a below-content click (target_display_row >=
@@ -96,6 +98,8 @@ impl Window {
 
         let focused_pane = self.tree.focused;
         match self
+            .surface
+            .projection
             .spectator_frame_cache
             .borrow()
             .lookup_for_hit_test_with_reason(focused_pane, &hit_test_query)
@@ -129,6 +133,8 @@ impl Window {
         }
 
         if let Some(fd) = self
+            .surface
+            .projection
             .spectator_frame_cache
             .borrow()
             .lookup_same_document(focused_pane, &hit_test_query)
@@ -156,7 +162,13 @@ impl Window {
             );
         }
 
-        if let Some(entry) = self.mouse_hit_test_frame_cache.borrow().as_ref() {
+        if let Some(entry) = self
+            .surface
+            .projection
+            .mouse_hit_test_frame_cache
+            .borrow()
+            .as_ref()
+        {
             let probe_row = clamp_probe_row_to_frame(entry.frame_display(), target_display_row);
             if entry.query().is_compatible_for_hit_test(&hit_test_query)
                 && entry
@@ -175,8 +187,8 @@ impl Window {
         }
 
         let visible_rows = visible_display_row_range(
-            self.view.scroll_y_dip,
-            self.view.viewport_height_dip,
+            self.surface.view.scroll_y_dip,
+            self.surface.view.viewport_height_dip,
             self.effective_line_height(),
         );
         if crate::paint_trace::is_trace_enabled() {
@@ -224,7 +236,11 @@ impl Window {
             )
         };
         let decorations_owned = decorations.cloned().map(Arc::new);
-        *self.mouse_hit_test_frame_cache.borrow_mut() = Some(MouseHitTestFrameCacheEntry::new(
+        *self
+            .surface
+            .projection
+            .mouse_hit_test_frame_cache
+            .borrow_mut() = Some(MouseHitTestFrameCacheEntry::new(
             hit_test_query.clone(),
             fd.clone(),
             decorations_owned,
@@ -251,7 +267,7 @@ impl Window {
                 rope_revision: revision,
                 decoration_revision: decorations.map_or(revision, |d| d.revision),
                 wrap_width_dip: 0,
-                font_state: self.font_state.0,
+                font_state: self.surface.render.font_state.0,
                 fold_signature: FoldSignature::compute(folds),
             },
         ));

@@ -40,6 +40,9 @@ pub(crate) fn write_api(workspace: &Path, krate: &WorkspaceCrate) -> Result<Stri
         }
         out.push('\n');
     }
+    while out.ends_with("\n\n") {
+        out.pop();
+    }
     Ok(out)
 }
 
@@ -63,6 +66,12 @@ pub(crate) fn collect_api_items(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use super::write_api;
+    use crate::docs_gen::rust_source::WorkspaceCrate;
     use crate::docs_gen::rust_source::{parse_public_items, RustSource};
 
     #[test]
@@ -76,5 +85,23 @@ mod tests {
         let items = parse_public_items(&source);
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].name, "Demo");
+    }
+
+    #[test]
+    fn api_output_ends_with_one_newline() {
+        let workspace = tempdir().expect("temporary workspace");
+        let source_dir = workspace.path().join("crates/demo/src");
+        fs::create_dir_all(&source_dir).expect("create demo source directory");
+        fs::write(source_dir.join("lib.rs"), "pub struct Demo;\n").expect("write demo source");
+        let krate = WorkspaceCrate {
+            member: "demo".into(),
+            package_name: "continuity-demo".into(),
+            path: "crates/demo".into(),
+        };
+
+        let output = write_api(workspace.path(), &krate).expect("generate API inventory");
+
+        assert!(output.ends_with('\n'));
+        assert!(!output.ends_with("\n\n"));
     }
 }

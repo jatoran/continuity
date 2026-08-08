@@ -237,7 +237,7 @@ impl WrapCache {
                 .filter(|b| b.key.font_state == font_state)
                 .map(|b| (b.key.wrap_width_dip, b.last_used, Arc::clone(&b.store)))
                 .collect();
-            matches.sort_by(|a, b| b.1.cmp(&a.1));
+            matches.sort_by_key(|entry| std::cmp::Reverse(entry.1));
             matches.into_iter().map(|(w, _, s)| (w, s)).collect()
         };
         for (width, store) in candidates {

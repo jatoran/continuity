@@ -14,28 +14,22 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::buffer_history_tab::BufferHistoryTab;
-use crate::display_prewarm_cache::DisplayMapPrewarm;
 use crate::overlays::Overlays;
 use crate::pane_state::PerPaneState;
 use crate::pane_tree::{PaneId, PaneTree, TabId};
 use crate::window_heading_lines_cache::HeadingLinesCacheEntry;
-use crate::window_mouse_hit_test_cache::MouseHitTestFrameCacheEntry;
 use crate::window_theme::ActiveTheme;
 use continuity_buffer::BufferId;
 use continuity_command::Registry;
-use continuity_core::{EditorHandle, WpmTracker};
+use continuity_core::EditorHandle;
 use continuity_decorate::{DecoratePool, DecorationCache, Language};
-use continuity_display_map::{SegmentCache, WrapCache};
 use continuity_keymap::{Conflict, Keymap};
-use continuity_layout::{DWriteFactory, FontStateId, LayoutCache, RunCache, ViewState};
-use continuity_persist::{MetricsDailyDelta, PersistClient};
-use continuity_render::{FrameDisplay, Renderer};
+use continuity_persist::PersistClient;
 use continuity_win::WindowClass;
 use windows::Win32::Foundation::HWND;
 
 pub(crate) use crate::window_constants::{
     END_OF_BUFFER_BOTTOM_PADDING_DIP, FONT_FAMILY, FONT_LOCALE, FONT_SIZE_DIP,
-    LAYOUT_CACHE_CAPACITY,
 };
 
 pub(crate) use crate::window_timers::{
@@ -50,19 +44,17 @@ pub struct Window {
     pub(crate) _class: WindowClass,
     pub(crate) editor: Arc<EditorHandle>,
     pub(crate) buffer_id: BufferId,
+    /// Editor-local state whose lifetime is independent from desktop-shell
+    /// persistence, placement, panes, and application shutdown.
+    pub(crate) surface: crate::editor_surface::EditorSurface,
+    /// Lazily-created native UI Automation adapter for this HWND.
+    pub(crate) accessibility_provider:
+        Option<windows::Win32::UI::Accessibility::IRawElementProviderSimple>,
     pub(crate) registry: Registry,
     pub(crate) keymap: Keymap,
     pub(crate) default_keymap_toml: &'static str,
     pub(crate) user_keymap_path: Option<PathBuf>,
     pub(crate) keymap_conflicts: Vec<Conflict>,
-    /// Pending chord prefix — chords typed since the user started a
-    /// multi-key sequence like `Ctrl+K, Ctrl+R`. Cleared on dispatch,
-    /// on a non-matching follow-up, or on context change.
-    pub(crate) pending_chord_sequence: Vec<continuity_input::KeyChord>,
-    pub(crate) dwrite: DWriteFactory,
-    pub(crate) renderer: Option<Renderer>,
-    pub(crate) text_format: Option<windows::Win32::Graphics::DirectWrite::IDWriteTextFormat>,
-    pub(crate) shift_held: bool,
     /// Client width in physical pixels. Layout code converts through
     /// `window_dpi` before producing DIPs.
     pub(crate) client_width: u32,
@@ -83,32 +75,8 @@ pub struct Window {
     pub(crate) inited: bool,
     /// Active overlay state machine (find/palette/quick-open/goto…).
     pub(crate) overlays: Overlays,
-    /// `true` while an overlay text input owns keyboard focus. Owned by
-    /// this window's UI thread; visibility remains in `overlays`.
-    pub(crate) overlay_input_focused: bool,
     /// Last-clicked time + line for triple-click detection.
     pub(crate) mouse_state: crate::mouse::MouseState,
-    /// Per-pane runtime view state (scroll, zoom, soft-wrap).
-    pub(crate) view: ViewState,
-    /// Bounded LRU cache of `IDWriteTextLayout` per visible logical line.
-    pub(crate) cache: LayoutCache,
-    /// Shared row-count run cache. The projection worker is the primary
-    /// mutator; inline UI fallback uses the same sharded backing store.
-    pub(crate) walker_run_cache: Arc<RunCache>,
-    /// Shared row-count wrap cache. The projection worker is the primary
-    /// mutator; inline UI fallback uses the same sharded backing store.
-    pub(crate) walker_wrap_cache: Arc<WrapCache>,
-    /// Shared row-count segment cache. The projection worker is the primary
-    /// mutator; inline UI fallback uses the same sharded backing store.
-    pub(crate) walker_segment_cache: Arc<SegmentCache>,
-    /// Hash describing the active font (family, size at current zoom,
-    /// locale). Used as a cache key component.
-    pub(crate) font_state: FontStateId,
-    /// `true` while the smooth-scroll WM_TIMER is running.
-    pub(crate) scroll_anim_active: bool,
-    /// P12 wheel-inertia state. UI-thread-owned; ticks on the existing
-    /// smooth-scroll timer and writes only `view.scroll_y_dip`.
-    pub(crate) scroll_inertia: crate::window_scroll::ScrollInertia,
     /// `true` while the shared motion WM_TIMER is running.
     pub(crate) motion_timer_active: bool,
     /// Phase-10 decoration worker pool. `None` until `install_decorate_pool` — deferred so test harnesses skipping worker spawn still operate.
@@ -128,23 +96,6 @@ pub struct Window {
     /// compared each paint so `prune_offscreen_decoration_trees` only evicts
     /// when the visible / MRU keep-set actually changes.
     pub(crate) last_tree_prune_keep: RefCell<Vec<u128>>,
-    /// Per-buffer cache of the most recent non-empty visual-table layouts
-    /// for the focused pane. When `compute_table_layouts` returns an
-    /// empty list — typically because the decorate worker lags the rope
-    /// by a frame after a keystroke and `build_one_table_layout`'s
-    /// byte-to-char guard rejects the stale block range — we fall back
-    /// to the cached layout so the chrome paints continuously instead
-    /// of dropping for a frame. Mouse hit-testing also reads from this
-    /// cache so clicks resolve to cells even when the latest frame's
-    /// layout is briefly empty.
-    ///
-    /// Stored as `Arc<Vec<TableLayout>>` so the per-frame cache insert
-    /// is a refcount bump rather than a deep clone of the cell vector
-    /// — `TableLayout` contains `String` cell text whose deep-clone
-    /// would dominate the per-keystroke paint cost on large tables.
-    /// Owned by this window's UI thread.
-    pub(crate) last_focused_table_layouts:
-        RefCell<HashMap<BufferId, Arc<Vec<continuity_render::TableLayout>>>>,
     /// `[workers].decoration_watchdog_ms`, mirrored on the UI thread and
     /// pushed into the decoration pool on hot reload.
     pub(crate) decoration_worker_watchdog_timeout_ms: u32,
@@ -207,13 +158,6 @@ pub struct Window {
     /// `Window` struct stays under the 600-line cap. See
     /// [`crate::window_settings_projections::SettingsProjections`].
     pub(crate) settings_projections: crate::window_settings_projections::SettingsProjections,
-    /// `true` while the caret blink phase is in its "visible" half.
-    pub(crate) caret_blink_visible: bool,
-    /// Tick of the last keystroke; the blinker stays "visible" while the
-    /// user is actively typing (within the blink period).
-    pub(crate) last_input_tick: u64,
-    /// `true` while the caret-blink WM_TIMER is running.
-    pub(crate) caret_blink_active: bool,
     /// Phase-12 live-reload metadata (initial settings + paths +
     /// persist-mode applier). The watcher receiver itself is no longer
     /// per-window — see `control_rx`.
@@ -235,9 +179,9 @@ pub struct Window {
     pub(crate) register_file_buffer: Option<crate::window_config::RegisterFileBuffer>,
     /// `true` while the file-I/O poll timer is running.
     pub(crate) file_io_poll_active: bool,
-    /// Left file-tree pane state. Owned by this window's UI thread;
-    /// directory reads are delegated to the file-I/O worker.
     pub(crate) file_tree: crate::file_tree::FileTreeState,
+    pub(crate) vault: crate::vault::VaultState,
+    pub(crate) file_tree_preview_tabs: HashMap<PaneId, crate::pane_tree::TabId>,
     /// `true` while the Phase-17 debounced state-save WM_TIMER is armed.
     pub(crate) state_save_pending: bool,
     /// Non-blocking banner for file-status prompts.
@@ -255,13 +199,10 @@ pub struct Window {
     /// `self.buffer_id`; the rest of the tree drives chrome/layout.
     pub(crate) tree: PaneTree,
     /// Per-pane state for *non-focused* leaves. The focused leaf's state
-    /// is mirrored in the scalar `Window::view`/`buffer_id`/`language*`
-    /// fields so existing single-buffer code paths keep working without
-    /// per-callsite refactors. On focus switch, the scalars are swapped
-    /// in/out of this map.
+    /// is mirrored in `EditorSurface::view` plus the scalar
+    /// `Window::buffer_id`/`language*` fields. On focus switch, the focused
+    /// state is swapped in/out of this map.
     pub(crate) panes: HashMap<PaneId, PerPaneState>,
-    pub(crate) paste_history: crate::window_clipboard::PasteHistory,
-    pub(crate) ime_state: crate::window_ime::ImeState,
     pub(crate) spell_state: crate::window_spell::SpellState,
     /// Phase-16.5 auto-pair config — mirrors `[editor].auto_pair_*`, refreshed via [`Self::apply_settings`].
     pub(crate) auto_pair: continuity_core::AutoPairConfig,
@@ -270,19 +211,6 @@ pub struct Window {
     /// [`Self::apply_indent_settings`] and mutated by the indent
     /// command family. Owned by this window's UI thread.
     pub(crate) indent: crate::window_indent::IndentConfig,
-    pub(crate) intended_columns: Vec<u32>,
-    /// Sticky display-byte offset within the head's wrapped display row.
-    /// Parallel to [`Self::intended_columns`] — used by the soft-wrap
-    /// vertical-motion branch so multi-step sticky behaviour works across
-    /// rows of varying width (single-step came from the live head).
-    pub(crate) intended_display_columns: Vec<u32>,
-    pub(crate) intended_columns_for: Vec<continuity_text::Position>,
-    pub(crate) jump_glow: Option<crate::jump_glow::JumpGlow>,
-    /// α.1 edit-action echo (paste / duplicate / move-line / undo-target
-    /// / smart-expand boundary). Single optional cell — the most recent
-    /// pulse wins, matching the jump-glow contract.
-    pub(crate) edit_pulse: Option<crate::edit_pulse::EditPulse>,
-    pub(crate) caret_tween: Option<crate::caret_tween::CaretTween>,
     /// α.0 resolved motion policy. Owned by this window's UI thread.
     pub(crate) motion_policy: crate::motion::MotionPolicy,
     /// α.0 scheduler that offsets same-batch transitions by 60 ms.
@@ -331,30 +259,9 @@ pub struct Window {
     pub(crate) image_expand_state: std::collections::HashMap<(BufferId, usize), bool>,
     pub(crate) find_memory: HashMap<BufferId, crate::find_bar::FindBarMemento>,
     pub(crate) find_persist_per_buffer: bool,
-    /// Phase-I2 persist client for metrics recording / purge. `None`
-    /// disables the metrics tap (test harnesses, headless canary).
+    /// Persistence client used by history, file, and vault surfaces.
+    /// `None` is supported by test harnesses and headless canaries.
     pub(crate) persist_client: Option<PersistClient>,
-    /// Phase-I2 rolling-window WPM tracker (60 s default). Fed one
-    /// timestamp per inserted character on the UI thread.
-    pub(crate) wpm_tracker: WpmTracker,
-    /// Phase-I2 in-flight metrics delta accumulated since the last 1 Hz
-    /// flush to `record_metrics_delta`. Reset every successful flush.
-    pub(crate) metrics_pending: MetricsDailyDelta,
-    /// Phase-I2 wall-clock ms of the last metrics flush; the metrics
-    /// flush only fires once per second.
-    pub(crate) metrics_last_flush_ms: u64,
-    /// Phase-I2 wall-clock ms of the most recent recorded keystroke.
-    /// Used to compute `active_ms`, the rolling-WPM trailing point,
-    /// and the §I2 idle-freeze threshold.
-    pub(crate) metrics_last_keystroke_ms: u64,
-    /// Phase-I2 last *live* WPM reading taken while the user was
-    /// still inside the [`crate::window_metrics_paint::METRICS_WPM_IDLE_THRESHOLD_MS`]
-    /// window. Painted in place of `wpm_tracker.wpm_now()` while idle
-    /// so the value stops decaying once the user stops typing.
-    pub(crate) wpm_frozen: u32,
-    /// Phase-I2 `true` while the 1 Hz metrics repaint timer is running
-    /// (set by [`Window::start_metrics_repaint_timer`]).
-    pub(crate) metrics_repaint_active: bool,
     /// Phase-I1 cached time-machine preview rope. Populated lazily on
     /// the first `on_paint` after `view_options.overlay.pinned_revision`
     /// changes. The cached `Revision` lets `on_paint` skip the persist
@@ -377,14 +284,6 @@ pub struct Window {
     /// Drives `on_paint`'s 30 Hz frame-skip when unfocused. Defaults
     /// to `true`; refreshed on WM_ACTIVATEAPP.
     pub(crate) is_window_focused: bool,
-    /// `true` while this HWND holds keyboard focus. Distinct from
-    /// [`Self::is_window_focused`]: switching between two continuity
-    /// windows fires WM_SETFOCUS / WM_KILLFOCUS but never
-    /// WM_ACTIVATEAPP. Gates the active-pane highlight so only the
-    /// window the user is actually typing into advertises an active
-    /// pane. Defaults to `true`; refreshed on WM_SETFOCUS /
-    /// WM_KILLFOCUS. UI-thread-owned.
-    pub(crate) has_keyboard_focus: bool,
     /// Whether [`Self::run`] may bring this window to the foreground
     /// when first shown. Seeded from `WindowConfig::activate_on_show`;
     /// cleared by `apply_initial_placement` when the window restores
@@ -420,53 +319,10 @@ pub struct Window {
     /// the prior one; consumed at WM_EXITSIZEMOVE to decide whether
     /// a final anchor restore + invalidate is needed.
     pub(crate) resize_changed: bool,
-    /// When set, the next paint snaps the focused pane's scroll to the
-    /// last display row of the canonical `FrameDisplay` resolved this
-    /// frame, then re-invalidates so the cold build materializes the
-    /// bottom rows. Armed by `editor.move_doc_end` /
-    /// `editor.extend_doc_end` because computing the exact bottom from
-    /// the command thread requires reproducing the painter's projection
-    /// (image reservations, fold ranges, wrap metrics) — diverging there
-    /// is what caused Ctrl+End to land short of the bottom on buffers
-    /// with images or stale decorations. See
-    /// `crate::window_paint::cold_deferred` siblings for the snap.
-    pub(crate) pending_doc_end_scroll: bool,
-    /// Per-paint geometry-shift anchor and reveal handoff. UI-thread-owned.
-    pub(crate) geometry_anchor: crate::window_view::geometry_anchor::GeometryAnchorState,
-    /// Consecutive paints the document-end snap has re-armed itself
-    /// while the projection's whole-document row index was still partial
-    /// (offscreen soft-wrap rows held as placeholders, so the total
-    /// display-row count under-reports the true bottom). Bounds the
-    /// re-snap loop so a never-completing index can't spin paint forever.
-    /// Reset to `0` whenever the snap finalizes against an authoritative
-    /// (non-partial) index. See `crate::window_paint::doc_end_scroll`.
-    pub(crate) pending_doc_end_scroll_attempts: u8,
-    /// Off-thread big-jump realization (fix A). Armed (set to
-    /// the off-thread jump poll budget by a Ctrl+End / Ctrl+Home (or any
-    /// far reveal) jump that lands the viewport on an
-    /// unrealized region. While `> 0` and a matching projection-worker
-    /// request is in flight, paint reuses the prior frame + a placeholder
-    /// strip instead of inline-walking the new region on the UI thread,
-    /// and re-invalidates (a cheap, input-preemptible poll) so the
-    /// worker's result is picked up the moment it lands. Decremented per
-    /// placeholder paint; reset to `0` on a worker hit or when the paint
-    /// resolves any other way. See `worker_outcome_dispatch`.
-    pub(crate) jump_offthread_polls: u8,
     /// β — paint-tick counter used to throttle background-window
     /// repaints to ~30 Hz: when unfocused, every other on_paint call
     /// returns early.
     pub(crate) background_paint_tick: u64,
-    /// δ.1 — per-buffer last-edit cursor stack. Bounded ring of
-    /// recently-edited [`continuity_text::Position`]s; the
-    /// `editor.goto_last_edit` chord pops the most recent entry.
-    pub(crate) last_edit_stack:
-        HashMap<BufferId, std::collections::VecDeque<continuity_text::Position>>,
-    /// β — UI-thread-owned MRU-adjacent display-map prewarm queue/cache.
-    /// Holds only derived `FrameDisplay` snapshots and is cancelled on
-    /// active-buffer input or revision drift.
-    pub(crate) display_map_prewarm: DisplayMapPrewarm,
-    /// `true` while the β idle prewarm WM_TIMER is running.
-    pub(crate) display_prewarm_timer_active: bool,
     /// Per-tab swimlane state for the buffer-history visualization,
     /// keyed by [`TabId`]. Empty for regular `TabKind::Buffer` tabs.
     pub(crate) buffer_history_tabs: HashMap<TabId, BufferHistoryTab>,
@@ -478,36 +334,6 @@ pub struct Window {
     /// window so input and paint win the first ~second. `0` means
     /// "no activation observed yet" (program startup).
     pub(crate) last_activation_tick: u64,
-    /// Cached `(query, FrameDisplay)` from the most recent focused-pane
-    /// paint. Soft-wrap vertical caret motion in
-    /// [`crate::Window::move_line_selection`] reuses this projection
-    /// when its query is `is_compatible_for_motion` with the current
-    /// rope/decoration/wrap/font/fold context, so an Up/Down keystroke
-    /// no longer pays an O(document) `FrameDisplay::build` per step
-    /// against large (~6k-line) buffers. UI-thread-owned; cleared on
-    /// the next paint when the context drifts.
-    pub(crate) last_painted_frame_display:
-        Option<(crate::display_prewarm_cache::PrewarmQuery, FrameDisplay)>,
-    /// ε.3D — `Decorations` snapshot the last painted frame was built
-    /// against. Diffing this against the current `Decorations` (after
-    /// `transformed_through` shifts span bytes into the new rope's
-    /// coordinates) yields the source lines whose styling actually
-    /// changed; `rebuild_dirty` re-realizes only those lines instead
-    /// of cold-building the whole viewport on every decoration
-    /// arrival. UI-thread-owned; cleared with the frame-display
-    /// cache.
-    pub(crate) last_painted_decorations: Option<std::sync::Arc<continuity_decorate::Decorations>>,
-    /// The worker-assigned parse revision of the `Decorations` the
-    /// previous paint consumed from `decoration_cache`. Distinct from
-    /// `last_painted_decorations.revision` (which is the *transformed*
-    /// rope-rev label that `transformed_through` applies). When a new
-    /// async parse lands in the cache its parse revision differs from
-    /// this snapshot, even when the transformed label would coincide
-    /// — paint detects the change and feeds
-    /// `decoration_parse_advanced=true` to the classifier so the
-    /// covering-cache fast path rejects the stale-styling frame.
-    /// `None` until the first paint and on each cache miss.
-    pub(crate) last_painted_decoration_parse_revision: Option<u64>,
     /// Cached rope-derived status-bar counts (words, non-empty lines,
     /// line-ending detection, …). Refreshed when the rope revision
     /// advances; reused verbatim on caret-motion / scroll / theme-drift
@@ -520,24 +346,6 @@ pub struct Window {
     /// computation. UI-thread-owned via `RefCell`.
     pub(crate) status_bar_rope_counts:
         std::cell::RefCell<HashMap<BufferId, crate::window_status_bar::RopeStatusCounts>>,
-    /// ε.5b — off-UI-thread projection worker. Lazy-spawned the first
-    /// paint that has a live `text_format`. `None` before then and
-    /// during tests that build a `Window` without ever painting.
-    /// Dropped with the window (worker thread joins on drop).
-    pub(crate) projection_worker: Option<crate::projection_worker::ProjectionWorker>,
-    /// ε.5b — monotonically increasing sequence number for the worker's
-    /// next dispatched request. Trace events reference this so a
-    /// `dispatch` line and the matching `result` line can be paired
-    /// across paints.
-    pub(crate) projection_request_seq: u64,
-    /// ε.5e — most-recent stamp submitted by
-    /// [`Window::try_dispatch_projection_worker_early`]. Compared
-    /// against the next early-dispatch stamp to coalesce back-to-back
-    /// edits that produce identical worker inputs (the worker would
-    /// otherwise build the same projection twice). Not updated by the
-    /// post-paint dispatch in `on_paint` — the worker's latest-wins
-    /// recv handles paint/early-dispatch overlap.
-    pub(crate) last_early_dispatch_stamp: Option<crate::projection_worker::ProjectionStamp>,
     /// Per-buffer FNV-1a content hash cache backing [`crate::pane_tree::Tab`]
     /// dirty-dot computation. Stored as `(rope_revision_seen, cur_hash)` so
     /// the per-paint walk is O(1) until the rope revision moves; recomputing
@@ -563,38 +371,5 @@ pub struct Window {
     /// on every frame. UI-thread-owned via `RefCell`.
     pub(crate) outline_entries_cache:
         RefCell<crate::window_outline_entries_cache::OutlineEntriesCache>,
-    /// Per-pane spectator `FrameDisplay` cache. Spectator panes
-    /// (every non-focused pane body) previously cold-built their
-    /// projection on every paint — a 9 k-line buffer in a non-focused
-    /// pane cost ~450 ms per paint while the focused pane received
-    /// keystrokes. This cache holds the last painted spectator frame
-    /// per pane keyed by [`crate::display_prewarm_cache::PrewarmQuery`],
-    /// reused via [`crate::display_prewarm_cache::PrewarmQuery::is_compatible_for_motion`].
-    /// UI-thread-owned via `RefCell` so paint can borrow the
-    /// renderer and the cache simultaneously without a `&mut self`
-    /// reborrow conflict. Written by spectator paint, focused-paint
-    /// cache seeding, and the UI-thread projection-worker drain.
-    pub(crate) spectator_frame_cache: RefCell<crate::window_spectator_cache::SpectatorFrameCache>,
-    /// Mouse hit-test fallback cache. When neither
-    /// `last_painted_frame_display` nor the spectator cache can
-    /// satisfy `Window::resolve_hit_test_frame_display` (e.g. after a
-    /// layout shortcut that drifts `wrap_width_dip`), the resolver
-    /// pays for a viewport build and stores the result here so
-    /// repeated mouse moves over the same buffer reuse it instead of
-    /// rebuilding ~460 ms per hover.
-    /// `perf-snapshots/manual-lag_after-coalesce_20260517-235814.tsv`
-    /// captured several consecutive `WM_MOUSEMOVE 460 ms` events
-    /// through the footnote-hover handler before the early-exit + this
-    /// cache landed. The next paint may promote this frame as a
-    /// rebuild source, then clears it once a paint frame supersedes
-    /// it. UI-thread-owned.
-    pub(crate) mouse_hit_test_frame_cache: RefCell<Option<MouseHitTestFrameCacheEntry>>,
-    /// Cross-pane row-index cache. Keyed by `(BufferId, rope_rev,
-    /// decoration_rev, wrap_width_dip, font_state, fold_signature)` so any
-    /// pane / tab / layout showing the same buffer at the same geometry can
-    /// skip the `DisplayRowIndex` walker on cold viewport builds (the walker
-    /// dominates per-frame cost on large markdown buffers — ~400 ms / 9 k
-    /// lines in release). See [`crate::window_row_index_cache`].
-    pub(crate) row_index_cache: RefCell<crate::window_row_index_cache::RowIndexCache>,
     pub(crate) tab_session: crate::window_panes::TabSessionState, // items 8 + 18 (see window_panes)
 }

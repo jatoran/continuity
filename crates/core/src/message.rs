@@ -6,7 +6,7 @@ use continuity_text::{EditOp, Selection};
 use crossbeam_channel::Sender;
 
 use crate::policy::SnapshotPolicy;
-use crate::{Error, SelectionEdit};
+use crate::Error;
 
 /// Mutation closure used by [`EditorMessage::MutateSelections`].
 pub(crate) type SelectionMutation = Box<dyn FnOnce(&mut Vec<Selection>) + Send>;
@@ -20,6 +20,8 @@ pub struct EditorSnapshot {
     pub selections: Vec<Selection>,
     /// File association captured with the rope snapshot.
     pub file: Option<FileAssociation>,
+    /// Whether the buffer rejects text mutations.
+    pub is_read_only: bool,
 }
 
 /// Lightweight per-buffer summary for switcher / quick-open UIs.
@@ -125,12 +127,14 @@ pub enum EditorMessage {
         /// Reply channel for the resulting revision (or error).
         reply: Sender<Result<Revision, Error>>,
     },
-    /// Apply a selection-aware edit to all selections in the target buffer.
+    /// Apply a typed, portable editor operation to the target buffer.
     ApplySelectionEdit {
         /// Target buffer.
         buffer_id: BufferId,
-        /// Selection-aware edit request.
-        edit: SelectionEdit,
+        /// Platform-neutral operation request. The compatibility handle
+        /// currently supplies `ApplySelectionEdit`; the envelope keeps the
+        /// native actor on the same contract as embedded hosts.
+        operation: continuity_host::EditorOperation,
         /// Optional UI-thread edit sequence for cross-thread trace
         /// correlation. See [`Self::ApplyEdit::edit_seq`].
         edit_seq: Option<u64>,

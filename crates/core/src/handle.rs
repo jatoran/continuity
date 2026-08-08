@@ -28,8 +28,7 @@ use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use crate::clock::Clock;
 use crate::message::{EditEvent, EditorMessage};
 use crate::policy::{SnapshotPolicy, SnapshotTracker};
-use crate::undo::UndoOrchestrator;
-use crate::EditorState;
+use continuity_engine::Engine;
 
 mod buffers;
 mod core_loop;
@@ -67,17 +66,13 @@ impl EditorHandle {
         let join = thread::Builder::new()
             .name("continuity-core".into())
             .spawn(move || {
-                let mut state = EditorState::new();
+                let mut engine = Engine::new();
                 let mut trackers: AHashMap<BufferId, SnapshotTracker> = AHashMap::new();
                 let mut pending_labels: AHashMap<BufferId, String> = AHashMap::new();
-                let mut delta_history: crate::dispatch::DeltaHistory = AHashMap::new();
-                let mut undo = UndoOrchestrator::new();
                 core_loop(
-                    &mut state,
+                    &mut engine,
                     &mut trackers,
                     &mut pending_labels,
-                    &mut delta_history,
-                    &mut undo,
                     &cmd_rx,
                     &event_tx,
                     &persist,

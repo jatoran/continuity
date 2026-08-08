@@ -1,5 +1,11 @@
 # Caret presentation
 
+The native sections below cover the DirectWrite caret. In the Web Component,
+the semantic textarea owns the browser caret, selection, IME, keyboard
+navigation, and accessibility focus while a transparent text layer exposes
+the projected Markdown beneath it. UTF-16 browser offsets are converted to
+canonical UTF-8 positions. See [Web Component](web-component.md).
+
 Caret rendering: shape (bar / block / underline), blink behaviour, jump-glow acknowledgement, motion tween on large jumps, and sticky-column tracking through vertical motion. Per-pane state; reduced-motion honoured.
 
 ## What it is
@@ -8,17 +14,23 @@ Caret rendering: shape (bar / block / underline), blink behaviour, jump-glow ack
 ## Key concepts
 - **`CaretShape`** — `Bar | Block | Underline`. Renderer input; `chrome_caret::caret_rect_for_shape(..., bar_width_px)` computes the D2D rect.
 - **`ViewOptions` (per pane)** — carries the renderer-facing caret config: `caret_style`, `caret_blink_ms`, `caret_width_px`, `caret_blink_on_typing_pause`, `caret_typing_pause_ms`, `caret_color`, `caret_secondary_color`, `caret_tween_enabled`, `caret_tween_threshold_rows`, `caret_tween_duration_ms`.
-- **Blink state on `Window`** — `caret_blink_visible`, `caret_blink_active`, `last_input_tick`. Driven by a `WM_TIMER` (CARET_BLINK_TIMER_ID) on the blink period.
-- **`intended_columns: Vec<u32>` + `intended_display_columns: Vec<u32>` + `intended_columns_for: Vec<Position>`** — Phase B2 sticky column for vertical motion. Two parallel sticky columns (source-byte for the non-wrap path, display-byte within the head's wrapped row for the soft-wrap path) keyed by the same fingerprint. Any horizontal motion / edit perturbs the fingerprint and the next vertical step reseeds both from live values; sequential up/down keeps the same column even through narrower rows (wrapped or not).
-- **`JumpGlow { line, started_ms }`** — Phase B6 acknowledgement glow on long caret jumps. Fade follows the shared 180 ms ease-out-cubic motion contract.
-- **`CaretTween { from_line, to_line, started_ms, duration_ms }`** — Phase B7 motion tween over the shared 160 ms ease-out-cubic structural duration.
+- **Blink state on `EditorSurface`** — `caret_blink_visible`, `caret_blink_active`, `last_input_tick`. The desktop adapter drives it with a `WM_TIMER` (`CARET_BLINK_TIMER_ID`) on the blink period.
+- **`EditorSurface::selection`** — owns sticky vertical-motion columns and the
+  per-buffer last-edit ring. `intended_columns`, `intended_display_columns`, and
+  `intended_columns_for` form the motion-memory triple; engine snapshots remain
+  authoritative for live selections. Two parallel sticky columns (source-byte
+  for the non-wrap path, display-byte within the head's wrapped row for the
+  soft-wrap path) share one head fingerprint. Any horizontal motion/edit
+  perturbs the fingerprint; the next vertical step reseeds both.
+- **`JumpGlow { line, started_ms }`** — `EditorSurface`-owned acknowledgement glow on long caret jumps. Fade follows the shared 180 ms ease-out-cubic motion contract.
+- **`CaretTween { from_line, to_line, started_ms, duration_ms }`** — `EditorSurface`-owned motion tween over the shared 160 ms ease-out-cubic structural duration.
 
 ## Operations
 
 ### Screen-y anchor across reflow (δ.3)
 The caret's display-line screen y is preserved across every reflow source — font scale, font family, soft-wrap toggle, viewport width/height changes, pane geometry, distraction-free toggle. The contract is documented in `.docs/design/principles.md` §"Layout shifts preserve caret-line screen y"; the audit + remediation history is at `.docs/development/archive/audit_caret_anchor.md`.
 
-Implementation: `crates/ui/src/window_caret_anchor.rs::Window::with_caret_line_anchored<F, R>(f: F) -> R`. Wraps any closure that mutates view geometry; captures the caret's `(source-position, display-line screen y)` pair before, recomputes the caret's display-line index under the post-reflow `FrameDisplay`, and adjusts `view.scroll_y_dip` so the caret line lands at the snapshotted y. Pure math factored as `anchored_scroll(..)` with unit-test coverage.
+Implementation: `crates/ui/src/window_caret_anchor.rs::Window::with_caret_line_anchored<F, R>(f: F) -> R`. Wraps any closure that mutates view geometry; captures the caret's `(source-position, display-line screen y)` pair before, recomputes the caret's display-line index under the post-reflow `FrameDisplay`, and adjusts `EditorSurface::view.scroll_y_dip` so the caret line lands at the snapshotted y. Pure math factored as `anchored_scroll(..)` with unit-test coverage.
 
 Single funnel: `window_panes.rs::refresh_focused_viewport` is wrapped, so every caller (WM_SIZE, pane resize, sidebar toggle, minimap appearance, distraction-free) inherits the anchor. Font-state callers wrap directly because the mutation happens before `invalidate_font_state` is invoked.
 
@@ -26,7 +38,7 @@ Future reflow-causing call sites must route through `with_caret_line_anchored`. 
 
 **Live drag-resize exception.** Inside a Win32 modal sizing loop (`WM_ENTERSIZEMOVE` → `WM_EXITSIZEMOVE`), `refresh_client_size` takes a cheap unanchored path (`refresh_focused_viewport_unanchored`) on every per-tick `WM_SIZE`. The per-tick anchor build runs a full `FrameDisplay` projection and dominates resize CPU. A single anchor is captured at `WM_ENTERSIZEMOVE` (via `capture_caret_anchor`) and restored once at `WM_EXITSIZEMOVE` against the final projection (via `restore_caret_anchor`), so the screen-y contract still holds for the final frame the user actually settles on. Intermediate frames during the drag are explicitly *not* anchored — that's the entire point of the optimisation, and it matches the perceptual fact that the user's eye is tracking the resize handle, not the caret line. The path remains anchored for every non-live caller (font change, soft-wrap toggle, pane resize commands, sidebar toggles, distraction-free, etc.). State: `Window::{is_live_resizing, resize_anchor, resize_changed}`.
 
-**View-reset short-circuit.** `refresh_focused_viewport` skips `with_caret_line_anchored` whenever `view.viewport_*_dip == 0` — every caller that resets the per-pane `ViewState` (`switch_focus` no-saved-state branch, `open_new_tab`, `split`, `adopt_buffer_as_new_tab`, `reopen_closed_tab`, `apply_layout_shortcut`) leaves `scroll_y_dip = 0`, so the anchor's "preserve old screen y" semantic is inapplicable. Skipping avoids unnecessary row-index work at a new wrap and keeps clicks into never-painted panes or layout-shortcut keypresses on the unanchored reset path. Trace label `refresh_focused_viewport source=unanchored_view_reset` names the skip. Future reset-then-refresh callers automatically benefit because the guard is centralised in the helper. See `panes-tabs-windows.md` § "Focus-switch and layout-shortcut anchor short-circuit".
+**View-reset short-circuit.** `refresh_focused_viewport` skips `with_caret_line_anchored` whenever `EditorSurface::view.viewport_*_dip == 0` — every caller that resets the per-pane `ViewState` (`switch_focus` no-saved-state branch, `open_new_tab`, `split`, `adopt_buffer_as_new_tab`, `reopen_closed_tab`, `apply_layout_shortcut`) leaves `scroll_y_dip = 0`, so the anchor's "preserve old screen y" semantic is inapplicable. Skipping avoids unnecessary row-index work at a new wrap and keeps clicks into never-painted panes or layout-shortcut keypresses on the unanchored reset path. Trace label `refresh_focused_viewport source=unanchored_view_reset` names the skip. Future reset-then-refresh callers automatically benefit because the guard is centralised in the helper. See `panes-tabs-windows.md` § "Focus-switch and layout-shortcut anchor short-circuit".
 
 ### Sticky vertical column (B2)
 `Window::move_line_selection(delta, extend)`:
@@ -49,7 +61,7 @@ falls back to `resolve_caret_display_line` only when the cache estimate is
 unsafe.
 
 EOF appends on documents that appear soft-wrapped arm the same
-`Window::pending_doc_end_scroll` paint-side snap used by document-end
+`EditorSurface::pending_doc_end_scroll` paint-side snap used by document-end
 commands. When the previous painted frame proves the edit appended a final
 source line, the UI thread also applies a monotonic one-display-row minimum
 reveal before arming the snap. This prevents a provisional paint row count
@@ -107,7 +119,7 @@ elapsed_ms_since_start=<u32>`.
 Horizontal autoscroll is intentionally out of scope today.
 
 ### Edit pulse (α.1)
-- `EditPulse { first_line, last_line, started_ms, duration_ms, kind }` lives in `crates/ui/src/edit_pulse.rs`. One `Option<EditPulse>` slot on `Window` — most recent wins, same shape as jump-glow.
+- `EditPulse { first_line, last_line, started_ms, duration_ms, kind }` lives in `crates/ui/src/edit_pulse.rs`. One `Option<EditPulse>` slot on `EditorSurface` — most recent wins, same shape as jump-glow.
 - Three kinds share the mechanism:
   - **`EditRegion`** — paste, duplicate-line, move-line, sort/reverse/unique, surround, transpose, markdown emphasis/heading/section/list, and every other structural `SelectionEdit`. 120 ms. Fired from `selection_dispatch::Window::dispatch_selection_edit` (via `is_structural_edit`) and `window_clipboard::{paste_clipboard_impl, paste_from_history_impl}` (paste flows through `SelectionEdit::InsertText` so it arms explicitly).
   - **`UndoTarget`** — fired from `window_commanding::{undo, redo, redo_alternate_branch, undo_tree_pick}` against the post-undo selection's row range. Same 120 ms window.

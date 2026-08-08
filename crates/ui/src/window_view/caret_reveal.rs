@@ -5,8 +5,8 @@
 //! cap; the scroll/zoom/soft-wrap command implementations stay there.
 //!
 //! Thread ownership: UI-thread-only. These methods read the editor
-//! snapshot, the projection caches, and `self.view`, and mutate
-//! `self.view.scroll_y_dip` plus the geometry-anchor hysteresis
+//! snapshot, the projection caches, and `self.surface.view`, and mutate
+//! `self.surface.view.scroll_y_dip` plus the geometry-anchor hysteresis
 //! hysteresis flag (UI-thread-owned).
 
 use continuity_decorate::Decorations;
@@ -106,8 +106,9 @@ impl Window {
     /// line, or its line was scrolled off screen) fails this predicate and
     /// keeps the proven pre-paint reveal path.
     fn should_defer_reveal_to_anchor(&self, caret_source_line: usize) -> bool {
-        self.geometry_anchor.caret_was_on_screen_prior_frame
+        self.surface.geometry_anchor.caret_was_on_screen_prior_frame
             && self
+                .surface
                 .geometry_anchor
                 .previous_paint_caret_line_anchor
                 .is_some_and(|(line, _)| line as usize == caret_source_line)
@@ -146,7 +147,9 @@ impl Window {
             metrics.char_width_dip,
         );
 
-        if let Some((cached_query, frame)) = self.last_painted_frame_display.as_ref() {
+        if let Some((cached_query, frame)) =
+            self.surface.projection.last_painted_frame_display.as_ref()
+        {
             if cached_query.is_compatible_for_hit_test(&query) {
                 if let Some(estimate) = estimate_from_frame(
                     frame,
@@ -160,7 +163,13 @@ impl Window {
             }
         }
 
-        if let Some(entry) = self.mouse_hit_test_frame_cache.borrow().as_ref() {
+        if let Some(entry) = self
+            .surface
+            .projection
+            .mouse_hit_test_frame_cache
+            .borrow()
+            .as_ref()
+        {
             if entry.query().is_compatible_for_hit_test(&query) {
                 if let Some(estimate) = estimate_from_frame(
                     entry.frame_display(),
@@ -175,6 +184,8 @@ impl Window {
         }
 
         if let Some(promoted) = self
+            .surface
+            .projection
             .spectator_frame_cache
             .borrow()
             .lookup_for_focused_paint(self.tree.focused, &query)
@@ -241,12 +252,12 @@ impl Window {
             if caret_at_doc_end {
                 let content_h = self.estimated_content_height();
                 if is_beyond_eof_reveal_inset(
-                    self.view.scroll_y_dip,
+                    self.surface.view.scroll_y_dip,
                     content_h,
-                    self.view.viewport_height_dip,
+                    self.surface.view.viewport_height_dip,
                 ) {
                     // EOF caret parked in the overscroll zone is on screen.
-                    self.geometry_anchor.caret_was_on_screen_prior_frame = true;
+                    self.surface.geometry_anchor.caret_was_on_screen_prior_frame = true;
                     return;
                 }
             }
@@ -261,7 +272,9 @@ impl Window {
                 (self.estimated_content_height() / line_height).round() as usize;
             let doc_appears_wrapped = estimated_display_rows > total_source_lines;
             if caret_at_doc_end && doc_appears_wrapped {
-                if let Some((_, frame)) = self.last_painted_frame_display.as_ref() {
+                if let Some((_, frame)) =
+                    self.surface.projection.last_painted_frame_display.as_ref()
+                {
                     let frame_source_lines = frame.row_index().source_line_count() as usize;
                     let appended_final_source_line = frame_source_lines.saturating_add(1)
                         == total_source_lines
@@ -269,25 +282,25 @@ impl Window {
                     if appended_final_source_line {
                         if let Some((target, extent)) = compute_eof_append_minimum_reveal(
                             frame.display_line_count(),
-                            self.view.viewport_height_dip,
-                            self.view.scroll_y_dip,
+                            self.surface.view.viewport_height_dip,
+                            self.surface.view.scroll_y_dip,
                             line_height,
                         ) {
-                            self.view.jump_to(target, extent);
+                            self.surface.view.jump_to(target, extent);
                         }
                     }
                 }
-                self.pending_doc_end_scroll = true;
-                self.pending_doc_end_scroll_attempts = 0;
+                self.surface.pending_doc_end_scroll = true;
+                self.surface.pending_doc_end_scroll_attempts = 0;
                 // The doc-end snap converges the caret to the bottom row.
-                self.geometry_anchor.caret_was_on_screen_prior_frame = true;
+                self.surface.geometry_anchor.caret_was_on_screen_prior_frame = true;
                 return;
             }
         }
         // Request a paint-time visibility floor against the resolved frame.
         // The authoritative "is the caret actually on screen" decision is
         // made in `apply_geometry_anchor` using the frame that will be drawn.
-        self.geometry_anchor.pending_caret_reveal = true;
+        self.surface.geometry_anchor.pending_caret_reveal = true;
         // Typing on a visible line: skip the pre-paint scroll entirely and
         // let the anchor hold the line + clamp it visible. A pre-paint
         // estimate scroll here races the resolved-frame geometry and the
@@ -295,7 +308,7 @@ impl Window {
         // the "it warps me to the top while typing" bug. The clamp covers
         // both scroll directions, so deferring never strands the caret.
         if self.should_defer_reveal_to_anchor(caret_source_line) {
-            self.geometry_anchor.caret_was_on_screen_prior_frame = true;
+            self.surface.geometry_anchor.caret_was_on_screen_prior_frame = true;
             return;
         }
         let revision = snap.rope_snapshot().revision().0;
@@ -310,7 +323,7 @@ impl Window {
             total_source_lines,
         ) {
             let source_floor_is_safe =
-                is_source_floor_visibility_safe(&estimate, &self.view, line_height);
+                is_source_floor_visibility_safe(&estimate, &self.surface.view, line_height);
             if estimate.is_projection_backed || source_floor_is_safe {
                 self.apply_caret_visibility_estimate(
                     estimate,
@@ -332,7 +345,8 @@ impl Window {
         // index); it forces one viewport-bounded build of the caret
         // region (O(visible+overscan)) before giving up.
         let exact = self.try_resolve_caret_display_row_exact(sel.head);
-        let was_on_screen_prior_frame = self.geometry_anchor.caret_was_on_screen_prior_frame;
+        let was_on_screen_prior_frame =
+            self.surface.geometry_anchor.caret_was_on_screen_prior_frame;
         let Some(caret_display_line) = exact else {
             // We have only an estimate. Do NOT scroll on it. If the caret
             // was already on screen last frame, hold the viewport
@@ -356,15 +370,15 @@ impl Window {
             }
             // Conservatively assume on-screen so a transient estimate miss
             // does not later license an estimate-driven jump.
-            self.geometry_anchor.caret_was_on_screen_prior_frame = true;
+            self.surface.geometry_anchor.caret_was_on_screen_prior_frame = true;
             return;
         };
 
         let display_row = caret_display_line.display_row as f32;
         let line_top = display_row * line_height;
         let line_bottom = line_top + line_height;
-        let viewport_top = self.view.scroll_y_dip;
-        let viewport_bot = viewport_top + self.view.viewport_height_dip;
+        let viewport_top = self.surface.view.scroll_y_dip;
+        let viewport_bot = viewport_top + self.surface.view.viewport_height_dip;
         let reveal_bottom = line_bottom
             + Self::bottom_padding_for_display_row(
                 display_row,
@@ -381,11 +395,11 @@ impl Window {
         // to the paint anchor; this path is a genuine reveal of a moved or
         // off-screen caret line.)
         let action = if line_top < viewport_top {
-            self.view.jump_to(line_top, content_h);
+            self.surface.view.jump_to(line_top, content_h);
             "scroll_up"
         } else if reveal_bottom > viewport_bot {
-            let target = reveal_bottom - self.view.viewport_height_dip;
-            self.view.jump_to(target, content_h);
+            let target = reveal_bottom - self.surface.view.viewport_height_dip;
+            self.surface.view.jump_to(target, content_h);
             "scroll_down"
         } else {
             "visible"
@@ -403,7 +417,7 @@ impl Window {
         // The caret now sits inside the viewport (either it already did or
         // we just scrolled it there), so the next frame may rely on the
         // hysteresis hold.
-        self.geometry_anchor.caret_was_on_screen_prior_frame = true;
+        self.surface.geometry_anchor.caret_was_on_screen_prior_frame = true;
     }
 
     fn apply_caret_visibility_estimate(
@@ -416,8 +430,8 @@ impl Window {
         let display_row = estimate.display_row as f32;
         let line_top = display_row * line_height;
         let line_bottom = line_top + line_height;
-        let viewport_top = self.view.scroll_y_dip;
-        let viewport_bot = viewport_top + self.view.viewport_height_dip;
+        let viewport_top = self.surface.view.scroll_y_dip;
+        let viewport_bot = viewport_top + self.surface.view.viewport_height_dip;
         let reveal_bottom = line_bottom
             + Self::bottom_padding_for_display_row(display_row, estimate.total_display_rows);
         let content_h = self
@@ -429,14 +443,14 @@ impl Window {
             // floor) under-reports the caret's display row on a wrapped
             // buffer; don't scroll up toward an unmeasured row.
             if estimate.is_projection_backed {
-                self.view.jump_to(line_top, content_h);
+                self.surface.view.jump_to(line_top, content_h);
                 "scroll_up"
             } else {
                 "skip_low_confidence_up"
             }
         } else if reveal_bottom > viewport_bot {
-            let target = reveal_bottom - self.view.viewport_height_dip;
-            self.view.jump_to(target, content_h);
+            let target = reveal_bottom - self.surface.view.viewport_height_dip;
+            self.surface.view.jump_to(target, content_h);
             "scroll_down"
         } else {
             "visible"
@@ -459,7 +473,7 @@ impl Window {
         // The fast estimate path either revealed the caret or left it
         // inside the viewport; record on-screen so the hysteresis hold in
         // the measured path can trust the prior frame.
-        self.geometry_anchor.caret_was_on_screen_prior_frame = true;
+        self.surface.geometry_anchor.caret_was_on_screen_prior_frame = true;
     }
 
     /// Scroll so the primary caret's display row is roughly vertically
@@ -473,12 +487,12 @@ impl Window {
         let line_height = self.effective_line_height();
         let display_row = caret_display_line.display_row as f32;
         let line_top = display_row * line_height;
-        let viewport_h = self.view.viewport_height_dip;
+        let viewport_h = self.surface.view.viewport_height_dip;
         let target = (line_top - (viewport_h - line_height) * 0.5).max(0.0);
         let content_h = self
             .content_height_covering(display_row)
             .max(caret_display_line.total_display_rows.max(1) as f32 * line_height);
-        self.view.jump_to(target, content_h);
+        self.surface.view.jump_to(target, content_h);
     }
 }
 

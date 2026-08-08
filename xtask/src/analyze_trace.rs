@@ -207,7 +207,7 @@ fn running_summary_section(rows: &[TraceRow]) -> String {
     s.push_str("| label | n | p50 µs | p95 µs | p99 µs | max µs | stalls | stalls100 |\n");
     s.push_str("|---|---:|---:|---:|---:|---:|---:|---:|\n");
     let mut sorted: Vec<(&String, &&TraceRow)> = latest.iter().collect();
-    sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
+    sorted.sort_by_key(|(label, _)| *label);
     for (lbl, row) in sorted {
         let n = field(&row.details, "n").unwrap_or("0");
         let p50 = field(&row.details, "p50_us").unwrap_or("0");
@@ -259,7 +259,7 @@ fn top_slowest_section(rows: &[&TraceRow], k: usize) -> String {
         .filter(|r| !matches!(r.kind.as_str(), "stall" | "stall100"))
         .filter(|r| r.duration_us > 0)
         .collect();
-    by_dur.sort_by(|a, b| b.duration_us.cmp(&a.duration_us));
+    by_dur.sort_by_key(|entry| std::cmp::Reverse(entry.duration_us));
     let mut s = format!("## Top {k} slowest events\n\n");
     if by_dur.is_empty() {
         s.push_str("(no events with non-zero duration)\n\n");
@@ -314,7 +314,7 @@ fn cold_paint_section(rows: &[&TraceRow]) -> String {
     if !line_tally.is_empty() {
         s.push_str("Most-frequent slow source lines:\n\n");
         let mut sorted: Vec<(u32, u64)> = line_tally.into_iter().collect();
-        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted.sort_by_key(|entry| std::cmp::Reverse(entry.1));
         s.push_str("| line | appearances in slowest-N |\n");
         s.push_str("|---:|---:|\n");
         for (idx, count) in sorted.iter().take(10) {
@@ -350,7 +350,7 @@ fn edit_seq_section(rows: &[TraceRow], filters: &Filters) -> String {
         s.push_str("| edit_seq | rows | labels |\n");
         s.push_str("|---:|---:|---|\n");
         let mut sorted: Vec<(u64, Vec<&TraceRow>)> = by_seq.into_iter().collect();
-        sorted.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+        sorted.sort_by_key(|entry| std::cmp::Reverse(entry.1.len()));
         for (seq, rs) in sorted.iter().take(20) {
             let mut labels: Vec<&str> = rs.iter().map(|r| r.label.as_str()).collect();
             labels.sort();

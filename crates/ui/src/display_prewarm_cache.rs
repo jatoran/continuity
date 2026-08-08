@@ -146,7 +146,7 @@ impl PrewarmQuery {
     /// drift is acceptable — wrap row counts on every other source
     /// line are byte-for-byte identical and the next paint reseeds
     /// the cache with the post-move caret. See
-    /// [`crate::Window::last_painted_frame_display`].
+    /// `EditorSurface::projection.last_painted_frame_display`.
     #[must_use]
     pub(crate) fn is_compatible_for_motion(&self, other: &Self) -> bool {
         self.motion_compat_mismatch(other).is_none()
@@ -163,7 +163,7 @@ impl PrewarmQuery {
     }
 
     /// Caret bytes recorded for this query. Paint reads this off
-    /// [`crate::Window::last_painted_frame_display`] to detect
+    /// `EditorSurface::projection.last_painted_frame_display` to detect
     /// selection-only drift — when the rope/decorations/wrap/font
     /// match but the caret moved between paints, the source lines
     /// containing the old and new carets must refresh their markdown

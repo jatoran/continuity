@@ -11,9 +11,9 @@ name = "catppuccin_mocha"
 
 "panel.background"                  = "#181825"
 "panel.foreground"                  = "#bac2de"
-"panel.active_tab.background"       = "#26263c"
+"panel.active_tab.background"       = "#1e1e2e"
 "panel.active_tab.foreground"       = "#cdd6f4"
-"panel.inactive_tab.background"     = "#13131f"
+"panel.inactive_tab.background"     = "#26263c"
 "panel.inactive_tab.foreground"     = "#6c7086"
 
 "pane.border"                       = "#313244"

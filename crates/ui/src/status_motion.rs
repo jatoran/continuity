@@ -36,6 +36,13 @@ fn is_motion_eligible_kind(kind: StatusBarSegmentKind) -> bool {
         | StatusBarSegmentKind::Chip
         | StatusBarSegmentKind::NoticeChip
         | StatusBarSegmentKind::PersistQueueChip => true,
+        // Fixed vector buttons dim in place; duplicating and sliding their
+        // strokes reads as blur rather than acknowledgement motion.
+        StatusBarSegmentKind::VaultFiles
+        | StatusBarSegmentKind::VaultLauncher
+        | StatusBarSegmentKind::VaultMinimap
+        | StatusBarSegmentKind::VaultOutline
+        | StatusBarSegmentKind::VaultSettings => false,
     }
 }
 

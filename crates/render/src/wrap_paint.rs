@@ -15,10 +15,8 @@ use continuity_layout::LayoutCache;
 use continuity_text::{Selection, SelectionKind};
 use ropey::Rope;
 use windows::Foundation::Numerics::Matrix3x2;
-use windows::Win32::Graphics::Direct2D::Common::{D2D_POINT_2F, D2D_RECT_F};
-use windows::Win32::Graphics::Direct2D::{
-    ID2D1DeviceContext, ID2D1SolidColorBrush, D2D1_DRAW_TEXT_OPTIONS_NONE,
-};
+use windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F;
+use windows::Win32::Graphics::Direct2D::{ID2D1DeviceContext, ID2D1SolidColorBrush};
 use windows::Win32::Graphics::DirectWrite::{
     IDWriteFactory, IDWriteTextLayout, DWRITE_TEXT_METRICS,
 };
@@ -243,11 +241,11 @@ pub(crate) unsafe fn paint_display_lines(
             }
         }
 
-        ctx.DrawTextLayout(
-            D2D_POINT_2F { x: 0.0, y: 0.0 },
+        crate::row_text_paint::draw_text_layout_in_fixed_row(
+            ctx,
             entry.layout,
             brushes.fg,
-            D2D1_DRAW_TEXT_OPTIONS_NONE,
+            line_height,
         );
 
         crate::inline_color_paint::paint_inline_color_foregrounds_spec(

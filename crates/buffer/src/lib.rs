@@ -2,14 +2,15 @@
 //! Buffer state: a revisioned `Rope`, undo tree, decoration cache, and
 //! per-pane view state.
 //!
-//! All mutation of a [`Buffer`] is the responsibility of the `core` crate's
-//! editor thread (single-writer rule). Other threads receive [`RopeSnapshot`]s.
+//! All mutation of a [`Buffer`] is the responsibility of its caller-selected
+//! engine owner (single-writer rule). Other threads receive [`RopeSnapshot`]s.
 
 pub mod buffer;
 pub mod checksum;
 pub mod error;
 pub mod id;
 pub mod inverse_op;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod metadata;
 pub mod revision;
 pub(crate) mod selection_clamp;
@@ -24,6 +25,7 @@ pub use checksum::{
 pub use error::Error;
 pub use id::{BufferId, UndoGroupId, WindowId};
 pub use inverse_op::compute_inverse_op;
+#[cfg(not(target_arch = "wasm32"))]
 pub use metadata::FileAssociation;
 pub use revision::Revision;
 pub use snapshot::{RopeSnapshot, RopeSnapshotRegistry};

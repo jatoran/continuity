@@ -212,14 +212,18 @@ struct MemorySnapshot {
 }
 
 fn collect_snapshot(window: &Window) -> MemorySnapshot {
-    let layout_cache_entries = window.cache.len();
-    let layout_cache_capacity = window.cache.capacity();
-    let layout_cache_bytes = window.cache.byte_size_estimate();
-    let run_cache_bytes = window.walker_run_cache.byte_size_estimate();
-    let wrap_cache_bytes = window.walker_wrap_cache.byte_size_estimate();
-    let segment_cache_bytes = window.walker_segment_cache.byte_size_estimate();
-    let segment_cache_entries = window.walker_segment_cache.len();
-    let segment_counters = window.walker_segment_cache.counters();
+    let layout_cache_entries = window.surface.render.cache.len();
+    let layout_cache_capacity = window.surface.render.cache.capacity();
+    let layout_cache_bytes = window.surface.render.cache.byte_size_estimate();
+    let run_cache_bytes = window.surface.render.walker_run_cache.byte_size_estimate();
+    let wrap_cache_bytes = window.surface.render.walker_wrap_cache.byte_size_estimate();
+    let segment_cache_bytes = window
+        .surface
+        .render
+        .walker_segment_cache
+        .byte_size_estimate();
+    let segment_cache_entries = window.surface.render.walker_segment_cache.len();
+    let segment_counters = window.surface.render.walker_segment_cache.counters();
     let core_memory = window.editor.memory_stats();
     let decoration_cache_bytes = window.decoration_cache.byte_size_estimate();
     let decoration_cache_entries = window.decoration_cache.len();
@@ -231,6 +235,8 @@ fn collect_snapshot(window: &Window) -> MemorySnapshot {
         .unwrap_or(0);
     let tree_sitter_heap_bytes = continuity_decorate::tree_sitter_heap_bytes();
     let image_cache_bytes = window
+        .surface
+        .render
         .renderer
         .as_ref()
         .map(|r| r.image_cache_current_bytes())
@@ -243,6 +249,8 @@ fn collect_snapshot(window: &Window) -> MemorySnapshot {
     // deterministic from the back-buffer dimensions.
     let dwrite_owned_cache_bytes = 0usize;
     let (gpu_local_bytes, gpu_nonlocal_bytes, swapchain_bytes) = window
+        .surface
+        .render
         .renderer
         .as_ref()
         .map(|r| {
@@ -260,6 +268,8 @@ fn collect_snapshot(window: &Window) -> MemorySnapshot {
         .map(|c| c.unflushed_bytes())
         .unwrap_or(0);
     let (projection_queue_depth, projection_queue_capacity) = window
+        .surface
+        .projection
         .projection_worker
         .as_ref()
         .map(|w| (w.queue_depth(), w.queue_capacity()))

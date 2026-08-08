@@ -73,7 +73,12 @@ impl Window {
     ) -> StatusBarBuild {
         let mut segment_draws: Vec<StatusBarSegmentDraw> =
             Vec::with_capacity(self.view_options.status_bar_segments.len());
-        let idle_ms = unsafe { GetTickCount64() }.saturating_sub(self.last_input_tick);
+        segment_draws.push(build_vault_launcher_action());
+        if self.vault.is_active() {
+            segment_draws.push(build_vault_files_action(self.file_tree.is_visible()));
+            segment_draws.push(build_vault_settings_action());
+        }
+        let idle_ms = unsafe { GetTickCount64() }.saturating_sub(self.surface.last_input_tick);
         let count_mode = self.view_options.status_count_mode;
         // Refresh the rope-counts cache when the revision advances.
         // The cache is keyed by [`BufferId`] so a focus switch into a
@@ -109,7 +114,14 @@ impl Window {
             warn: rgba_from_color(theme.status_warn()),
             error: rgba_from_color(theme.status_error()),
         };
-        let mut chips = crate::window_status_chips::detect_chips(rope);
+        let mut chips = Vec::new();
+        if self.vault.is_active() {
+            chips.extend(build_vault_right_actions(
+                self.view_options.show_outline_sidebar,
+                self.view_options.minimap,
+            ));
+        }
+        chips.extend(crate::window_status_chips::detect_chips(rope));
         // Persist-queue chip sits before the notice-chip lane so a
         // transient save-confirm doesn't shove it around.
         if let Some(chip) = self.persist_queue_chip() {
@@ -127,4 +139,51 @@ impl Window {
             colors,
         }
     }
+}
+
+fn build_vault_launcher_action() -> StatusBarSegmentDraw {
+    StatusBarSegmentDraw {
+        text: String::new(),
+        kind: continuity_render::StatusBarSegmentKind::VaultLauncher,
+        hover: Some("Open vault launcher (Ctrl+K, V)".into()),
+        alpha: 1.0,
+    }
+}
+
+fn build_vault_files_action(is_visible: bool) -> StatusBarSegmentDraw {
+    StatusBarSegmentDraw {
+        text: String::new(),
+        kind: continuity_render::StatusBarSegmentKind::VaultFiles,
+        hover: Some("Collapse or expand the vault file tree".into()),
+        alpha: if is_visible { 1.0 } else { 0.55 },
+    }
+}
+
+fn build_vault_settings_action() -> StatusBarSegmentDraw {
+    StatusBarSegmentDraw {
+        text: String::new(),
+        kind: continuity_render::StatusBarSegmentKind::VaultSettings,
+        hover: Some("Open vault settings".into()),
+        alpha: 1.0,
+    }
+}
+
+fn build_vault_right_actions(
+    is_outline_visible: bool,
+    is_minimap_visible: bool,
+) -> [StatusBarSegmentDraw; 2] {
+    [
+        StatusBarSegmentDraw {
+            text: String::new(),
+            kind: continuity_render::StatusBarSegmentKind::VaultOutline,
+            hover: Some("Toggle outline".into()),
+            alpha: if is_outline_visible { 1.0 } else { 0.55 },
+        },
+        StatusBarSegmentDraw {
+            text: String::new(),
+            kind: continuity_render::StatusBarSegmentKind::VaultMinimap,
+            hover: Some("Toggle minimap".into()),
+            alpha: if is_minimap_visible { 1.0 } else { 0.55 },
+        },
+    ]
 }

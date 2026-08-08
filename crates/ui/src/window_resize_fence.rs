@@ -143,7 +143,9 @@ impl Window {
     }
 
     fn live_resize_renderer_target(&self) -> ClientSize {
-        self.renderer
+        self.surface
+            .render
+            .renderer
             .as_ref()
             .map(|renderer| {
                 let (width, height) = renderer.back_buffer_size();

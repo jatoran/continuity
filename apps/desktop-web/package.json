@@ -1,0 +1,41 @@
+{
+  "name": "@continuity-editor/desktop-web",
+  "productName": "Continuity Web",
+  "version": "0.1.0",
+  "description": "Cross-platform Continuity desktop application",
+  "author": "Continuity contributors",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/continuity-editor/continuity.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node --experimental-test-isolation=none --test tests/*.test.mjs",
+    "smoke": "electron . --smoke",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "make:release": "node scripts/release.mjs make",
+    "publish": "node scripts/release.mjs publish"
+  },
+  "dependencies": {
+    "@continuity-editor/editor": "file:../../packages/editor",
+    "electron-squirrel-startup": "1.0.1"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "7.11.2",
+    "@electron-forge/maker-deb": "7.11.2",
+    "@electron-forge/maker-dmg": "7.11.2",
+    "@electron-forge/maker-squirrel": "7.11.2",
+    "@electron-forge/maker-zip": "7.11.2",
+    "@electron-forge/publisher-github": "7.11.2",
+    "electron": "43.1.1",
+    "electron-winstaller": "5.4.4"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

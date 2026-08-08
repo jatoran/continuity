@@ -18,7 +18,7 @@ crossbeam-channel = { workspace = true }
 thiserror         = { workspace = true }
 
 [dev-dependencies]
-continuity-test-support = { workspace = true }
+continuity-test-support = { workspace = true, default-features = false }
 proptest                = { workspace = true }
 tempfile                = { workspace = true }
 ropey                   = { workspace = true }

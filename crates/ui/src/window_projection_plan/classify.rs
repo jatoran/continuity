@@ -186,7 +186,7 @@ pub(crate) struct ProjectionClassifyInputs<'a> {
     /// `Decorations::revision` label, so two paints can share the
     /// same `IndexStamps.decoration_revision` while their underlying
     /// parse content differs. The caller (paint) tracks the
-    /// worker's parse revision on `Window::last_painted_decoration_parse_revision`
+    /// worker's parse revision in the surface's projection state
     /// and sets this flag when it changes. Forces the covering-cache
     /// fast path to fail and routes through the
     /// `decoration_advanced` rebuild branch so the new styling lands.

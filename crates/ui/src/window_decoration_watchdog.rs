@@ -52,6 +52,8 @@ impl Window {
         let changed = self.drain_decoration_watchdog_events(self.now_ms());
         let decorations_updated = self.drain_decoration_results();
         let projection_ready = self
+            .surface
+            .projection
             .projection_worker
             .as_ref()
             .is_some_and(|worker| worker.has_unconsumed_result());

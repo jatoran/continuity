@@ -28,6 +28,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WNDCLASSW,
 };
 
+use crate::com::ComGuard;
+use crate::virtual_desktop::VirtualDesktopManager;
 use crate::Error;
 
 /// `COPYDATASTRUCT::dwData` tag identifying a continuity instance handoff.
@@ -310,26 +312,41 @@ pub fn send_to_instance_hub(
     Ok(sent.0 != 0 && ack == 1)
 }
 
-/// Bring this process's top-most visible window to the foreground
-/// (restoring it first when minimized). Returns `false` when the process
-/// has no visible top-level window.
-pub fn activate_first_visible_window_of_current_process() -> bool {
+/// Bring this process's top-most visible window on the current virtual
+/// desktop to the foreground (restoring it first when minimized). Returns
+/// `false` when the process has no eligible window or virtual-desktop
+/// detection is unavailable.
+pub fn activate_first_visible_window_of_current_process_on_current_desktop() -> bool {
     struct EnumTarget {
         pid: u32,
+        virtual_desktop_manager: *const VirtualDesktopManager,
         found_hwnd_raw: isize,
     }
     unsafe extern "system" fn enum_first_visible_for_pid(hwnd: HWND, lp: LPARAM) -> BOOL {
         let target = unsafe { &mut *(lp.0 as *mut EnumTarget) };
         let mut pid = 0u32;
         unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
-        if pid == target.pid && unsafe { IsWindowVisible(hwnd) }.as_bool() {
+        let virtual_desktop_manager = unsafe { &*target.virtual_desktop_manager };
+        if pid == target.pid
+            && unsafe { IsWindowVisible(hwnd) }.as_bool()
+            && virtual_desktop_manager.is_window_on_current_desktop(hwnd) == Some(true)
+        {
             target.found_hwnd_raw = hwnd.0 as isize;
             return BOOL(0); // stop enumerating — EnumWindows walks top-down in z-order
         }
         BOOL(1)
     }
+    let _com = match ComGuard::new() {
+        Ok(com) => com,
+        Err(_) => return false,
+    };
+    let virtual_desktop_manager = match VirtualDesktopManager::new() {
+        Ok(manager) => manager,
+        Err(_) => return false,
+    };
     let mut target = EnumTarget {
         pid: unsafe { GetCurrentProcessId() },
+        virtual_desktop_manager: std::ptr::addr_of!(virtual_desktop_manager),
         found_hwnd_raw: 0,
     };
     unsafe {

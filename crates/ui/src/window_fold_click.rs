@@ -51,7 +51,7 @@ impl Window {
         // and is a close approximation when wrap is on (the gutter
         // triangle today paints once per source line, not per wrap row).
         let y_in_body = yf - body.y;
-        let virtual_y = y_in_body + self.view.scroll_y_dip;
+        let virtual_y = y_in_body + self.surface.view.scroll_y_dip;
         if virtual_y < 0.0 {
             return false;
         }
@@ -116,6 +116,8 @@ impl Window {
         // the target; fall back to flat row math before the first paint.
         let display_row = self.display_row_for_client_y(y);
         let source_line = self
+            .surface
+            .projection
             .last_painted_frame_display
             .as_ref()
             .and_then(|(_, frame_display)| {
@@ -125,7 +127,7 @@ impl Window {
             })
             .map(|(line, _)| line.raw() as usize)
             .unwrap_or_else(|| {
-                let virtual_y = (yf - body.y) + self.view.scroll_y_dip;
+                let virtual_y = (yf - body.y) + self.surface.view.scroll_y_dip;
                 (virtual_y.max(0.0) / self.effective_line_height()).floor() as usize
             });
         let source_line = source_line.min(source_line_count.saturating_sub(1)) as u32;

@@ -29,6 +29,83 @@ pub(super) const ID_TABLE_DELETE_ROW: usize = 34;
 pub(super) const ID_TABLE_DELETE_COL: usize = 35;
 pub(super) const ID_TABLE_DELETE_TABLE: usize = 36;
 pub(super) const ID_TABLE_TOGGLE_WRAP: usize = 37;
+pub(super) const ID_VAULT_NEW_FILE: usize = 40;
+pub(super) const ID_VAULT_NEW_FOLDER: usize = 41;
+pub(super) const ID_VAULT_DELETE: usize = 42;
+pub(super) const ID_VAULT_OPEN_CONFIG: usize = 43;
+pub(super) const ID_VAULT_CREATE_SHORTCUT: usize = 44;
+pub(super) const ID_FILE_TREE_RENAME: usize = 45;
+
+pub(super) unsafe fn track_file_tree_entry_menu(
+    hwnd: HWND,
+    screen_x: i32,
+    screen_y: i32,
+    is_vault: bool,
+    can_rename: bool,
+) -> usize {
+    let menu = match CreatePopupMenu() {
+        Ok(menu) => menu,
+        Err(_) => return 0,
+    };
+    if can_rename {
+        let _ = AppendMenuW(
+            menu,
+            MF_STRING | MF_ENABLED,
+            ID_FILE_TREE_RENAME,
+            &HSTRING::from("Rename\tF2"),
+        );
+    }
+    if is_vault {
+        if can_rename {
+            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+        }
+        let _ = AppendMenuW(
+            menu,
+            MF_STRING | MF_ENABLED,
+            ID_VAULT_NEW_FILE,
+            &HSTRING::from("New Note"),
+        );
+        let _ = AppendMenuW(
+            menu,
+            MF_STRING | MF_ENABLED,
+            ID_VAULT_NEW_FOLDER,
+            &HSTRING::from("New Folder"),
+        );
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+        let _ = AppendMenuW(
+            menu,
+            MF_STRING | MF_ENABLED,
+            ID_VAULT_OPEN_CONFIG,
+            &HSTRING::from("Open Vault Settings"),
+        );
+        let _ = AppendMenuW(
+            menu,
+            MF_STRING | MF_ENABLED,
+            ID_VAULT_CREATE_SHORTCUT,
+            &HSTRING::from("Create Desktop Shortcut"),
+        );
+        if can_rename {
+            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+            let _ = AppendMenuW(
+                menu,
+                MF_STRING | MF_ENABLED,
+                ID_VAULT_DELETE,
+                &HSTRING::from("Move to Recycle Bin"),
+            );
+        }
+    }
+    let chosen = TrackPopupMenu(
+        menu,
+        TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD,
+        screen_x,
+        screen_y,
+        Some(0),
+        hwnd,
+        None,
+    );
+    let _ = DestroyMenu(menu);
+    chosen.0 as usize
+}
 
 pub(super) unsafe fn track_table_cell_menu(
     hwnd: HWND,

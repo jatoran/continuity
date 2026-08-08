@@ -46,4 +46,7 @@ pub enum Error {
     /// The current executable path had no parent directory.
     #[error("current executable has no parent directory")]
     CurrentExecutableMissingParent,
+    /// A startup option was missing a required value or was otherwise invalid.
+    #[error("invalid startup argument: {0}")]
+    InvalidStartupArgument(String),
 }

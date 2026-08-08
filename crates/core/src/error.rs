@@ -17,6 +17,14 @@ pub enum Error {
     #[error(transparent)]
     Text(#[from] continuity_text::Error),
 
+    /// An error from the synchronous storage-neutral engine.
+    #[error(transparent)]
+    Engine(continuity_engine::Error),
+
+    /// An error from the platform-neutral host operation envelope.
+    #[error(transparent)]
+    Host(continuity_host::Error),
+
     /// An error from the persistence layer.
     #[error(transparent)]
     Persist(#[from] continuity_persist::Error),
@@ -29,4 +37,23 @@ pub enum Error {
         /// Human-readable reason.
         reason: String,
     },
+}
+
+impl From<continuity_host::Error> for Error {
+    fn from(error: continuity_host::Error) -> Self {
+        match error {
+            continuity_host::Error::UnknownBuffer => Self::UnknownBuffer,
+            continuity_host::Error::Engine(engine) => Self::from(engine),
+            other => Self::Host(other),
+        }
+    }
+}
+
+impl From<continuity_engine::Error> for Error {
+    fn from(error: continuity_engine::Error) -> Self {
+        match error {
+            continuity_engine::Error::UnknownBuffer => Self::UnknownBuffer,
+            other => Self::Engine(other),
+        }
+    }
 }

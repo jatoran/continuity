@@ -32,9 +32,9 @@ impl Window {
             self.chord_hud_motion.clear();
             self.chrome_motion.clear();
             self.status_motion.evict_expired(u64::MAX);
-            self.jump_glow = None;
-            self.edit_pulse = None;
-            self.caret_tween = None;
+            self.surface.jump_glow = None;
+            self.surface.edit_pulse = None;
+            self.surface.caret_tween = None;
             self.stagger_scheduler.reset();
             self.stop_motion_timer();
             self.stop_scroll_anim(self.hwnd);
@@ -137,7 +137,7 @@ impl Window {
 
     /// Build the destination-row glow payload for this paint frame.
     pub(crate) fn jump_glow_draw(&self, now_ms: u64) -> Option<JumpGlowDraw> {
-        let glow = self.jump_glow?;
+        let glow = self.surface.jump_glow?;
         let alpha =
             crate::jump_glow::fade_alpha(glow, now_ms, u64::from(crate::motion::ACK_MOTION_MS))?;
         Some(JumpGlowDraw {
@@ -192,9 +192,9 @@ impl Window {
             || self.chord_hud_motion.is_active(now_ms)
             || self.chrome_motion.is_active(now_ms)
             || self.status_motion.active_len(now_ms) > 0
-            || self.jump_glow.is_some()
-            || self.edit_pulse.is_some()
-            || self.caret_tween.is_some()
+            || self.surface.jump_glow.is_some()
+            || self.surface.edit_pulse.is_some()
+            || self.surface.caret_tween.is_some()
             || !self.status_notices.is_empty()
             || matches!(self.chord_hud, crate::chord_hud::HudState::Pending { .. })
     }
@@ -203,7 +203,8 @@ impl Window {
         if self.overlays.is_active() {
             format!("overlay:{:?}", self.overlays.kind())
         } else if self
-            .mouse_state
+            .surface
+            .pointer
             .footnote_hover
             .as_ref()
             .is_some_and(|hover| hover.ready)

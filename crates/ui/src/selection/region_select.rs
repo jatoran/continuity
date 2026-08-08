@@ -36,6 +36,55 @@ impl Window {
         })
     }
 
+    /// Preserve the selected word as the granularity anchor for the active
+    /// double-click drag. A tiny pointer move inside the same word therefore
+    /// leaves the complete word selected; a real drag grows by whole words.
+    pub(crate) fn remember_word_drag_origin(&mut self, use_last_selection: bool) {
+        self.surface.pointer.word_drag_origin = self.current_snapshot().and_then(|snapshot| {
+            if use_last_selection {
+                snapshot.selections().last().copied()
+            } else {
+                snapshot.selections().first().copied()
+            }
+        });
+    }
+
+    pub(crate) fn extend_word_drag_at_pixel(
+        &mut self,
+        x: i32,
+        y: i32,
+        use_last_selection: bool,
+    ) -> bool {
+        let Some(origin) = self.surface.pointer.word_drag_origin else {
+            return false;
+        };
+        let Some(target) = self.client_to_buffer_position(x, y) else {
+            return false;
+        };
+        let Some(snapshot) = self.current_snapshot() else {
+            return false;
+        };
+        let rope = snapshot.rope_snapshot().rope();
+        let target_word = select::word_at(rope, target);
+        let next = extend_word_selection(origin, target_word, target);
+        let mut selections = snapshot.selections().to_vec();
+        let selection = if use_last_selection {
+            selections.last_mut()
+        } else {
+            selections.first_mut()
+        };
+        let Some(selection) = selection else {
+            return false;
+        };
+        if *selection == next {
+            return false;
+        }
+        *selection = next;
+        self.editor
+            .set_selections(self.buffer_id, selections)
+            .is_ok()
+    }
+
     pub(crate) fn select_line(&mut self) -> bool {
         self.map_selections(|rope, selections| {
             selections
@@ -86,6 +135,21 @@ impl Window {
     }
 }
 
+fn extend_word_selection(origin: Selection, target_word: Selection, target: Position) -> Selection {
+    let origin_range = origin.ordered_range();
+    let target_range = target_word.ordered_range();
+    let target_key = (target.line, target.byte_in_line);
+    let origin_start_key = (origin_range.start.line, origin_range.start.byte_in_line);
+    let origin_end_key = (origin_range.end.line, origin_range.end.byte_in_line);
+    if target_key < origin_start_key {
+        Selection::new(origin_range.end, target_range.start, SelectionKind::Caret)
+    } else if target_key > origin_end_key {
+        Selection::new(origin_range.start, target_range.end, SelectionKind::Caret)
+    } else {
+        origin
+    }
+}
+
 fn markdown_expand_smart(rope: &Rope, selection: Selection) -> Option<Selection> {
     let text = rope.to_string();
     let mut parser = MarkdownParser::new().ok()?;
@@ -107,4 +171,44 @@ fn markdown_expand_smart(rope: &Rope, selection: Selection) -> Option<Selection>
             let head = Position::from_byte_offset(rope, span.end_byte).unwrap_or(anchor);
             Selection::new(anchor, head, SelectionKind::Caret)
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extend_word_selection;
+    use continuity_text::{Position, Selection, SelectionKind};
+
+    fn selection(start: u32, end: u32) -> Selection {
+        Selection::new(
+            Position::new(0, start),
+            Position::new(0, end),
+            SelectionKind::Caret,
+        )
+    }
+
+    #[test]
+    fn pointer_motion_inside_double_clicked_word_preserves_whole_word() {
+        let origin = selection(4, 10);
+        assert_eq!(
+            extend_word_selection(origin, origin, Position::new(0, 7)),
+            origin
+        );
+    }
+
+    #[test]
+    fn double_click_drag_extends_by_complete_word_boundaries() {
+        let origin = selection(4, 10);
+        assert_eq!(
+            extend_word_selection(origin, selection(12, 17), Position::new(0, 14)),
+            selection(4, 17)
+        );
+        assert_eq!(
+            extend_word_selection(origin, selection(0, 3), Position::new(0, 1)),
+            Selection::new(
+                Position::new(0, 10),
+                Position::new(0, 0),
+                SelectionKind::Caret,
+            )
+        );
+    }
 }

@@ -48,21 +48,21 @@ impl Window {
     /// Cancel any running scroll animation.
     pub(crate) fn stop_scroll_anim(&mut self, hwnd: HWND) {
         self.cancel_scroll_inertia();
-        if self.scroll_anim_active {
+        if self.surface.scroll_anim_active {
             unsafe {
                 let _ = KillTimer(Some(hwnd), SCROLL_ANIM_TIMER_ID);
             }
-            self.scroll_anim_active = false;
+            self.surface.scroll_anim_active = false;
         }
     }
 
     /// Start the smooth-scroll timer if needed.
     pub(crate) fn start_scroll_anim(&mut self, hwnd: HWND) {
-        if !self.scroll_anim_active {
+        if !self.surface.scroll_anim_active {
             unsafe {
                 let _ = SetTimer(Some(hwnd), SCROLL_ANIM_TIMER_ID, SCROLL_ANIM_TIMER_MS, None);
             }
-            self.scroll_anim_active = true;
+            self.surface.scroll_anim_active = true;
         }
     }
 
@@ -70,24 +70,24 @@ impl Window {
     pub(crate) fn start_caret_blink(&mut self, hwnd: HWND) {
         let period = self.view_options.caret_blink_ms;
         if period == 0 {
-            self.caret_blink_visible = true;
+            self.surface.caret_blink_visible = true;
             return;
         }
-        if !self.caret_blink_active {
+        if !self.surface.caret_blink_active {
             unsafe {
                 let _ = SetTimer(Some(hwnd), CARET_BLINK_TIMER_ID, period / 2, None);
             }
-            self.caret_blink_active = true;
+            self.surface.caret_blink_active = true;
         }
     }
 
     /// Mark the user as having just produced input so the caret stays
     /// visible while typing.
     pub(crate) fn note_input_now(&mut self) {
-        self.last_input_tick = unsafe { GetTickCount64() };
+        self.surface.last_input_tick = unsafe { GetTickCount64() };
         self.cancel_active_display_prewarm();
-        if !self.caret_blink_visible {
-            self.caret_blink_visible = true;
+        if !self.surface.caret_blink_visible {
+            self.surface.caret_blink_visible = true;
             self.invalidate(self.hwnd);
         }
     }
@@ -102,27 +102,27 @@ impl Window {
             self.view_options.caret_blink_on_typing_pause,
             self.view_options.caret_typing_pause_ms,
             self.view_options.caret_long_idle_ms,
-            self.last_input_tick,
+            self.surface.last_input_tick,
             now,
         ) {
-            if !self.caret_blink_visible {
-                self.caret_blink_visible = true;
+            if !self.surface.caret_blink_visible {
+                self.surface.caret_blink_visible = true;
                 self.invalidate_with_reason(hwnd, "caret_blink");
             }
             return;
         }
-        self.caret_blink_visible = !self.caret_blink_visible;
+        self.surface.caret_blink_visible = !self.surface.caret_blink_visible;
         self.invalidate_with_reason(hwnd, "caret_blink");
     }
 
     pub(crate) fn on_scroll_anim_tick(&mut self, hwnd: HWND) {
         let now_ms = unsafe { GetTickCount64() };
         let inertia_tick = self.tick_scroll_inertia();
-        let moved = inertia_tick.moved || self.view.tick(now_ms);
+        let moved = inertia_tick.moved || self.surface.view.tick(now_ms);
         if moved {
             self.invalidate_with_reason(hwnd, "scroll_anim");
         }
-        if !self.view.animating() && !self.is_scroll_inertia_active() {
+        if !self.surface.view.animating() && !self.is_scroll_inertia_active() {
             self.stop_scroll_anim(hwnd);
         }
     }
@@ -181,7 +181,7 @@ impl Window {
             // and writes `[editor].text_scale` back, fanning out to all
             // windows. The settings write-back is idempotent, so a notch
             // that lands on the clamp boundary does not thrash the file.
-            let new_scale = (self.view.font_size_scale * factor).clamp(MIN_ZOOM, MAX_ZOOM);
+            let new_scale = (self.surface.view.font_size_scale * factor).clamp(MIN_ZOOM, MAX_ZOOM);
             self.apply_global_text_scale(new_scale);
             return true;
         }
@@ -206,7 +206,7 @@ impl Window {
         self.mouse_state.dragging
             || self.mouse_state.tab_drag.is_some()
             || self.mouse_state.splitter_drag.is_some()
-            || self.mouse_state.scrollbar_drag.is_some()
+            || self.surface.pointer.scrollbar_drag.is_some()
     }
 
     /// Estimated total content height in DIPs. Uses the last painted
@@ -215,7 +215,7 @@ impl Window {
     /// than source lines or scrollbar estimates.
     pub(crate) fn estimated_content_height(&self) -> f32 {
         let line_height = self.effective_line_height();
-        if let Some((_, fd)) = self.last_painted_frame_display.as_ref() {
+        if let Some((_, fd)) = self.surface.projection.last_painted_frame_display.as_ref() {
             let display_rows = fd.display_line_count().max(1) as f32;
             return display_rows * line_height;
         }

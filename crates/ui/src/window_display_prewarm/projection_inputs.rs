@@ -44,7 +44,7 @@ impl Window {
         source_line_count: usize,
     ) -> DisplayProjectionMetrics {
         let scaled_font_size = self.scaled_font_size();
-        let wrap_width_dip = if self.view.soft_wrap {
+        let wrap_width_dip = if self.surface.view.soft_wrap {
             let distraction_free = self.view_options.pane_modes.distraction_free;
             let distraction_free_max_width_dip = if distraction_free {
                 self.view_options.pane_modes.distraction_free_max_width as f32
@@ -54,7 +54,7 @@ impl Window {
                 0.0
             };
             let text_width = continuity_render::resolve_body_text_width_for_line_count_dip(
-                self.view.viewport_width_dip,
+                self.surface.view.viewport_width_dip,
                 scaled_font_size,
                 source_line_count,
                 self.view_options.line_numbers,

@@ -17,7 +17,7 @@ impl Window {
     pub(crate) fn capture_focused_pane_state(&self) -> PerPaneState {
         PerPaneState {
             buffer_id: self.buffer_id,
-            view: self.view.clone(),
+            view: self.surface.view.clone(),
             language: self.language,
             language_revision: self.language_revision,
             last_submitted_decoration_revision: self.last_submitted_decoration_revision,
@@ -27,7 +27,7 @@ impl Window {
     /// Load a saved pane state into the focused scalar mirror.
     pub(crate) fn apply_pane_state(&mut self, state: PerPaneState) {
         self.buffer_id = state.buffer_id;
-        self.view = state.view;
+        self.surface.view = state.view;
         self.language = state.language;
         self.language_revision = state.language_revision;
         self.last_submitted_decoration_revision = state.last_submitted_decoration_revision;
@@ -43,11 +43,11 @@ impl Window {
     /// already-zoomed window keeps the zoom. Zoom is global, sourced from
     /// `[editor].text_scale`; a per-pane reset would visibly diverge.
     pub(crate) fn apply_new_pane_state(&mut self, buffer_id: BufferId) {
-        let scale = self.view.font_size_scale;
+        let scale = self.surface.view.font_size_scale;
         self.buffer_id = buffer_id;
         let mut view = continuity_layout::ViewState::new();
         view.font_size_scale = scale;
-        self.view = view;
+        self.surface.view = view;
         self.language = Self::default_language();
         self.language_revision = None;
         self.last_submitted_decoration_revision = None;

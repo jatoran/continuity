@@ -1,13 +1,11 @@
 //! Per-pane runtime state owned by `ui::Window`.
 //!
-//! The focused pane's state is mirrored into the scalar `Window::view` /
-//! `Window::buffer_id` / `Window::language*` fields so that the bulk of the
-//! existing single-buffer code paths (mouse, decoration, paint, search) keep
-//! working without per-callsite refactors. Non-focused panes' state lives
-//! in [`Window::panes`] keyed by [`crate::pane_tree::PaneId`].
+//! The focused pane's state is mirrored into `EditorSurface::view` plus the
+//! `Window::buffer_id` / `Window::language*` fields. Non-focused panes' state
+//! lives in [`Window::panes`] keyed by [`crate::pane_tree::PaneId`].
 //!
-//! Single-writer rule: only the owning `Window`'s UI thread writes any
-//! `PerPaneState` instance.
+//! Single-writer rule: only the owning UI thread writes the focused surface
+//! view or any `PerPaneState` instance.
 
 use continuity_buffer::BufferId;
 use continuity_decorate::Language;

@@ -9,11 +9,6 @@
 use continuity_command::Error as CommandError; // alias: collides with crate::Error
 use continuity_decorate::{Decorations, InlineKind, MarkerKind};
 use windows::core::HSTRING;
-use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
-};
-use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
-use windows::Win32::System::Ole::CF_UNICODETEXT;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
@@ -67,40 +62,9 @@ impl Window {
         Ok(())
     }
 
-    /// Copy a UTF-16 string to the Win32 clipboard as `CF_UNICODETEXT`.
+    /// Copy text through the native clipboard adapter.
     pub(crate) fn put_clipboard_text(&self, text: &str) -> Result<(), CommandError> {
-        let mut wide: Vec<u16> = text.encode_utf16().collect();
-        wide.push(0); // NUL terminator required for CF_UNICODETEXT
-        let bytes = wide.len() * std::mem::size_of::<u16>();
-        unsafe {
-            if OpenClipboard(Some(self.hwnd())).is_err() {
-                return Err(CommandError::UnsupportedContext("OpenClipboard failed"));
-            }
-            let _ = EmptyClipboard();
-            let h = match GlobalAlloc(GMEM_MOVEABLE, bytes) {
-                Ok(h) => h,
-                Err(_) => {
-                    let _ = CloseClipboard();
-                    return Err(CommandError::UnsupportedContext("GlobalAlloc failed"));
-                }
-            };
-            let dst = GlobalLock(h) as *mut u16;
-            if dst.is_null() {
-                let _ = CloseClipboard();
-                return Err(CommandError::UnsupportedContext("GlobalLock failed"));
-            }
-            std::ptr::copy_nonoverlapping(wide.as_ptr(), dst, wide.len());
-            let _ = GlobalUnlock(h);
-            // Per Win32 docs the system takes ownership of `h` after
-            // SetClipboardData succeeds; on failure we'd need to free it,
-            // but GlobalAlloc(MOVEABLE) handles cleanup on app exit.
-            let _ = SetClipboardData(
-                CF_UNICODETEXT.0.into(),
-                Some(windows::Win32::Foundation::HANDLE(h.0)),
-            );
-            let _ = CloseClipboard();
-        }
-        Ok(())
+        self.request_host_clipboard_write(text)
     }
 
     /// Compute rendered (decoration-flattened) text for a byte range.

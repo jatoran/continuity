@@ -135,8 +135,8 @@ impl Window {
             let pane_rect = (
                 body_origin.0,
                 body_origin.1,
-                self.view.viewport_width_dip.max(1.0),
-                self.view.viewport_height_dip.max(1.0),
+                self.surface.view.viewport_width_dip.max(1.0),
+                self.surface.view.viewport_height_dip.max(1.0),
             );
             let layout = continuity_render::compute_outline_layout(
                 d,
@@ -164,12 +164,12 @@ impl Window {
         let pane_rect = (
             0.0,
             0.0,
-            self.view.viewport_width_dip.max(1.0),
-            self.view.viewport_height_dip.max(1.0),
+            self.surface.view.viewport_width_dip.max(1.0),
+            self.surface.view.viewport_height_dip.max(1.0),
         );
         self.view_options.minimap_layout = Some(continuity_render::compute_minimap_layout(
             pane_rect,
-            self.view.scroll_y_dip,
+            self.surface.view.scroll_y_dip,
             self.effective_line_height(),
             snap_rope.len_lines().max(1) as u64,
             self.estimated_content_height(),
@@ -282,7 +282,9 @@ impl Window {
             // cell text whose deep-clone otherwise dominates the
             // per-keystroke paint cost on large tables.
             let arc = std::sync::Arc::new(fresh);
-            self.last_focused_table_layouts
+            self.surface
+                .render
+                .last_focused_table_layouts
                 .borrow_mut()
                 .insert(self.buffer_id, std::sync::Arc::clone(&arc));
             return arc;
@@ -295,7 +297,9 @@ impl Window {
             // shrunk the rope). Drop the cache so the next paint
             // shows the post-delete state and not the deleted
             // table's chrome.
-            self.last_focused_table_layouts
+            self.surface
+                .render
+                .last_focused_table_layouts
                 .borrow_mut()
                 .remove(&self.buffer_id);
             return std::sync::Arc::new(Vec::new());
@@ -305,6 +309,8 @@ impl Window {
         // reuse it so chrome paints continuously instead of
         // flashing on/off per keystroke.
         if let Some(cached) = self
+            .surface
+            .render
             .last_focused_table_layouts
             .borrow()
             .get(&self.buffer_id)
@@ -320,7 +326,7 @@ impl Window {
 /// borrows the closure actually needs — `&self.decoration_cache` plus
 /// the three per-pane spectator vectors — so the result's lifetime
 /// pins to those fields and not the whole `Window`, leaving
-/// `&mut self.cache` free for the renderer dispatch below.
+/// `&mut self.surface.render.cache` free for the renderer dispatch below.
 pub(crate) fn build_pane_bodies<'a>(
     other_panes: &'a [NonFocusedPaneRender],
     decoration_cache: &'a DecorationCache,

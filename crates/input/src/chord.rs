@@ -14,13 +14,6 @@ use std::fmt;
 use std::str::FromStr;
 
 use crate::Error;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    VK_BACK, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1, VK_F24, VK_HOME, VK_INSERT, VK_LEFT,
-    VK_NEXT, VK_OEM_1, VK_OEM_2, VK_OEM_3, VK_OEM_4, VK_OEM_5, VK_OEM_6, VK_OEM_7, VK_OEM_COMMA,
-    VK_OEM_MINUS, VK_OEM_PERIOD, VK_OEM_PLUS, VK_PRIOR, VK_RETURN, VK_RIGHT, VK_SPACE, VK_TAB,
-    VK_UP,
-};
-
 /// Modifier-key bitset.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Modifiers {
@@ -54,60 +47,6 @@ impl KeyChord {
             modifiers,
             key: key.into().to_ascii_lowercase(),
         }
-    }
-
-    /// Construct a chord from a Win32 virtual-key code plus active modifiers.
-    ///
-    /// Returns `None` for keys that are not currently representable in the
-    /// keymap grammar (including modifier-only keys).
-    #[must_use]
-    pub fn from_vk_modifiers(vk: u16, modifiers: Modifiers) -> Option<Self> {
-        let key = key_name_from_vk(vk)?;
-        Some(Self::new(modifiers, key))
-    }
-}
-
-fn key_name_from_vk(vk: u16) -> Option<String> {
-    match vk {
-        0x30..=0x39 => Some(char::from_u32(u32::from(vk))?.to_string()),
-        0x41..=0x5a => Some(
-            char::from_u32(u32::from(vk))?
-                .to_ascii_lowercase()
-                .to_string(),
-        ),
-        VK_BACK => Some("backspace".into()),
-        VK_DELETE => Some("delete".into()),
-        VK_DOWN => Some("down".into()),
-        VK_END => Some("end".into()),
-        VK_ESCAPE => Some("escape".into()),
-        VK_HOME => Some("home".into()),
-        VK_INSERT => Some("insert".into()),
-        VK_LEFT => Some("left".into()),
-        VK_NEXT => Some("pagedown".into()),
-        VK_PRIOR => Some("pageup".into()),
-        VK_RETURN => Some("enter".into()),
-        VK_RIGHT => Some("right".into()),
-        VK_SPACE => Some("space".into()),
-        VK_TAB => Some("tab".into()),
-        VK_UP => Some("up".into()),
-        VK_F1..=VK_F24 => Some(format!("f{}", vk - VK_F1 + 1)),
-        // US-layout punctuation keys. Matches the unshifted label so
-        // chord strings written as `ctrl+/` / `ctrl+[` / etc.
-        // resolve correctly. Non-US layouts may produce different
-        // glyphs for these scan codes — we accept that today because
-        // the bundled keymap is US-only.
-        VK_OEM_1 => Some(";".into()),
-        VK_OEM_PLUS => Some("=".into()),
-        VK_OEM_COMMA => Some(",".into()),
-        VK_OEM_MINUS => Some("-".into()),
-        VK_OEM_PERIOD => Some(".".into()),
-        VK_OEM_2 => Some("/".into()),
-        VK_OEM_3 => Some("`".into()),
-        VK_OEM_4 => Some("[".into()),
-        VK_OEM_5 => Some("\\".into()),
-        VK_OEM_6 => Some("]".into()),
-        VK_OEM_7 => Some("'".into()),
-        _ => None,
     }
 }
 
@@ -222,26 +161,6 @@ mod tests {
     }
 
     #[test]
-    fn vk_to_key_handles_oem_punctuation() {
-        // §H3 bug: `ctrl+k ctrl+/` and friends didn't fire because
-        // `key_name_from_vk` only mapped letters / digits / arrows.
-        // VK_OEM_2 = 0xBF (`/`), VK_OEM_4 = 0xDB (`[`), VK_OEM_5 =
-        // 0xDC (`\`), VK_OEM_6 = 0xDD (`]`).
-        let slash =
-            KeyChord::from_vk_modifiers(0xBF, Modifiers::default()).expect("VK_OEM_2 mapped");
-        assert_eq!(slash.key, "/");
-        let lbracket =
-            KeyChord::from_vk_modifiers(0xDB, Modifiers::default()).expect("VK_OEM_4 mapped");
-        assert_eq!(lbracket.key, "[");
-        let backslash =
-            KeyChord::from_vk_modifiers(0xDC, Modifiers::default()).expect("VK_OEM_5 mapped");
-        assert_eq!(backslash.key, "\\");
-        let rbracket =
-            KeyChord::from_vk_modifiers(0xDD, Modifiers::default()).expect("VK_OEM_6 mapped");
-        assert_eq!(rbracket.key, "]");
-    }
-
-    #[test]
     fn rejects_modifiers_without_key() {
         assert!("ctrl+shift".parse::<KeyChord>().is_err());
     }
@@ -264,33 +183,5 @@ mod tests {
             let c2: KeyChord = s.parse().unwrap();
             assert_eq!(c, c2, "input: {input}, displayed: {s}");
         }
-    }
-
-    #[test]
-    fn maps_win32_virtual_keys() {
-        assert_eq!(
-            KeyChord::from_vk_modifiers(VK_LEFT, Modifiers::default())
-                .unwrap()
-                .to_string(),
-            "left"
-        );
-        assert_eq!(
-            KeyChord::from_vk_modifiers(
-                0x41,
-                Modifiers {
-                    ctrl: true,
-                    ..Modifiers::default()
-                },
-            )
-            .unwrap()
-            .to_string(),
-            "ctrl+a"
-        );
-        assert_eq!(
-            KeyChord::from_vk_modifiers(VK_F1 + 11, Modifiers::default())
-                .unwrap()
-                .to_string(),
-            "f12"
-        );
     }
 }

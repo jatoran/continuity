@@ -45,18 +45,27 @@ use continuity_keymap::Keymap;
 use continuity_persist::{BackupConfig, BackupScheduler, PersistClient, WindowRow};
 use continuity_ui::file_io::FileIoClient;
 use continuity_ui::{
-    LiveReload, RestoredState, Window, WindowCommands, WindowConfig, WindowControl,
+    DesktopShell, LiveReload, RestoredState, Window, WindowCommands, WindowConfig, WindowControl,
     WindowControlRx, WindowControlTx, WindowPersistence, WindowStateSnapshot,
 };
 use continuity_win::ComGuard;
 use crossbeam_channel::{select, unbounded, Receiver, Sender};
 
 /// Cross-thread events flowing into the registry's main loop.
-pub enum RegistryEvent {
+pub(crate) enum RegistryEvent {
     /// A UI thread is asking the registry to spawn another window. The
     /// registry handles the spawn on the main thread (the only one that
     /// owns the persist client + spawn machinery).
     Spawn(SpawnRequest),
+    /// A constructed HWND is ready for event-driven control-channel wakes.
+    WindowReady {
+        /// Window whose UI thread owns the handle.
+        window_id: WindowId,
+        /// Raw HWND value, transported as an integer across threads.
+        raw_window: usize,
+    },
+    /// Known-vault activation or live-window registration.
+    Vault(crate::registry_vaults::VaultRegistryEvent),
     /// A UI thread has finished its message pump. The registry archives
     /// the window to the closed-history stack and tombstones its row —
     /// for every graceful close, including the last window. A crash never
@@ -88,6 +97,9 @@ pub enum RegistryEvent {
         /// encoding notice from a synchronously-read forwarded open).
         /// Empty for ordinary in-process opens.
         recovery_notices: Vec<String>,
+        disposition: continuity_ui::window_config::FileOpenDisposition,
+        source_window_id: Option<WindowId>,
+        vault_root: Option<PathBuf>,
     },
 }
 
@@ -239,12 +251,21 @@ pub fn run(
                 Ok(RegistryEvent::Spawn(req)) => {
                     spawn_window_thread(&ctx, &mut state, req)?;
                 }
+                Ok(RegistryEvent::WindowReady { window_id, raw_window }) => {
+                    state.control_windows.insert(window_id, raw_window);
+                }
+                Ok(RegistryEvent::Vault(event)) => {
+                    crate::registry_vaults::handle_event(&ctx, &mut state, event)?;
+                }
                 Ok(RegistryEvent::OpenFileBuffer {
                     content,
                     file,
                     explicit_origin,
                     cascade_from,
                     recovery_notices,
+                    disposition,
+                    source_window_id,
+                    vault_root,
                 }) => {
                     crate::registry_open_file::handle_open_file_buffer(
                         &ctx,
@@ -255,6 +276,9 @@ pub fn run(
                             explicit_origin,
                             cascade_from,
                             recovery_notices,
+                            disposition,
+                            source_window_id,
+                            vault_root,
                         },
                     )?;
                 }
@@ -269,7 +293,9 @@ pub fn run(
                     // survive and that session *is* restored next launch.
                     if let Some(id) = window_id {
                         state.control_senders.remove(&id);
+                        state.control_windows.remove(&id);
                         state.buffer_home.retain(|_, owner| *owner != id);
+                        state.vault_home.remove(&id);
                         archive_closed_window(&ctx.persist, id);
                     }
                     state.live = state.live.saturating_sub(1);
@@ -333,12 +359,16 @@ pub(crate) struct LiveState {
     /// [`WindowControl::ConfigChanged`] events to live windows, and to
     /// route [`WindowControl::RevealBufferTab`] to a buffer's home window.
     pub(crate) control_senders: HashMap<WindowId, WindowControlTx>,
+    /// Raw live HWND for promptly waking a control receiver after send.
+    pub(crate) control_windows: HashMap<WindowId, usize>,
     /// Which live window currently owns (or last owned) each
     /// file-associated buffer. Lets a reopen of an already-loaded path
     /// reveal the existing tab in its window instead of spawning a
     /// duplicate. Entries pointing at a closed window are pruned on
     /// `Closed` and treated as "no home" (→ spawn) if encountered first.
     pub(crate) buffer_home: HashMap<BufferId, WindowId>,
+    /// Active canonical vault root for each live window.
+    pub(crate) vault_home: HashMap<WindowId, PathBuf>,
 }
 
 pub(crate) fn spawn_window_thread(
@@ -350,7 +380,7 @@ pub(crate) fn spawn_window_thread(
     // Stable id for this window — generated up front so we can wire the
     // control sender into LiveState before the thread starts.
     let window_id = req.restored.as_ref().map(|(id, _)| *id).unwrap_or_default();
-    seed_buffer_home(ctx, state, &req, window_id);
+    crate::registry_open_file::seed_buffer_home(ctx, state, &req, window_id);
     let (control_tx, control_rx) = unbounded::<WindowControl>();
     state.control_senders.insert(window_id, control_tx);
     state.live += 1;
@@ -369,37 +399,6 @@ pub(crate) fn spawn_window_thread(
         })
         .map_err(Error::SpawnThread)?;
     Ok(())
-}
-
-/// Record this spawning window as the home of every file-associated
-/// buffer it will show, so a later reopen of one of those paths reveals
-/// the existing tab here instead of spawning a duplicate window. Non-file
-/// buffers are skipped to keep the map meaningful.
-fn seed_buffer_home(
-    ctx: &RegistryCtx,
-    state: &mut LiveState,
-    req: &SpawnRequest,
-    window_id: WindowId,
-) {
-    let mut candidates = vec![req.initial_buffer_id];
-    candidates.extend(req.startup_open_buffer_ids.iter().copied());
-    if let Some((_, restored)) = req.restored.as_ref() {
-        if let Ok(ids) =
-            continuity_ui::pane_tree_codec::buffer_ids_in_json(&restored.pane_tree_json)
-        {
-            candidates.extend(ids);
-        }
-    }
-    for buffer_id in candidates {
-        if ctx
-            .editor
-            .snapshot(buffer_id)
-            .and_then(|snap| snap.file)
-            .is_some()
-        {
-            state.buffer_home.insert(buffer_id, window_id);
-        }
-    }
 }
 
 fn run_window(
@@ -462,6 +461,10 @@ fn run_window(
             file_io: Some(ctx.file_io.clone()),
             open_file_window: Some(make_open_file_window_handler(&ctx)),
             register_file_buffer: Some(make_register_file_buffer_handler(&ctx)),
+            open_vault_window: Some(crate::registry_vaults::make_open_handler(&ctx)),
+            vault_activated: Some(crate::registry_vaults::make_activated_handler(
+                &ctx, window_id,
+            )),
             persist_client: Some(ctx.persist.clone()),
             initial_banners: req.recovery_notices,
             open_tutorial_on_init: req.open_tutorial_on_init,
@@ -470,7 +473,11 @@ fn run_window(
             reconcile_on_init: req.reconcile_on_init,
         },
     )?;
-    window.run()?;
+    let _ = ctx.tx.send(RegistryEvent::WindowReady {
+        window_id,
+        raw_window: window.hwnd().0 as usize,
+    });
+    DesktopShell::new(window).run()?;
     Ok(())
 }
 

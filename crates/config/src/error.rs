@@ -9,6 +9,10 @@ pub enum Error {
     #[error("settings parse: {0}")]
     Parse(#[from] toml::de::Error),
 
+    /// A typed settings document could not be serialized to TOML.
+    #[error("settings serialize: {0}")]
+    Serialize(#[from] toml::ser::Error),
+
     /// A filesystem watch operation failed.
     #[error("watch: {0}")]
     Watch(#[from] notify::Error),

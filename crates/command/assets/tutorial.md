@@ -18,19 +18,42 @@ A non-buffer tab that renders a **horizontal swimlane chart** of every persisted
 
 ### Buffer
 
-The per-document aggregate: rope + revision + selections + undo tree + optional file association. Only the editor core thread mutates a Buffer; every other thread sees an immutable `RopeSnapshot = Arc<Rope> + Revision`.
+The per-document aggregate: rope + revision + selections + undo tree + optional
+file association. Only the caller-selected engine owner mutates a `Buffer`;
+every other thread sees an immutable `RopeSnapshot = Arc<Rope> + Revision`.
 
 ### Caret presentation
+
+The native sections below cover the DirectWrite caret. In the Web Component,
+the semantic textarea owns the browser caret, selection, IME, keyboard
+navigation, and accessibility focus while a transparent text layer exposes
+the projected Markdown beneath it. UTF-16 browser offsets are converted to
+canonical UTF-8 positions. See [Web Component](web-component.md).
 
 Caret rendering: shape (bar / block / underline), blink behaviour, jump-glow acknowledgement, motion tween on large jumps, and sticky-column tracking through vertical motion. Per-pane state; reduced-motion honoured.
 
 ### Clipboard
 
-Cut, copy, and paste via `CF_UNICODETEXT`. Paste also reads `CF_HTML` ("HTML Format") and converts pasted rich-text/browser HTML to markdown. Smart-paste rewrites a clipboard URL into a markdown link / image / autolink based on context. An in-memory paste-history ring lets the user reach back N entries; nothing is persisted to disk.
+The native sections below describe Windows clipboard formats and ownership.
+The Web Component handles browser plain-text paste/cut/drop through its
+semantic textarea and shared engine; file drops and context/link work are
+sequenced host requests. It does not access Electron or filesystem APIs. See
+[Web Component](web-component.md). On touch it also owns a selection action bar
+and a clipboard fallback chain, because an embedding frame can deny the browser
+clipboard outright — see [Touch input](touch-input.md).
+
+Cut, copy, and paste via `CF_UNICODETEXT`. Paste also reads `CF_HTML` ("HTML Format") and converts pasted rich-text/browser HTML to markdown. Plain-text URLs remain byte-for-byte source text after newline normalization; paste never adds Markdown link or autolink markers. An in-memory paste-history ring lets the user reach back N entries; nothing is persisted to disk.
 
 ### Command system
 
 Every editor action is a `CommandId` + `ContextPredicate` + handler closure registered in `command::Registry`. The keymap, command palette, slash palette, and tests all dispatch through this single funnel. Handlers run against a `&mut dyn Context`; the production implementor is `ui::Window`.
+
+### Cross-platform desktop
+
+Continuity Web is an Electron shell around the same packed
+`@continuity-editor/editor` Web Component offered to embedders. It adds a
+cross-platform application without replacing the native Win32 product or
+creating another editor implementation.
 
 ### Decoration
 
@@ -40,13 +63,20 @@ Pure function `(RopeSnapshot, Revision) → Decorations`, run on a worker pool. 
 
 Pure projection from source bytes to visible display rows: hide marker bytes (e.g. `==highlight==` markers, table pipes, table formula source bytes, table alignment-row content), replace **unordered** list markers with `• ` (ordered `N.` / `N)` markers keep their literal number), collapse folds, break lines at soft-wrap points. The rope stays canonical; the display map is derived — torn out, the editor is degraded but correct.
 
+### Embeddable Windows editor control
+
+Milestone 6 exposes the native editor surface as a Rust-owned `WS_CHILD`
+control. It is a Windows rendering/input adapter over the shared synchronous
+engine and host contracts; it is not a second editor implementation and it
+does not inherit desktop persistence or application lifecycle.
+
 ### File I/O
 
 Open, save, save-as, drag-drop import, bounded directory listing, external-change detection. A dedicated worker thread serialises disk operations; the UI thread never blocks on filesystem I/O. External edits surface as a non-modal banner with reload / keep-mine / diff actions.
 
 ### File Tree
 
-The file tree lets a window expose one opened folder beside the editor without making the filesystem canonical. It is a bounded UI projection: directory reads happen on the file-I/O worker, file clicks route through normal file-open handling, and the pane never edits disk.
+The file tree is a bounded left-hand projection of one opened folder. Files remain exports of canonical buffers; the tree stores relative UI state and delegates every filesystem operation to the file-I/O worker.
 
 ### Image paste / drop / inline render
 
@@ -86,17 +116,28 @@ A palette-mode overlay listing every buffer that has ever been persisted to the 
 
 DirectWrite layout cache + Direct2D paint pipeline + DXGI swap chain. Body text, gutter, pane chrome, tab strip, status bar, overlays, and inline images all paint from a single `FrameDisplay` projection built off the rope + display map + decoration snapshot. Keypress → pixel budget: 8 ms p99.
 
+This document's numeric pipeline is the native Windows adapter. The browser
+adapter uses the same engine decoration/display projection through a semantic
+textarea plus DOM projection and owns separate 50 ms p99 / 80 ms p99.9
+input-to-paint-ready gates. See [Web Component](web-component.md); native D2D
+measurements are never reused as browser claims.
+
 ### Search
 
 Find bar with X-of-N count, compact mode toggles, find-and-replace, find-in-all over open buffers, goto-line, goto-heading, fuzzy quick-open. Literal queries use a `memchr::memmem` fast path; regex queries use `grep-regex`; palette-style pickers use the custom fuzzy scorer.
 
 ### Selections + edits
 
-Multi-cursor + block selections + the `SelectionEdit` enum (~40 variants covering every text mutation). Every edit flows through `Context::apply_selection_edit` → `EditorHandle::apply_selection_edit` → `core::selection_edit::plan` → `apply_plan`, landing as exactly one undo group per call.
+Multi-cursor + block selections + the `SelectionEdit` enum. Native edits flow
+through `Context::apply_selection_edit` → `EditorHandle` →
+`Engine::apply_selection_edit`; direct hosts call the synchronous engine. Each
+call lands as exactly one undo group.
 
 ### Settings
 
 TOML schema at `settings.toml`, parsed and validated at load time. A single watcher fans `ConfigEvent::Changed` out to every live window for hot reload. The full type definition lives in `crates/config/src/settings.rs::Settings`; live-toggle handlers in `Window::apply_settings` keep on-screen state in sync without restart.
+
+Folder-local vault policy is intentionally separate from global settings: `.continuity/vault.toml` is parsed as `VaultConfig` and watched by the file-I/O worker. It controls only files under the nearest marked root (autosave, tree ignore/sort/display rules, and appearance). See [Vaults](vaults.md).
 
 ### Spell check
 
@@ -112,9 +153,36 @@ The alignment row keeps its source-line slot. Its bytes are hidden and `table_pa
 
 TOML-loaded color sets keyed by stable name. Seventeen bundled themes ship with the binary (`deep_minimal`, `paper`, `solarized_dark`, `solarized_darker`, `solarized_light`, `monokai`, `rose_pine`, `catppuccin_mocha`, `catppuccin_macchiato`, `catppuccin_frappe`, `catppuccin_latte`, `tokyo_night`, `nord`, `one_dark`, `gruvbox_dark`, `gruvbox_light`, `dracula`); user customs live under the runtime themes directory (`%APPDATA%\continuity\themes\` normally, `<exe>\data\themes\` in portable mode) and are managed entirely through the δ.5 workflow commands. Bundled themes are read-only — edits surface a clone-first banner.
 
+### Touch Input
+
+On a phone or tablet the editor takes the finger off the semantic textarea
+entirely. The platform's own long-press selection hit-tests that textarea, whose
+layout cannot be made to agree with the projection the reader actually sees, and
+on an editable element nothing can refuse the gesture. So a transparent shield
+covers the editing surface, receives the touch, and owns scrolling, while the
+textarea remains the semantic focus target and owns the soft keyboard, IME, and
+document value beneath it. The shield leaves that focus untouched until a tap
+resolves.
+Everything the platform stops supplying as a result — long-press word selection,
+selection drag, the clipboard bubble, drag handles, edge auto-scroll — the editor
+supplies against projected geometry instead. A mouse still addresses the textarea
+directly, so desktop behaviour is untouched.
+
 ### Tutorial
 
 A synthetic, read-only buffer covering every user-visible feature and hotkey, opened in a tab in the focused pane. Auto-generated from the per-feature design docs and the default keymap — never hand-written. Opens automatically on first launch; re-openable any time via the `help.tutorial` command.
+
+### Vaults
+
+A vault is an opened folder with a `.continuity/vault.toml` marker. It keeps the ordinary file-tree workflow, adds folder-scoped continuous export, and supplies portable tree and appearance policy. Opening a folder without the marker remains ordinary manual-save browsing.
+
+### Web Component
+
+`<continuity-editor>` is the framework-neutral Chromium/Electron presentation
+surface over the shared synchronous Rust engine. It preserves canonical source
+text and shared display-map semantics while assigning browser-native input,
+layout measurement, accessibility, and scheduling to the component's owning
+JavaScript agent.
 
 ## Hotkeys
 
@@ -335,10 +403,8 @@ _Auto-extracted from `crates/keymap/assets/default.toml`, grouped by command pre
 | `ctrl+alt+2` | `pane.layout_two_cols` |
 | `ctrl+alt+shift+2` | `pane.layout_two_rows` |
 | `ctrl+alt+z` | `pane.maximize_toggle` |
-| `ctrl+alt+down` | `pane.resize_down` |
 | `ctrl+alt+left` | `pane.resize_left` |
 | `ctrl+alt+right` | `pane.resize_right` |
-| `ctrl+alt+up` | `pane.resize_up` |
 | `ctrl+alt+\` | `pane.split_horizontal` |
 | `ctrl+alt+-` | `pane.split_vertical` |
 
@@ -385,6 +451,12 @@ _Auto-extracted from `crates/keymap/assets/default.toml`, grouped by command pre
 |---|---|
 | `ctrl+k → ctrl+r` | `theme.reload` |
 
+### `vault.*`
+
+| Keys | Command |
+|---|---|
+| `ctrl+k → v` | `vault.launcher_show` |
+
 ### `view.*`
 
 | Keys | Command |
@@ -398,7 +470,6 @@ _Auto-extracted from `crates/keymap/assets/default.toml`, grouped by command pre
 | `ctrl+k → ctrl+2` | `view.focus_sentence` |
 | `ctrl+k → ctrl+[` | `view.fold` |
 | `ctrl+k → ctrl+\` | `view.fold_all` |
-| `ctrl+alt+m` | `view.metrics` |
 | `ctrl+shift+o` | `view.previous_buffer_browser_show` |
 | `pagedown` | `view.scroll_page_down` |
 | `pageup` | `view.scroll_page_up` |
@@ -670,12 +741,6 @@ _Every command registered by `continuity_command::default_registry`, grouped by 
 | `markdown.toggle_task` | `ctrl+e` |  |  |
 | `markdown.wrap_in_blockquote` | `ctrl+shift+q` |  |  |
 
-### `metrics.*`
-
-| Command | Keys | Palette | Description |
-|---|---|---|---|
-| `metrics.purge` |  |  | Drop every recorded daily-metrics row (destructive; not undoable) |
-
 ### `overlay.*`
 
 | Command | Keys | Palette | Description |
@@ -705,10 +770,10 @@ _Every command registered by `continuity_command::default_registry`, grouped by 
 | `pane.layout_two_cols` | `alt+shift+2, ctrl+alt+2` |  |  |
 | `pane.layout_two_rows` | `ctrl+alt+shift+2` |  |  |
 | `pane.maximize_toggle` | `ctrl+alt+z` |  |  |
-| `pane.resize_down` | `ctrl+alt+down` |  |  |
+| `pane.resize_down` |  |  |  |
 | `pane.resize_left` | `ctrl+alt+left` |  |  |
 | `pane.resize_right` | `ctrl+alt+right` |  |  |
-| `pane.resize_up` | `ctrl+alt+up` |  |  |
+| `pane.resize_up` |  |  |  |
 | `pane.split_horizontal` | `ctrl+alt+\` |  |  |
 | `pane.split_vertical` | `ctrl+alt+-` |  |  |
 
@@ -776,6 +841,12 @@ _Every command registered by `continuity_command::default_registry`, grouped by 
 | `theme.rename` |  | yes | Theme: rename a custom theme |
 | `theme.reveal_folder` |  | yes | Theme: reveal the themes folder in Explorer |
 
+### `vault.*`
+
+| Command | Keys | Palette | Description |
+|---|---|---|---|
+| `vault.launcher_show` | `ctrl+k → v` |  |  |
+
 ### `view.*`
 
 | Command | Keys | Palette | Description |
@@ -789,7 +860,6 @@ _Every command registered by `continuity_command::default_registry`, grouped by 
 | `view.focus_sentence` | `ctrl+k → ctrl+2` |  |  |
 | `view.fold` | `ctrl+k → ctrl+[` |  |  |
 | `view.fold_all` | `ctrl+k → ctrl+\` |  |  |
-| `view.metrics` | `ctrl+alt+m` | yes | Open the typing-metrics dashboard (WPM + activity heatmap) as a tab |
 | `view.pick_font` |  |  |  |
 | `view.pick_theme` |  |  |  |
 | `view.previous_buffer_browser_show` | `ctrl+shift+o` |  |  |

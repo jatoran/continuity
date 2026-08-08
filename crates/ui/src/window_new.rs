@@ -13,14 +13,13 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use continuity_buffer::BufferId;
-use continuity_core::{EditorHandle, WpmTracker};
+use continuity_core::EditorHandle;
 use continuity_decorate::DecorationCache;
-use continuity_display_map::{SegmentCache, WrapCache};
-use continuity_layout::{DWriteFactory, FontStateId, LayoutCache, RunCache, ViewState};
-use continuity_persist::MetricsDailyDelta;
+use continuity_layout::{DWriteFactory, FontStateId};
 use continuity_win::WindowClass;
 use windows::core::HSTRING;
 use windows::Win32::Foundation::HWND;
@@ -30,10 +29,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WINDOW_EX_STYLE, WS_EX_NOREDIRECTIONBITMAP, WS_OVERLAPPEDWINDOW,
 };
 
-use crate::display_prewarm_cache::DisplayMapPrewarm;
 use crate::overlays::Overlays;
 use crate::pane_tree::PaneTree;
-use crate::window::{Window, FONT_FAMILY, FONT_LOCALE, FONT_SIZE_DIP, LAYOUT_CACHE_CAPACITY};
+use crate::window::{Window, FONT_FAMILY, FONT_LOCALE, FONT_SIZE_DIP};
 use crate::window_config::{WindowCommands, WindowConfig};
 use crate::window_dispatch::wndproc;
 use crate::window_mouse_hover::wall_clock_ms;
@@ -79,7 +77,7 @@ impl Window {
         // image expand state. Old blobs that predate either field
         // decode with empty vectors, matching the pre-§H3 / pre-F5
         // behavior.
-        let (mut tree, restored_folded_lines, restored_image_expand_state) =
+        let (mut tree, restored_folded_lines, restored_image_expand_state, restored_workspace) =
             crate::window_placement_persistence::restore_with_state_or_singleton(
                 commands
                     .persistence
@@ -96,21 +94,28 @@ impl Window {
                 e
             })
             .ok();
+        let mut file_tree = crate::file_tree::FileTreeState::default();
+        if restored_workspace.file_tree_width_dip > 0.0 {
+            file_tree.set_width_dip(restored_workspace.file_tree_width_dip);
+        }
+        file_tree.set_visible(restored_workspace.file_tree_visible);
+        let restored_folder_root = restored_workspace.folder_root.map(PathBuf::from);
+        let vault = crate::vault::VaultState::with_callbacks(
+            commands.open_vault_window,
+            commands.vault_activated,
+        );
         let mut window = Box::new(Self {
             hwnd: HWND::default(),
             _class: class,
             editor,
             buffer_id,
+            surface: crate::editor_surface::EditorSurface::new(dwrite, font_state),
+            accessibility_provider: None,
             registry: commands.registry,
             keymap: commands.keymap,
             default_keymap_toml: commands.default_keymap_toml,
             user_keymap_path: commands.user_keymap_path,
             keymap_conflicts: Vec::new(),
-            pending_chord_sequence: Vec::new(),
-            dwrite,
-            renderer: None,
-            text_format: None,
-            shift_held: false,
             client_width: 0,
             client_height: 0,
             deferred_renderer_resize: None,
@@ -118,23 +123,13 @@ impl Window {
             is_applying_dpi_change: false,
             inited: false,
             overlays: Overlays::idle(),
-            overlay_input_focused: false,
             mouse_state: crate::mouse::MouseState::default(),
-            view: ViewState::new(),
-            cache: LayoutCache::new(LAYOUT_CACHE_CAPACITY),
-            walker_run_cache: Arc::new(RunCache::default()),
-            walker_wrap_cache: Arc::new(WrapCache::default()),
-            walker_segment_cache: Arc::new(SegmentCache::default()),
-            font_state,
-            scroll_anim_active: false,
-            scroll_inertia: crate::window_scroll::ScrollInertia::default(),
             motion_timer_active: false,
             decorate_pool: None,
             decoration_cache: DecorationCache::new(),
             last_submitted_decoration_revision: None,
             last_submitted_decoration_revision_per_buffer: RefCell::new(HashMap::new()),
             last_tree_prune_keep: RefCell::new(Vec::new()),
-            last_focused_table_layouts: RefCell::new(HashMap::new()),
             decoration_worker_watchdog_timeout_ms: continuity_config::WorkerConfig::default()
                 .decoration_watchdog_ms,
             decoration_watchdog_poll_active: false,
@@ -153,9 +148,6 @@ impl Window {
             font_swap_settle_deadline: None,
             settings_projections: crate::window_settings_projections::SettingsProjections::default(
             ),
-            caret_blink_visible: true,
-            last_input_tick: 0,
-            caret_blink_active: false,
             live_reload: commands.live_reload,
             control_rx: commands.control_rx,
             config_poll_active: false,
@@ -166,7 +158,9 @@ impl Window {
             open_file_window: commands.open_file_window,
             register_file_buffer: commands.register_file_buffer,
             file_io_poll_active: false,
-            file_tree: crate::file_tree::FileTreeState::default(),
+            file_tree,
+            vault,
+            file_tree_preview_tabs: HashMap::new(),
             state_save_pending: false,
             file_banner: None,
             unsaved_close_arm: None,
@@ -174,17 +168,9 @@ impl Window {
             virtual_desktop,
             tree,
             panes: HashMap::new(),
-            paste_history: crate::window_clipboard::PasteHistory::new(),
-            ime_state: crate::window_ime::ImeState::default(),
             spell_state: crate::window_spell::SpellState::default(),
             auto_pair: continuity_core::AutoPairConfig::default(),
             indent: crate::window_indent::IndentConfig::default(),
-            intended_columns: Vec::new(),
-            intended_display_columns: Vec::new(),
-            intended_columns_for: Vec::new(),
-            jump_glow: None,
-            edit_pulse: None,
-            caret_tween: None,
             motion_policy: crate::motion::MotionPolicy::new(false),
             stagger_scheduler: crate::motion::StaggerScheduler::default(),
             overlay_motion: crate::surface_motion::SurfaceMotionState::default(),
@@ -206,19 +192,11 @@ impl Window {
             find_memory: HashMap::new(),
             find_persist_per_buffer: true,
             persist_client: commands.persist_client,
-            wpm_tracker: WpmTracker::default(),
-            metrics_pending: MetricsDailyDelta::default(),
-            metrics_last_flush_ms: 0,
-            metrics_last_keystroke_ms: 0,
-            wpm_frozen: 0,
-            metrics_repaint_active: false,
             time_machine_preview: None,
             time_machine_drag: None,
             palette_command_recency: HashMap::new(),
             palette_recency_tick: 0,
-            last_edit_stack: HashMap::new(),
             is_window_focused: true,
-            has_keyboard_focus: true,
             activate_on_show: config.activate_on_show,
             is_window_minimized: false,
             is_live_resizing: false,
@@ -226,21 +204,9 @@ impl Window {
             resize_anchor: None,
             caret_anchor_capture_count: std::cell::Cell::new(0),
             resize_changed: false,
-            pending_doc_end_scroll: false,
-            geometry_anchor: crate::window_view::geometry_anchor::GeometryAnchorState::default(),
-            pending_doc_end_scroll_attempts: 0,
-            jump_offthread_polls: 0,
             background_paint_tick: 0,
-            display_map_prewarm: DisplayMapPrewarm::new(),
-            display_prewarm_timer_active: false,
             buffer_history_tabs: HashMap::new(),
-            last_painted_frame_display: None,
-            last_painted_decorations: None,
-            last_painted_decoration_parse_revision: None,
             status_bar_rope_counts: std::cell::RefCell::new(HashMap::new()),
-            projection_worker: None,
-            projection_request_seq: 0,
-            last_early_dispatch_stamp: None,
             tab_dirty_cache: RefCell::new(HashMap::new()),
             pending_save_baseline: HashMap::new(),
             heading_lines_cache: RefCell::new(None),
@@ -248,11 +214,6 @@ impl Window {
                 crate::window_outline_entries_cache::OutlineEntriesCache::default(),
             ),
             last_activation_tick: 0,
-            spectator_frame_cache: RefCell::new(
-                crate::window_spectator_cache::SpectatorFrameCache::new(),
-            ),
-            mouse_hit_test_frame_cache: RefCell::new(None),
-            row_index_cache: RefCell::new(crate::window_row_index_cache::RowIndexCache::new()),
             tab_session: crate::window_panes::TabSessionState::default(),
         });
         // §H3 — install the persisted fold set into PaneModesState
@@ -342,7 +303,7 @@ impl Window {
         // above so the first frame carries the icon with no flash.
         window.apply_window_icon();
         window.window_dpi = continuity_win::dpi_for_window(hwnd);
-        window.font_state = window.current_font_state_id();
+        window.surface.render.font_state = window.current_font_state_id();
         crate::window_registry::register(hwnd);
         unsafe {
             DragAcceptFiles(hwnd, true);
@@ -354,7 +315,13 @@ impl Window {
         window.start_trace_summary_timer(hwnd);
         window.apply_initial_placement(hwnd);
         window.adopt_startup_open_buffers(startup_open_buffer_ids);
+        let has_startup_folder = !startup_folder_roots.is_empty();
         window.adopt_startup_folder_roots(startup_folder_roots);
+        if !has_startup_folder {
+            if let Some(root) = restored_folder_root {
+                let _ = window.open_folder_root(root);
+            }
+        }
         window.watch_existing_file_tabs();
         // Reconcile this window's initial buffer against the bytes the
         // registry already read when (re)opening a file that already had a

@@ -36,20 +36,20 @@ impl Window {
     /// respawn (RC1 stale-font fix). It only needs the renderer's
     /// text format to *exist* (renderer ready) before spawning.
     pub(crate) fn ensure_projection_worker(&mut self) {
-        if self.projection_worker.is_some() {
+        if self.surface.projection.projection_worker.is_some() {
             return;
         }
-        if self.text_format.is_none() {
+        if self.surface.render.text_format.is_none() {
             return;
         }
         let mode = ProjectionWorker::direct_write_mode(
-            self.dwrite.raw().clone(),
-            std::sync::Arc::clone(&self.walker_run_cache),
+            self.surface.render.dwrite.raw().clone(),
+            std::sync::Arc::clone(&self.surface.render.walker_run_cache),
         );
-        self.projection_worker = Some(ProjectionWorker::spawn_with_caches(
+        self.surface.projection.projection_worker = Some(ProjectionWorker::spawn_with_caches(
             mode,
-            std::sync::Arc::clone(&self.walker_wrap_cache),
-            std::sync::Arc::clone(&self.walker_segment_cache),
+            std::sync::Arc::clone(&self.surface.render.walker_wrap_cache),
+            std::sync::Arc::clone(&self.surface.render.walker_segment_cache),
         ));
         crate::paint_trace::log_event("projection_worker_spawn", "");
     }
@@ -61,7 +61,7 @@ impl Window {
     /// format (no live text format yet) selects the fixed-width
     /// fallback measurer.
     pub(crate) fn projection_font_metrics(&self) -> WorkerFontMetrics {
-        let format = self.text_format.as_ref().map(|format| {
+        let format = self.surface.render.text_format.as_ref().map(|format| {
             // SAFETY: IDWriteTextFormat is documented thread-safe (see SendCom).
             unsafe { SendCom::new(format.clone()) }
         });
@@ -74,7 +74,11 @@ impl Window {
 
     /// Allocate the next worker request sequence number.
     pub(crate) fn next_projection_request_seq(&mut self) -> u64 {
-        self.projection_request_seq = self.projection_request_seq.saturating_add(1);
-        self.projection_request_seq
+        self.surface.projection.projection_request_seq = self
+            .surface
+            .projection
+            .projection_request_seq
+            .saturating_add(1);
+        self.surface.projection.projection_request_seq
     }
 }

@@ -7,19 +7,23 @@ Strict bottom-up dependency layering. Lower layers must not know about upper one
 ```
 text · win                                       # leaves — no internal deps
 buffer ← text                                    # Buffer aggregate
+engine ← buffer · text                           # synchronous editor; no I/O
+host ← engine · buffer · text                    # portable intents/events/runtime
 persist ← buffer                                 # SQLite, edits, snapshots, backup
 decorate ← buffer                                # tree-sitter, markdown spans
 search ← buffer                                  # literal/regex find + fuzzy scoring
 display_map ← buffer · decorate                  # source ↔ display projection
-core ← buffer · persist · text                   # SOLE writer of buffer state
-command ← core · text · buffer                   # registry + Context + predicates
+wasm ← host · engine · decorate · display_map · buffer · text # raw binding; no I/O
+core ← host · engine · buffer · persist · text   # native actor + durability adapter
+command ← host · core · text · buffer            # registry + typed operations
 keymap ← command · input                         # TOML chord lookup
 theme · config                                   # TOML loaders + watcher
 layout ← win                                     # DirectWrite layout cache
 render ← layout · win · display_map              # D3D11 + DXGI + D2D + DWrite
 ui ← render · command · keymap · core · display_map · …
 app ← ui · core · persist · command · keymap     # only fn main; only `anyhow`
-test_support ← buffer · text · persist           # fixtures, FakeClock, gens
+test_fixtures                                    # dependency-free semantic corpus
+test_support ← core · ui · persist · …           # native fixtures/harnesses
 xtask                                            # workspace tasks
 ```
 
@@ -66,25 +70,29 @@ pub use continuity_core::EditorHandle;  // ❌ in any non-`app` crate
 | `text` | none |
 | `win` | none |
 | `buffer` | `text` |
+| `engine` | `buffer`, `text` |
+| `host` | `engine`, `buffer`, `text` |
 | `persist` | `buffer`, `text` |
 | `decorate` | `buffer`, `text` |
 | `search` | `buffer`, `text` |
 | `display_map` | `buffer`, `decorate`, `text` |
-| `core` | `buffer`, `persist`, `text` |
-| `command` | `core`, `buffer`, `text` |
+| `wasm` | `host`, `engine`, `decorate`, `display_map`, `buffer`, `text` |
+| `core` | `host`, `engine`, `buffer`, `persist`, `text` |
+| `command` | `host`, `core`, `buffer`, `text` |
 | `keymap` | `command`, `input` |
-| `input` | `win` |
+| `input` | none |
 | `theme` | none (TOML only) |
 | `config` | none (TOML only) |
 | `layout` | `win` |
 | `render` | `layout`, `win`, `display_map`, `decorate`, `text`, `theme` |
 | `ui` | every crate below it |
 | `app` | `ui`, `core`, `persist`, `command`, `keymap`, `config`, `theme` |
-| `test_support` | `buffer`, `text`, `persist` |
+| `test_fixtures` | none |
+| `test_support` | native test-only workspace crates |
 
 ## Single-owner rules
 
-- **Mutable `Buffer` state**: `core` only.
+- **Mutable `Buffer` state**: one owner per `Engine`; native Windows uses `core`.
 - **HWND**: `ui` only.
 - **`fn main`**: `app` only.
 - **`anyhow`**: `app` and `xtask` only. Every other crate has its own `thiserror::Error` enum in `src/error.rs`.

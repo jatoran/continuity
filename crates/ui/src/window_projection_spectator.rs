@@ -26,7 +26,8 @@ use crate::display_prewarm_cache::PrewarmQuery;
 use crate::pane_tree::PaneId;
 use crate::projection_worker::{ProjectionPlan, ProjectionStamp};
 use crate::window::Window;
-use crate::window_paint::{collect_non_focused_panes, visible_display_row_range};
+use crate::window_paint::visible_display_row_range;
+use crate::window_paint_builders::collect_non_focused_panes;
 use crate::window_paint_builders::NonFocusedPaneRender;
 use crate::window_projection_worker::{current_projection_stamp, PaintProjectionInputs};
 
@@ -111,7 +112,7 @@ impl Window {
     /// Drain worker results that target non-focused panes and seed the
     /// spectator frame cache under each live pane id.
     pub(crate) fn drain_spectator_projection_worker_results(&self) {
-        let Some(worker) = self.projection_worker.as_ref() else {
+        let Some(worker) = self.surface.projection.projection_worker.as_ref() else {
             return;
         };
         let live_panes = self.tree.root.leaf_ids();
@@ -148,7 +149,9 @@ impl Window {
         pane_id: PaneId,
         stamp: &ProjectionStamp,
     ) -> bool {
-        self.projection_worker
+        self.surface
+            .projection
+            .projection_worker
             .as_ref()
             .is_some_and(|worker| worker.has_pending_target_stamp(pane_id, stamp))
     }
@@ -159,7 +162,9 @@ impl Window {
         submit_reason: &'static str,
         buffer_id_filter: Option<&[u128]>,
     ) {
-        if self.projection_worker.is_none() || self.text_format.is_none() {
+        if self.surface.projection.projection_worker.is_none()
+            || self.surface.render.text_format.is_none()
+        {
             return;
         }
         let other_panes = collect_non_focused_panes(self);
@@ -175,6 +180,8 @@ impl Window {
             }
             let context = self.spectator_projection_context(pane);
             if self
+                .surface
+                .projection
                 .projection_worker
                 .as_ref()
                 .is_some_and(|worker| worker.has_pending_target_stamp(pane.pane_id, &context.stamp))
@@ -198,7 +205,7 @@ impl Window {
                 self.projection_font_metrics(),
                 ProjectionPlan::Cold,
             );
-            if let Some(worker) = self.projection_worker.as_ref() {
+            if let Some(worker) = self.surface.projection.projection_worker.as_ref() {
                 let submitted = worker.submit_with_reason(request, submit_reason);
                 if crate::paint_trace::is_trace_enabled() {
                     crate::paint_trace::log_event(
@@ -298,13 +305,17 @@ impl Window {
             .stamp
             .decoration_revision
             .map_or(-1i64, |revision| revision as i64);
-        self.spectator_frame_cache.borrow_mut().insert(
-            pane_id,
-            context.query,
-            frame_display,
-            context.decorations,
-            context.parse_revision,
-        );
+        self.surface
+            .projection
+            .spectator_frame_cache
+            .borrow_mut()
+            .insert(
+                pane_id,
+                context.query,
+                frame_display,
+                context.decorations,
+                context.parse_revision,
+            );
         if crate::paint_trace::is_trace_enabled() {
             crate::paint_trace::log_event(
                 "spectator_cache_populate",
@@ -340,7 +351,7 @@ impl Window {
         &self,
         inputs: SpectatorImageReservationInputs<'_>,
     ) -> Vec<ImageRowReservation> {
-        let image_reservations = if let Some(renderer) = self.renderer.as_ref() {
+        let image_reservations = if let Some(renderer) = self.surface.render.renderer.as_ref() {
             crate::window_image_placements::compute_image_reservations_for_pane(
                 inputs.decorations,
                 inputs.rope,

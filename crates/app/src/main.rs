@@ -33,6 +33,8 @@ mod registry_closed_history;
 mod registry_file_buffers;
 mod registry_open_file;
 mod registry_time;
+mod registry_vaults;
+mod registry_window_control;
 mod runtime_paths;
 mod single_instance;
 
@@ -162,6 +164,11 @@ fn main() -> Result<()> {
     attach_startup_open_folders(
         &mut initial_requests,
         &startup_options.startup_paths.folders,
+    );
+    attach_startup_open_vaults(
+        &mut initial_requests,
+        &editor,
+        &startup_options.startup_paths.vaults,
     );
     // The hub only exists in a claimed primary; bypassed instances must
     // not receive forwards meant for the real session.
@@ -392,4 +399,35 @@ fn attach_startup_open_folders(requests: &mut [SpawnRequest], folders: &[PathBuf
     };
     first.open_tutorial_on_init = false;
     first.startup_folder_roots.extend(folders.iter().cloned());
+}
+
+fn attach_startup_open_vaults(
+    requests: &mut Vec<SpawnRequest>,
+    editor: &Arc<EditorHandle>,
+    vaults: &[PathBuf],
+) {
+    if vaults.is_empty() {
+        return;
+    }
+    if requests.len() == 1 && requests[0].restored.is_none() {
+        requests[0].open_tutorial_on_init = false;
+        requests[0]
+            .startup_folder_roots
+            .extend(vaults.iter().cloned());
+        return;
+    }
+    for root in vaults {
+        requests.push(SpawnRequest {
+            initial_buffer_id: editor.open_buffer(""),
+            restored: None,
+            activate_on_restore: false,
+            explicit_origin: None,
+            cascade_from: None,
+            recovery_notices: Vec::new(),
+            open_tutorial_on_init: false,
+            startup_open_buffer_ids: Vec::new(),
+            startup_folder_roots: vec![root.clone()],
+            reconcile_on_init: None,
+        });
+    }
 }

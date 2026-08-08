@@ -27,7 +27,7 @@ use continuity_render::scrollbar::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::SetCapture;
 
-use crate::mouse::ScrollbarDrag;
+use crate::editor_surface::pointer::ScrollbarDrag;
 use crate::Window;
 
 fn compute_scrollbar_drag_target_scroll(
@@ -109,7 +109,7 @@ impl Window {
         compute_scrollbar_layout(
             right_edge_x,
             body.y,
-            self.view.scroll_y_dip,
+            self.surface.view.scroll_y_dip,
             viewport_h,
             content_h,
         )
@@ -146,12 +146,12 @@ impl Window {
         };
         if layout.hit_test_thumb(xf, yf) {
             self.cancel_scroll_inertia();
-            self.mouse_state.scrollbar_drag = Some(ScrollbarDrag {
+            self.surface.pointer.scrollbar_drag = Some(ScrollbarDrag {
                 thumb_grab_offset_dip: yf - layout.thumb_top,
                 last_mouse_y_dip: yf,
                 move_count: 0,
             });
-            trace_scrollbar_drag("start", yf, self.view.scroll_y_dip, Some(&layout));
+            trace_scrollbar_drag("start", yf, self.surface.view.scroll_y_dip, Some(&layout));
             // `MouseState::register_click` is the canonical "begin drag"
             // signal in the splitter / tab paths — but it also rolls the
             // triple-click line counter, which is meaningless for a
@@ -170,8 +170,8 @@ impl Window {
             // end can't overshoot.
             let page = layout.viewport_h;
             let dy = if yf < layout.thumb_top { -page } else { page };
-            let before = self.view.scroll_y_dip;
-            self.view.scroll_instant(dy, layout.content_h);
+            let before = self.surface.view.scroll_y_dip;
+            self.surface.view.scroll_instant(dy, layout.content_h);
             // Always return true (consume the click) even when the
             // viewport was already pinned — clicking the track is an
             // unambiguous scrollbar interaction, not a caret-placement
@@ -185,7 +185,7 @@ impl Window {
     /// `WM_MOUSEMOVE` handler during a thumb drag. Returns `true` when
     /// the scroll offset moved (caller invalidates the client area).
     pub(crate) fn try_scrollbar_drag_mouse_move(&mut self, _x: i32, y: i32) -> bool {
-        let Some(drag) = self.mouse_state.scrollbar_drag else {
+        let Some(drag) = self.surface.pointer.scrollbar_drag else {
             return false;
         };
         let mouse_y_dip = y as f32;
@@ -193,8 +193,8 @@ impl Window {
             return false;
         };
         let target_scroll = compute_scrollbar_drag_target_scroll(&layout, drag, mouse_y_dip);
-        let before = self.view.scroll_y_dip;
-        let move_count = if let Some(active_drag) = self.mouse_state.scrollbar_drag.as_mut() {
+        let before = self.surface.view.scroll_y_dip;
+        let move_count = if let Some(active_drag) = self.surface.pointer.scrollbar_drag.as_mut() {
             active_drag.last_mouse_y_dip = mouse_y_dip;
             active_drag.move_count = active_drag.move_count.saturating_add(1);
             active_drag.move_count
@@ -203,14 +203,24 @@ impl Window {
         };
         if (target_scroll - before).abs() < f32::EPSILON {
             if should_trace_scrollbar_drag_move(move_count) {
-                trace_scrollbar_drag("move", mouse_y_dip, self.view.scroll_y_dip, Some(&layout));
+                trace_scrollbar_drag(
+                    "move",
+                    mouse_y_dip,
+                    self.surface.view.scroll_y_dip,
+                    Some(&layout),
+                );
             }
             return false;
         }
-        self.view.jump_to(target_scroll, layout.content_h);
-        let moved = (self.view.scroll_y_dip - before).abs() > f32::EPSILON;
+        self.surface.view.jump_to(target_scroll, layout.content_h);
+        let moved = (self.surface.view.scroll_y_dip - before).abs() > f32::EPSILON;
         if moved && should_trace_scrollbar_drag_move(move_count) {
-            trace_scrollbar_drag("move", mouse_y_dip, self.view.scroll_y_dip, Some(&layout));
+            trace_scrollbar_drag(
+                "move",
+                mouse_y_dip,
+                self.surface.view.scroll_y_dip,
+                Some(&layout),
+            );
         }
         moved
     }
@@ -219,14 +229,14 @@ impl Window {
     /// when a scrollbar drag was in flight. Returns `true` when it
     /// owned the up-click.
     pub(crate) fn try_scrollbar_left_up(&mut self) -> bool {
-        let Some(drag) = self.mouse_state.scrollbar_drag.take() else {
+        let Some(drag) = self.surface.pointer.scrollbar_drag.take() else {
             return false;
         };
         let layout = self.focused_scrollbar_layout();
         trace_scrollbar_drag(
             "end",
             drag.last_mouse_y_dip,
-            self.view.scroll_y_dip,
+            self.surface.view.scroll_y_dip,
             layout.as_ref(),
         );
         unsafe {

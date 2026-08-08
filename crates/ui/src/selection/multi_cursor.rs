@@ -9,20 +9,26 @@ use continuity_text::{Position, Selection, SelectionKind};
 use ropey::Rope;
 
 use crate::selection_byte_helpers::primary_match_text;
-use crate::selection_vertical::move_line_with_column;
+use crate::selection_vertical::{head_display_byte_in_row, move_line_with_column, move_visual_row};
 use crate::Window;
 
 use super::{dedupe, match_selection};
 
 impl Window {
     pub(crate) fn add_cursor_line(&mut self, delta: i32) -> bool {
-        self.map_selections(|rope, selections| {
+        let Some(snapshot) = self.current_snapshot() else {
+            return false;
+        };
+        let frame_display = self.maybe_build_motion_frame_display(
+            snapshot.rope_snapshot().rope(),
+            snapshot.selections(),
+        );
+        self.map_selections(move |rope, selections| {
             let mut out = selections.to_vec();
-            if let Some(primary) = selections.first() {
-                let head = move_line(rope, primary.head, delta);
-                if head != primary.head {
-                    out.push(Selection::caret_at(head));
-                }
+            if let Some(head) =
+                compute_adjacent_cursor_position(rope, selections, delta, frame_display.as_ref())
+            {
+                out.push(Selection::caret_at(head));
             }
             dedupe(out)
         })
@@ -115,4 +121,78 @@ impl Window {
 
 fn move_line(rope: &Rope, position: Position, delta: i32) -> Position {
     move_line_with_column(rope, position, delta, position.byte_in_line)
+}
+
+fn compute_adjacent_cursor_position(
+    rope: &Rope,
+    selections: &[Selection],
+    delta: i32,
+    frame_display: Option<&continuity_render::FrameDisplay>,
+) -> Option<Position> {
+    let primary = selections.first()?;
+    let edge = if delta < 0 {
+        selections.iter().min_by_key(|selection| selection.head)?
+    } else {
+        selections.iter().max_by_key(|selection| selection.head)?
+    };
+    let intended_column = primary.head.byte_in_line;
+    let target = if let Some(frame_display) = frame_display {
+        let intended_display_column =
+            head_display_byte_in_row(rope, frame_display, primary.head).unwrap_or(intended_column);
+        move_visual_row(
+            rope,
+            frame_display,
+            edge.head,
+            delta,
+            intended_display_column,
+        )
+    } else {
+        move_line_with_column(rope, edge.head, delta, intended_column)
+    };
+    (target != edge.head).then_some(target)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compute_adjacent_cursor_position;
+    use continuity_render::FrameDisplay;
+    use continuity_text::{Position, Selection};
+    use ropey::Rope;
+
+    #[test]
+    fn repeated_add_cursor_steps_from_the_outermost_cursor() {
+        let rope = Rope::from_str("abc\ndef\nghi");
+        let mut selections = vec![Selection::caret_at(Position::new(0, 1))];
+        let first = compute_adjacent_cursor_position(&rope, &selections, 1, None)
+            .expect("next line exists");
+        selections.push(Selection::caret_at(first));
+        let second = compute_adjacent_cursor_position(&rope, &selections, 1, None)
+            .expect("another line exists");
+        assert_eq!(first, Position::new(1, 1));
+        assert_eq!(second, Position::new(2, 1));
+    }
+
+    #[test]
+    fn repeated_add_cursor_preserves_the_primary_intended_column() {
+        let rope = Rope::from_str("abcdef\nx\nabcdef");
+        let mut selections = vec![Selection::caret_at(Position::new(0, 5))];
+        let first = compute_adjacent_cursor_position(&rope, &selections, 1, None)
+            .expect("next line exists");
+        selections.push(Selection::caret_at(first));
+        let second = compute_adjacent_cursor_position(&rope, &selections, 1, None)
+            .expect("another line exists");
+        assert_eq!(first, Position::new(1, 1));
+        assert_eq!(second, Position::new(2, 5));
+    }
+
+    #[test]
+    fn add_cursor_uses_visual_rows_when_soft_wrap_projection_is_available() {
+        let rope = Rope::from_str("abcdef\nnext");
+        let frame_display = FrameDisplay::build(&rope, 1, None, &[], 24, 8.0);
+        let selections = vec![Selection::caret_at(Position::new(0, 1))];
+        let target = compute_adjacent_cursor_position(&rope, &selections, 1, Some(&frame_display))
+            .expect("wrapped display row exists");
+        assert_eq!(target.line, 0);
+        assert!(target.byte_in_line > selections[0].head.byte_in_line);
+    }
 }

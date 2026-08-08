@@ -9,7 +9,7 @@
 //!
 //! Trace events emitted here:
 //! - `event:tab_close pane=… buffer=… tab=… label_len=N \
-//!   recently_closed_len=N after=sibling_tab|pane_collapse|window_close`
+//!   recently_closed_len=N after=sibling_tab|pane_collapse|folder_empty|window_close`
 //! - `event:tab_reopen outcome=ok|empty_stack|phantom_buffer_skip|\
 //!   exhausted_after_skips …`
 //!
@@ -21,6 +21,7 @@ use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
 use crate::pane_layout::parent_split::find_parent_split_info;
 use crate::pane_tree::{ClosedTab, PaneId, TabId};
 use crate::window::Window;
+use crate::window_helpers::invalidate_hwnd_with_reason;
 use crate::Error;
 
 impl Window {
@@ -28,6 +29,10 @@ impl Window {
     /// the pane. Buffer goes to trash (Phase 13: every buffer is
     /// non-file-associated until Phase 15).
     pub(crate) fn close_active_tab(&mut self) -> Result<(), Error> {
+        if self.has_empty_folder_workspace() {
+            self.post_window_close();
+            return Ok(());
+        }
         crate::window_buffer_tab_repair::repair_pane_tree_structure(&mut self.tree, &self.editor);
         self.save_current_right_edge_chrome_state();
         let focused = self.tree.focused;
@@ -79,7 +84,11 @@ impl Window {
         let next_in_group_token = if next_in_group.is_some() {
             "sibling_tab"
         } else if self.tree.root.leaf_ids().len() <= 1 {
-            "window_close"
+            if self.file_tree.root().is_some() {
+                "folder_empty"
+            } else {
+                "window_close"
+            }
         } else {
             "pane_collapse"
         };
@@ -99,15 +108,15 @@ impl Window {
         }
 
         if next_in_group.is_none() {
-            // D4: closing the last tab exits the window. Preserve the
-            // user's "all tabs closed" intent by saving a clean untitled
-            // tab for the next launch instead of an invalid empty group
-            // or the just-closed file.
             if self.tree.root.leaf_ids().len() <= 1 {
-                self.install_blank_restore_tab(focused, now);
-                if self.hwnd.0 as isize != 0 {
-                    let _ =
-                        unsafe { PostMessageW(Some(self.hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) };
+                if self.file_tree.root().is_some() {
+                    self.install_empty_folder_workspace(focused);
+                } else {
+                    // Outside folder view, preserve the established
+                    // last-tab-closes-window behavior and serialize a
+                    // clean placeholder rather than an invalid group.
+                    self.install_blank_restore_tab(focused, now);
+                    self.post_window_close();
                 }
             } else {
                 self.close_focused_pane()?;
@@ -121,6 +130,43 @@ impl Window {
         Ok(())
     }
 
+    /// Whether folder view is intentionally showing no active tab.
+    #[must_use]
+    pub(crate) fn has_empty_folder_workspace(&self) -> bool {
+        let focused_tab_count = self
+            .tree
+            .groups
+            .get(&self.tree.focused)
+            .map_or(0, |group| group.tabs.len());
+        is_empty_folder_workspace(self.file_tree.root().is_some(), focused_tab_count)
+    }
+
+    /// Restore a codec-safe placeholder immediately before the HWND exits.
+    pub(crate) fn prepare_empty_folder_workspace_for_close(&mut self) {
+        if self.has_empty_folder_workspace() {
+            self.install_blank_restore_tab(self.tree.focused, self.now_ms());
+        }
+    }
+
+    fn install_empty_folder_workspace(&mut self, pane: PaneId) {
+        let buffer = continuity_buffer::Buffer::synthetic_read_only("");
+        let now_ms = self.now_ms().min(i64::MAX as u64) as i64;
+        let buffer_id = self.editor.adopt_buffer(buffer, 1, now_ms);
+        self.apply_new_pane_state(buffer_id);
+        self.tab_session.adopted_tab = None;
+        self.file_tree_preview_tabs.remove(&pane);
+        self.panes.remove(&pane);
+        self.refresh_focused_viewport();
+        self.refresh_language();
+        invalidate_hwnd_with_reason(self.hwnd, "folder_workspace_empty");
+    }
+
+    fn post_window_close(&self) {
+        if self.hwnd.0 as isize != 0 {
+            let _ = unsafe { PostMessageW(Some(self.hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) };
+        }
+    }
+
     fn install_blank_restore_tab(&mut self, pane: PaneId, now: u64) {
         let buffer_id = self.editor.open_buffer(String::new());
         let tab_id = self.tree.insert_fresh_buffer_tab(buffer_id, now);
@@ -132,7 +178,7 @@ impl Window {
             group.mru.push(tab_id);
         }
         self.buffer_id = buffer_id;
-        self.view = continuity_layout::ViewState::new();
+        self.surface.view = continuity_layout::ViewState::new();
         self.apply_right_edge_chrome_for_current_view();
         self.panes.remove(&pane);
     }
@@ -289,5 +335,21 @@ impl Window {
             }
             return Some(id);
         }
+    }
+}
+
+fn is_empty_folder_workspace(has_folder_root: bool, focused_tab_count: usize) -> bool {
+    has_folder_root && focused_tab_count == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_empty_folder_workspace;
+
+    #[test]
+    fn zero_tabs_is_retained_only_in_folder_view() {
+        assert!(is_empty_folder_workspace(true, 0));
+        assert!(!is_empty_folder_workspace(false, 0));
+        assert!(!is_empty_folder_workspace(true, 1));
     }
 }

@@ -12,7 +12,7 @@
 //! building the viewport.
 //!
 //! See `.docs/design/performance.md` and
-//! `.docs/development/roadmap_v4.md` (Phase ε.3) for the broader
+//! `.docs/development/archive/roadmap_v4.md` (Phase ε.3) for the broader
 //! dirty-rebuild contract — this helper is the selection-only sibling
 //! to the rope-driven and decoration-driven dirty sets that already
 //! feed `DisplayMapBuilder::rebuild_dirty`.

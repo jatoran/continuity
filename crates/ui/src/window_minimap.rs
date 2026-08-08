@@ -20,7 +20,7 @@ impl Window {
         if !self.scroll_to_minimap_point(x, y, true) {
             return false;
         }
-        self.mouse_state.minimap_dragging = true;
+        self.surface.pointer.minimap_dragging = true;
         self.mouse_state.dragging = true;
         unsafe {
             let _ = SetCapture(self.hwnd);
@@ -30,7 +30,7 @@ impl Window {
 
     /// `WM_MOUSEMOVE` while the minimap drag is active.
     pub(crate) fn try_minimap_drag_mouse_move(&mut self, x: i32, y: i32) -> bool {
-        if !self.mouse_state.minimap_dragging {
+        if !self.surface.pointer.minimap_dragging {
             return false;
         }
         let _ = self.scroll_to_minimap_point(x, y, false);
@@ -39,10 +39,10 @@ impl Window {
 
     /// `WM_LBUTTONUP` terminates an active minimap drag.
     pub(crate) fn try_minimap_left_up(&mut self) -> bool {
-        if !self.mouse_state.minimap_dragging {
+        if !self.surface.pointer.minimap_dragging {
             return false;
         }
-        self.mouse_state.minimap_dragging = false;
+        self.surface.pointer.minimap_dragging = false;
         unsafe {
             let _ = windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture();
         }
@@ -73,16 +73,16 @@ impl Window {
             xf - body.x,
             yf - body.y,
             content_height_dip,
-            self.view.viewport_height_dip,
+            self.surface.view.viewport_height_dip,
         ) else {
             return false;
         };
         let line_height = self.effective_line_height();
         let target_buffer_y = hit.line as f32 * line_height;
         let target_dip = hit.target_scroll_dip;
-        let before = self.view.scroll_y_dip;
-        self.view.jump_to(target_dip, content_height_dip);
-        let scrolled = (self.view.scroll_y_dip - before).abs() > f32::EPSILON;
+        let before = self.surface.view.scroll_y_dip;
+        self.surface.view.jump_to(target_dip, content_height_dip);
+        let scrolled = (self.surface.view.scroll_y_dip - before).abs() > f32::EPSILON;
         if should_trace && crate::paint_trace::is_trace_enabled() {
             crate::paint_trace::log_event(
                 "event:minimap_click",

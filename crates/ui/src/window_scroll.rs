@@ -256,26 +256,27 @@ impl Window {
     /// Cancel active wheel inertia without touching any discrete
     /// `ViewState` animation.
     pub(crate) fn cancel_scroll_inertia(&mut self) {
-        self.scroll_inertia.cancel();
+        self.surface.scroll_inertia.cancel();
     }
 
     /// Current scroll inertia velocity for render tracing.
     #[must_use]
     pub(crate) fn scroll_velocity_dip_per_s(&self) -> f32 {
-        self.scroll_inertia.velocity_dip_per_s()
+        self.surface.scroll_inertia.velocity_dip_per_s()
     }
 
     /// Fields appended to `event:scroll_path`.
     #[must_use]
     pub(crate) fn scroll_trace_state(&self) -> (u128, u128, bool) {
         let target = self
+            .surface
             .scroll_inertia
             .target_pane()
             .map_or(0, |pane| u128::from(pane.0));
         (
             target,
             u128::from(self.tree.focused.0),
-            self.scroll_inertia.hover_routed(),
+            self.surface.scroll_inertia.hover_routed(),
         )
     }
 
@@ -325,7 +326,7 @@ impl Window {
                     (view.scroll_y_dip - before).abs() > f32::EPSILON
                 })
                 .unwrap_or(false);
-            if !self.view.animating() {
+            if !self.surface.view.animating() {
                 self.stop_scroll_anim(hwnd);
             }
             return moved;
@@ -340,7 +341,7 @@ impl Window {
         }) else {
             return false;
         };
-        self.scroll_inertia.add_wheel_delta(
+        self.surface.scroll_inertia.add_wheel_delta(
             target_pane,
             self.tree.focused,
             wheel_delta_dip(notches, wheel_speed, line_height),
@@ -370,12 +371,12 @@ impl Window {
         if !self.is_scroll_inertia_active() {
             return;
         }
-        if self.scroll_inertia.target_pane() != Some(self.tree.focused) {
+        if self.surface.scroll_inertia.target_pane() != Some(self.tree.focused) {
             return;
         }
-        let velocity = self.scroll_inertia.velocity_dip_per_s();
-        let viewport_h = self.view.viewport_height_dip;
-        let scroll_y = self.view.scroll_y_dip;
+        let velocity = self.surface.scroll_inertia.velocity_dip_per_s();
+        let viewport_h = self.surface.view.viewport_height_dip;
+        let scroll_y = self.surface.view.scroll_y_dip;
         let line_height = self.effective_line_height();
         let realized_start_dip = realized_start_row as f32 * line_height;
         let realized_end_dip = realized_end_row as f32 * line_height;
@@ -407,11 +408,11 @@ impl Window {
     /// timer.
     pub(crate) fn tick_scroll_inertia(&mut self) -> ScrollInertiaTick {
         let now_ms = unsafe { GetTickCount64() };
-        let Some(step) = self.scroll_inertia.next_step(now_ms) else {
+        let Some(step) = self.surface.scroll_inertia.next_step(now_ms) else {
             return ScrollInertiaTick::default();
         };
         let Some(body_rect) = self.pane_body_rect(step.target_pane) else {
-            self.scroll_inertia.cancel();
+            self.surface.scroll_inertia.cancel();
             return ScrollInertiaTick::default();
         };
         let content_height_dip = self.estimated_content_height_for_pane(step.target_pane);
@@ -433,7 +434,7 @@ impl Window {
             })
             .unwrap_or(false);
         if !moved {
-            self.scroll_inertia.cancel();
+            self.surface.scroll_inertia.cancel();
         }
         ScrollInertiaTick { moved }
     }
@@ -441,7 +442,7 @@ impl Window {
     /// Whether wheel inertia still needs the scroll timer.
     #[must_use]
     pub(crate) fn is_scroll_inertia_active(&self) -> bool {
-        self.scroll_inertia.is_active()
+        self.surface.scroll_inertia.is_active()
     }
 
     /// Item 8(d) — Shift+wheel over an overflowing tab strip scrolls the
@@ -490,6 +491,8 @@ impl Window {
         };
         let line_height = self.effective_line_height();
         if let Some(rows) = self
+            .surface
+            .projection
             .spectator_frame_cache
             .borrow()
             .display_line_count(pane, buffer_id)
@@ -518,7 +521,7 @@ impl Window {
         f: impl FnOnce(&mut ViewState) -> R,
     ) -> Option<R> {
         if pane == self.tree.focused {
-            return Some(f(&mut self.view));
+            return Some(f(&mut self.surface.view));
         }
         let buffer_id = self.buffer_id_for_pane(pane)?;
         let state = self

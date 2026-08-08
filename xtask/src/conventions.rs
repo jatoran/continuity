@@ -18,7 +18,7 @@ use crate::scan::{comment_text, find_word, strip_strings_and_comment};
 /// unconditional — there is no per-file exemption mechanism. When a file
 /// crosses the cap, split it into responsibility-scoped siblings
 /// (`foo.rs` + `foo/<helper>.rs`, no `mod.rs`).
-const FILE_LENGTH_CAP: usize = 600;
+pub(crate) const FILE_LENGTH_CAP: usize = 600;
 
 /// Path prefixes where `anyhow` is permitted. Everything else is denied.
 const ANYHOW_ALLOWED_PREFIXES: &[&str] = &[
@@ -73,8 +73,13 @@ pub fn run() -> Result<()> {
     check_no_tokio_in_lockfile(&mut violations)?;
 
     let mut rs_count = 0_usize;
+    let mut portable_count = 0_usize;
     for path in &files {
         let path_str = normalize_path(path);
+        if crate::conventions_portable::is_source(&path_str) {
+            portable_count += 1;
+            crate::conventions_portable::check_file_length(&path_str, path, &mut violations)?;
+        }
         if !path_str.ends_with(".rs") {
             continue;
         }
@@ -106,7 +111,7 @@ pub fn run() -> Result<()> {
 
     if !violations.is_empty() || tutorial_drift.is_err() {
         bail!(
-            "conventions: {} rust violation(s){}",
+            "conventions: {} source violation(s){}",
             violations.len(),
             if tutorial_drift.is_err() {
                 " + tutorial drift"
@@ -117,8 +122,9 @@ pub fn run() -> Result<()> {
     }
 
     println!(
-        "conventions: ok ({} rust files scanned, {} tracked files total, tutorial in sync)",
+        "conventions: ok ({} rust files, {} JS/TS/Python files, {} tracked files total, tutorial in sync)",
         rs_count,
+        portable_count,
         files.len()
     );
     Ok(())

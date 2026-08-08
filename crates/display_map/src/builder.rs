@@ -358,12 +358,14 @@ impl<'a> DisplayMapBuilder<'a> {
     ) -> Result<Arc<DisplayMap>, Error> {
         // Translate visible rows + overscan → source-line range.
         let total_rows = row_index.display_row_count();
-        let expanded_start = visible_rows.start.saturating_sub(overscan);
+        let expanded_start = visible_rows.start.saturating_sub(overscan).min(total_rows);
         let expanded_end = visible_rows.end.saturating_add(overscan).min(total_rows);
         let source_range = row_index.source_lines_for_display_rows(expanded_start..expanded_end);
 
         // Realize specs only for source lines in range.
-        let realized_row_start = if source_range.start < row_index.source_line_count() as usize {
+        let realized_row_start = if source_range.is_empty() {
+            expanded_start
+        } else if source_range.start < row_index.source_line_count() as usize {
             row_index
                 .first_display_row_of_source_line(SourceLine::from_usize(source_range.start))
                 .raw()
@@ -565,6 +567,7 @@ mod segment_coalescing;
 mod segments;
 mod segments_helpers;
 mod soft_wrap;
+mod source_lines;
 pub mod splice_row_index;
 pub(crate) mod stats;
 mod targeted_row_index;

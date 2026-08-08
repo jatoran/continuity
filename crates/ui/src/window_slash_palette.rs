@@ -54,7 +54,7 @@ impl Window {
         }
         self.overlays.dismiss();
         // `Overlays::dismiss` flips the discriminant to `Idle` but
-        // leaves `Window::overlay_input_focused` set. Without this blur
+        // leaves `EditorSurface::focus.overlay_input_focused` set. Without this blur
         // the next `WM_KEYDOWN` hits the `overlay_has_keyboard_focus()`
         // guard in `Window::on_keydown` and returns `true` (swallow),
         // killing every keystroke after a slash-palette command. The

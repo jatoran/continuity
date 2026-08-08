@@ -1,8 +1,6 @@
 //! Mouse handlers (click / double-click / drag) for [`crate::Window`].
 
-use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, ReleaseCapture, VK_CONTROL, VK_MENU, VK_SHIFT,
-};
+use windows::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_MENU, VK_SHIFT};
 
 use crate::window_input_modifiers::is_key_down;
 use crate::window_mouse_hover::wall_clock_ms;
@@ -42,8 +40,15 @@ impl Window {
             click_trace.claim("time_machine");
             return true;
         }
-        if self.try_file_tree_left_down(x, y) {
+        if self.try_file_tree_resize_left_down(x, y) {
             return true;
+        }
+        if self.try_file_tree_left_down(x, y, key_state) {
+            return true;
+        }
+        if self.file_tree.has_keyboard_focus() {
+            let _ = self.commit_file_tree_rename();
+            self.file_tree.set_keyboard_focus(false);
         }
         // Buffer-history tab: lane-click adopts that buffer as a new tab.
         if click_trace.measure(ClickStage::BufferHistory, || {
@@ -188,7 +193,8 @@ impl Window {
         });
         let click_count = click_trace.measure(ClickStage::ClickState, || {
             let now_ms = wall_clock_ms();
-            let click_count = self.mouse_state.register_click(now_ms, click_line);
+            let click_count = self.surface.pointer.register_click(now_ms, click_line);
+            self.mouse_state.dragging = true;
             self.begin_selection_drag(x, y);
             click_count
         });
@@ -211,8 +217,9 @@ impl Window {
                         let added = self.add_cursor_at_pixel(x, y);
                         if added {
                             let _ = Window::select_word_on_last(self);
+                            self.remember_word_drag_origin(true);
                         }
-                        self.mouse_state.multi_select_drag = added;
+                        self.surface.pointer.multi_select_drag = added;
                         return added;
                     }
                     // Inside a table cell: double-click enters edit
@@ -223,6 +230,7 @@ impl Window {
                     let _ = self.place_caret_at_pixel(x, y, false);
                     if !in_cell {
                         let _ = Window::select_word(self);
+                        self.remember_word_drag_origin(false);
                     }
                     true
                 }
@@ -250,8 +258,8 @@ impl Window {
                         // existing ranges stay put, a fresh caret lands at
                         // the click point, and the drag extends only that
                         // newest range (multi-region highlight).
-                        self.mouse_state.multi_select_drag = self.add_cursor_at_pixel(x, y);
-                        self.mouse_state.multi_select_drag
+                        self.surface.pointer.multi_select_drag = self.add_cursor_at_pixel(x, y);
+                        self.surface.pointer.multi_select_drag
                     } else if !is_key_down(VK_SHIFT.0) && self.try_select_cell_at_pixel(x, y) {
                         true
                     } else {
@@ -301,7 +309,8 @@ impl Window {
             .map(|p| p.line as i32)
             .unwrap_or(0);
         let now_ms = wall_clock_ms();
-        let _ = self.mouse_state.register_click(now_ms, click_line);
+        let _ = self.surface.pointer.register_click(now_ms, click_line);
+        self.mouse_state.dragging = true;
         self.begin_selection_drag(x, y);
         // Item 2 — Ctrl+double-click (without Shift) APPENDS a word range
         // to the existing multi-selection instead of replacing it (same
@@ -311,14 +320,16 @@ impl Window {
             let added = self.add_cursor_at_pixel(x, y);
             if added {
                 let _ = Window::select_word_on_last(self);
+                self.remember_word_drag_origin(true);
             }
-            self.mouse_state.multi_select_drag = added;
+            self.surface.pointer.multi_select_drag = added;
             return added;
         }
         let in_cell = self.try_cell_hit_at_pixel(x, y).is_some();
         let placed = self.place_caret_at_pixel(x, y, false);
         if !in_cell {
             let _ = Window::select_word(self);
+            self.remember_word_drag_origin(false);
         }
         placed
     }
@@ -376,22 +387,28 @@ impl Window {
         // Scrollbar drag claims WM_MOUSEMOVE while in flight — checked
         // before the `dragging` gate because the capture set on
         // `WM_LBUTTONDOWN` is what's keeping the messages flowing.
-        if self.mouse_state.scrollbar_drag.is_some() {
+        if self.surface.pointer.scrollbar_drag.is_some() {
             return self.try_scrollbar_drag_mouse_move(x, y);
         }
-        if self.mouse_state.minimap_dragging {
+        if self.surface.pointer.minimap_dragging {
             return self.try_minimap_drag_mouse_move(x, y);
         }
         // Phase F — a column-resize drag claims the move. Checked before
         // the `dragging` gate: the drag holds its own `SetCapture` but
         // does not set `mouse_state.dragging`.
-        if self.mouse_state.table_col_drag.is_some() {
+        if self.surface.pointer.table_col_drag.is_some() {
             return self.drag_table_col_resize(x);
         }
         // Outline-sidebar resize: same capture-without-`dragging`
         // pattern as the table column drag above.
         if self.mouse_state.outline_resize_drag.is_some() {
             return self.drag_outline_resize(x);
+        }
+        if self.mouse_state.file_tree_resize_drag.is_some() {
+            return self.drag_file_tree_resize(x);
+        }
+        if self.mouse_state.file_tree_entry_drag.is_some() {
+            return self.drag_file_tree_entry(x, y);
         }
         if !self.mouse_state.dragging {
             return invalidate_hover;
@@ -408,160 +425,15 @@ impl Window {
             // resolution the next mouse-up will actually commit.
             return self.on_tab_drag_mouse_move(x, y);
         }
-        let placed = if self.mouse_state.multi_select_drag {
+        let placed = if self.surface.pointer.word_drag_origin.is_some() {
+            self.extend_word_drag_at_pixel(x, y, self.surface.pointer.multi_select_drag)
+        } else if self.surface.pointer.multi_select_drag {
             self.extend_additional_selection_at_pixel(x, y)
         } else {
             self.extend_drag_selection_at_pixel(x, y)
         };
         self.update_mouse_drag_autoscroll_from_cursor(x, y);
         placed
-    }
-
-    /// `WM_LBUTTONUP`: commit any in-flight tab drag.
-    ///
-    /// Drop resolution, in priority order:
-    /// 1. Pure click on the tab (cursor never left the strip) → no-op.
-    /// 2. Cursor over a *different* pane inside this window → move tab.
-    /// 3. Cursor over a sibling Continuity window on the *current*
-    ///    virtual desktop → adopt the tab into that window.
-    /// 4. Otherwise tear off into a fresh window — always — so a drop
-    ///    on the desktop never silently "loses" the tab.
-    pub(crate) fn on_left_button_up(&mut self, x: i32, y: i32) -> bool {
-        let selection_drag_finished = self.finish_selection_drag_for_button_up();
-        self.mouse_state.multi_select_drag = false;
-        // Buffer-history tab: end an in-flight pan-drag. Runs first
-        // so a drag release doesn't bleed into tab-drop / splitter
-        // resolution paths below.
-        if self.on_buffer_history_left_button_up() {
-            let _ = (x, y);
-            return true;
-        }
-        // Phase-I1: end an in-flight slider drag (releases capture).
-        // Runs first so a slider drag doesn't accidentally trigger the
-        // tab-drop / splitter-drop branches below.
-        if self.try_time_machine_slider_left_up() {
-            let _ = (x, y);
-            return true;
-        }
-        if self.try_minimap_left_up() {
-            let _ = (x, y);
-            return true;
-        }
-        // Scrollbar drag terminates here — release capture, persist
-        // the new scroll offset. Routed before splitter/tab branches
-        // so a release inside a scrollbar drag doesn't accidentally
-        // tear off a tab when the cursor wanders.
-        if self.try_scrollbar_left_up() {
-            let _ = (x, y);
-            return true;
-        }
-        // Phase F — a column-resize drag commits its width to the table
-        // directive and releases capture here. Routed before the
-        // splitter / tab-drop branches so a release ending a resize drag
-        // doesn't bleed into them.
-        if self.finish_table_col_resize() {
-            let _ = (x, y);
-            return true;
-        }
-        // Outline-sidebar resize commits its width + releases capture.
-        if self.finish_outline_resize() {
-            let _ = (x, y);
-            return true;
-        }
-        // D3: splitter drag terminates here — release capture, persist.
-        if self.mouse_state.splitter_drag.take().is_some() {
-            unsafe {
-                let _ = ReleaseCapture();
-            }
-            // P0.8.2 — splitter drag committed a wrap_width change for
-            // the two adjacent panes. The drag itself fires per
-            // WM_MOUSEMOVE tick (too noisy to prewarm), so the
-            // prewarm happens once on the mouse-up. Only the focused
-            // pane is dispatched; spectator-pane prewarm is deferred.
-            let _ = self.try_dispatch_projection_worker_early("splitter_drag_end", "layout_change");
-            self.request_state_save();
-            let _ = (x, y);
-            return true;
-        }
-        let Some(drag) = self.mouse_state.tab_drag.as_ref().cloned() else {
-            return selection_drag_finished;
-        };
-        // Release the mouse capture set when the tab grab started.
-        unsafe {
-            let _ = ReleaseCapture();
-        }
-        let resolution = self.compute_tab_drop_resolution(&drag, x, y);
-        // Notify any sibling window we were broadcasting hover to that
-        // the drag is over so its preview affordance clears.
-        self.broadcast_tab_drag_hover_leave(&drag);
-        let elapsed = wall_clock_ms().saturating_sub(drag.start_ms);
-        let foreign = match resolution {
-            crate::mouse::TabDropResolution::ForeignWindow { hwnd_raw } => hwnd_raw as u64,
-            _ => 0,
-        };
-        let slot = match resolution {
-            crate::mouse::TabDropResolution::SourceStrip(i) => i.slot as i32,
-            _ => -1,
-        };
-        crate::paint_trace::log_event(
-            "tab_drag",
-            &format!(
-                "state=drop target={target} slot={slot} foreign_hwnd={foreign} \
-                 elapsed_ms_since_start={elapsed}",
-                target = resolution.as_trace_str(),
-            ),
-        );
-        self.clear_tab_drag_ghost();
-        let ctrl_held = unsafe { GetKeyState(VK_CONTROL.0 as i32) } < 0;
-        match resolution {
-            crate::mouse::TabDropResolution::Cancel => false,
-            crate::mouse::TabDropResolution::SourceStrip(target) => {
-                if target.pane == drag.pane {
-                    if let Some(group) = self.tree.groups.get_mut(&drag.pane) {
-                        let new_index = target.slot.min(group.tabs.len().saturating_sub(1));
-                        if group.reorder_tab(drag.tab, new_index) {
-                            self.request_state_save();
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-                if ctrl_held {
-                    let _ = self.clone_tab_to_pane(drag.tab, target.pane);
-                } else {
-                    let _ = self.move_tab_between_panes(drag.tab, drag.pane, target.pane);
-                }
-                true
-            }
-            crate::mouse::TabDropResolution::PaneBody {
-                pane: target_pane, ..
-            } => {
-                if target_pane == drag.pane {
-                    return false;
-                }
-                if ctrl_held {
-                    let _ = self.clone_tab_to_pane(drag.tab, target_pane);
-                } else {
-                    let _ = self.move_tab_between_panes(drag.tab, drag.pane, target_pane);
-                }
-                true
-            }
-            crate::mouse::TabDropResolution::ForeignWindow { .. } => {
-                self.try_cross_window_tab_drop(drag, x, y)
-            }
-            crate::mouse::TabDropResolution::TearOff => {
-                let args = self
-                    .client_dip_point_to_screen(x, y)
-                    .map(|(drop_screen_x, drop_screen_y)| {
-                        serde_json::json!({
-                            "drop_screen_x": drop_screen_x,
-                            "drop_screen_y": drop_screen_y,
-                        })
-                    })
-                    .unwrap_or(serde_json::Value::Null);
-                self.dispatch_command("window.tear_off_focused_tab", &args)
-            }
-        }
     }
 
     /// Click landed in a pane *body* (not its tab strip). Switch focus to

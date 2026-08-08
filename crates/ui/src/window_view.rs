@@ -26,12 +26,12 @@ impl Window {
     /// line could push the caret off-screen by many rows.
     pub(crate) fn view_toggle_soft_wrap_impl(&mut self) -> Result<(), Error> {
         self.with_caret_line_anchored(|w| {
-            w.view.toggle_soft_wrap();
-            let new_key = w.view.wrap_width_key();
-            w.cache.invalidate_other_wrap_widths(new_key);
+            w.surface.view.toggle_soft_wrap();
+            let new_key = w.surface.view.wrap_width_key();
+            w.surface.render.cache.invalidate_other_wrap_widths(new_key);
         });
         // δ.6 Tier 3 — contract (C) writeback to settings.toml.
-        self.persist_toggle_or_log("editor", "word_wrap", self.view.soft_wrap);
+        self.persist_toggle_or_log("editor", "word_wrap", self.surface.view.soft_wrap);
         self.request_state_save();
         // The toggle reflows; without an explicit invalidate the only
         // thing scheduling the repaint is the caret-blink timer, so the
@@ -47,9 +47,9 @@ impl Window {
         let line_height = self.effective_line_height();
         let dy = lines * line_height;
         let content_h = self.estimated_content_height();
-        self.view.line_height_dip = line_height;
-        self.view.overscroll_bottom_dip = self.overscroll_bottom_dip();
-        self.view.scroll_instant(dy, content_h);
+        self.surface.view.line_height_dip = line_height;
+        self.surface.view.overscroll_bottom_dip = self.overscroll_bottom_dip();
+        self.surface.view.scroll_instant(dy, content_h);
         self.request_state_save();
         Ok(())
     }
@@ -57,25 +57,29 @@ impl Window {
     /// Animated scroll by one viewport-page worth (PageDown / PageUp).
     pub(crate) fn view_scroll_page_impl(&mut self, direction: f32) -> Result<(), Error> {
         self.cancel_scroll_inertia();
-        let viewport_h = self.view.viewport_height_dip;
+        let viewport_h = self.surface.view.viewport_height_dip;
         let line_height = self.effective_line_height();
         // Leave one line of overlap so the user doesn't lose context per
         // page (Sublime / VS Code convention).
         let delta = direction * (viewport_h - line_height).max(line_height);
-        let target = self.view.scroll_y_dip + delta;
+        let target = self.surface.view.scroll_y_dip + delta;
         let content_h = self.estimated_content_height();
-        self.view.line_height_dip = line_height;
-        self.view.overscroll_bottom_dip = self.overscroll_bottom_dip();
+        self.surface.view.line_height_dip = line_height;
+        self.surface.view.overscroll_bottom_dip = self.overscroll_bottom_dip();
         if self.motion_policy().is_reduced_motion() || !self.view_options.smooth_scroll {
-            self.view.jump_to(target, content_h);
+            self.surface.view.jump_to(target, content_h);
             let hwnd = self.hwnd();
             self.stop_scroll_anim(hwnd);
             self.request_state_save();
             return Ok(());
         }
         let now_ms = unsafe { GetTickCount64() };
-        self.view
-            .scroll_animated(target, content_h, now_ms, u64::from(STRUCTURAL_MOTION_MS));
+        self.surface.view.scroll_animated(
+            target,
+            content_h,
+            now_ms,
+            u64::from(STRUCTURAL_MOTION_MS),
+        );
         let hwnd = self.hwnd();
         self.start_scroll_anim(hwnd);
         self.request_state_save();
@@ -86,17 +90,18 @@ impl Window {
     pub(crate) fn view_scroll_doc_start_impl(&mut self) -> Result<(), Error> {
         self.cancel_scroll_inertia();
         let content_h = self.estimated_content_height();
-        self.view.line_height_dip = self.effective_line_height();
-        self.view.overscroll_bottom_dip = self.overscroll_bottom_dip();
+        self.surface.view.line_height_dip = self.effective_line_height();
+        self.surface.view.overscroll_bottom_dip = self.overscroll_bottom_dip();
         if self.motion_policy().is_reduced_motion() || !self.view_options.smooth_scroll {
-            self.view.jump_to(0.0, content_h);
+            self.surface.view.jump_to(0.0, content_h);
             let hwnd = self.hwnd();
             self.stop_scroll_anim(hwnd);
             self.request_state_save();
             return Ok(());
         }
         let now_ms = unsafe { GetTickCount64() };
-        self.view
+        self.surface
+            .view
             .scroll_animated(0.0, content_h, now_ms, u64::from(STRUCTURAL_MOTION_MS));
         let hwnd = self.hwnd();
         self.start_scroll_anim(hwnd);
@@ -113,16 +118,16 @@ impl Window {
         // target, so a non-zero overscroll allowance in the clamp would
         // overshoot upward by that allowance. Zero it for the doc-end snap
         // so Ctrl+End is unaffected by scroll-past-end.
-        self.view.overscroll_bottom_dip = 0.0;
+        self.surface.view.overscroll_bottom_dip = 0.0;
         if self.motion_policy().is_reduced_motion() || !self.view_options.smooth_scroll {
-            self.view.jump_to(content_h, content_h);
+            self.surface.view.jump_to(content_h, content_h);
             let hwnd = self.hwnd();
             self.stop_scroll_anim(hwnd);
             self.request_state_save();
             return Ok(());
         }
         let now_ms = unsafe { GetTickCount64() };
-        self.view.scroll_animated(
+        self.surface.view.scroll_animated(
             content_h,
             content_h,
             now_ms,

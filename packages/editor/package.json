@@ -1,0 +1,101 @@
+{
+  "name": "@continuity-editor/editor",
+  "version": "0.2.22",
+  "description": "Accessible Continuity Web Component and synchronous WebAssembly editor engine",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jatoran/continuity.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "sideEffects": ["./index.js", "./controller.js", "./react.js", "./svelte.js", "./vue.js", "./conformance.js"],
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    },
+    "./react": {
+      "types": "./react.d.ts",
+      "import": "./react.js"
+    },
+    "./controller": {
+      "types": "./controller.d.ts",
+      "import": "./controller.js"
+    },
+    "./lazy": {
+      "types": "./lazy.d.ts",
+      "import": "./lazy.js"
+    },
+    "./svelte": {
+      "types": "./svelte.d.ts",
+      "import": "./svelte.js"
+    },
+    "./vue": {
+      "types": "./vue.d.ts",
+      "import": "./vue.js"
+    },
+    "./commit-queue": {
+      "types": "./commit-queue.d.ts",
+      "import": "./commit-queue.js"
+    },
+    "./conformance": {
+      "types": "./conformance.d.ts",
+      "import": "./conformance.js"
+    },
+    "./styles.css": "./styles.css",
+    "./wasm": "./internal/continuity_wasm_bg.wasm"
+  },
+  "files": [
+    "index.js",
+    "index.js.map",
+    "index.d.ts",
+    "react.js",
+    "react.d.ts",
+    "controller.js",
+    "controller.d.ts",
+    "lazy.js",
+    "lazy.d.ts",
+    "svelte.js",
+    "svelte.d.ts",
+    "vue.js",
+    "vue.d.ts",
+    "commit-queue.js",
+    "commit-queue.d.ts",
+    "conformance.js",
+    "conformance.d.ts",
+    "src",
+    "styles.css",
+    "integrity.json",
+    "README.md",
+    "CHANGELOG.md",
+    "internal/continuity_wasm.js",
+    "internal/continuity_wasm.d.ts",
+    "internal/continuity_wasm_bg.wasm",
+    "internal/continuity_wasm_bg.wasm.d.ts"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "react": ">=18.2.0 <20",
+    "vue": ">=3.4.0 <4"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    }
+  },
+  "browserslist": [
+    "Chrome >= 126",
+    "Electron >= 31"
+  ]
+}

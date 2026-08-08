@@ -36,8 +36,10 @@ impl Window {
         let rope = snapshot.rope_snapshot().rope();
         let selections = snapshot.selections().to_vec();
 
-        let fingerprint_ok = self.intended_columns_for.len() == selections.len()
+        let fingerprint_ok = self.surface.selection.intended_columns_for.len() == selections.len()
             && self
+                .surface
+                .selection
                 .intended_columns_for
                 .iter()
                 .zip(selections.iter())
@@ -50,8 +52,9 @@ impl Window {
         let frame_display = self.maybe_build_motion_frame_display(rope, &selections);
 
         if !fingerprint_ok {
-            self.intended_columns = selections.iter().map(|s| s.head.byte_in_line).collect();
-            self.intended_display_columns = selections
+            self.surface.selection.intended_columns =
+                selections.iter().map(|s| s.head.byte_in_line).collect();
+            self.surface.selection.intended_display_columns = selections
                 .iter()
                 .map(|s| {
                     frame_display
@@ -65,6 +68,8 @@ impl Window {
         let mut new_selections = Vec::with_capacity(selections.len());
         for (i, selection) in selections.iter().enumerate() {
             let intended = self
+                .surface
+                .selection
                 .intended_columns
                 .get(i)
                 .copied()
@@ -74,6 +79,8 @@ impl Window {
                 // through narrow rows — fingerprint mismatch is what
                 // invalidates it (handled above), not the row width.
                 let intended_db = self
+                    .surface
+                    .selection
                     .intended_display_columns
                     .get(i)
                     .copied()
@@ -91,7 +98,8 @@ impl Window {
             new_selections.push(new_sel);
         }
 
-        self.intended_columns_for = new_selections.iter().map(|s| s.head).collect();
+        self.surface.selection.intended_columns_for =
+            new_selections.iter().map(|s| s.head).collect();
         let changed = new_selections.as_slice() != selections.as_slice();
         let count = new_selections.len();
         let _scope = is_trace_enabled().then(|| {
@@ -120,7 +128,7 @@ impl Window {
     /// Returns `None` when wrap is off (the source-line path handles
     /// that case without needing a projection). Otherwise, prefers
     /// the most recent painted projection on
-    /// [`crate::Window::last_painted_frame_display`] when its query
+    /// `EditorSurface::projection.last_painted_frame_display` when its query
     /// is `is_compatible_for_motion` with the current rope /
     /// decoration / wrap / font / fold context — Up/Down on a
     /// 6000-line buffer used to pay an O(document) `FrameDisplay::build`
@@ -132,12 +140,12 @@ impl Window {
     /// the cache so subsequent steps are exact). This trades a small
     /// transient correctness drift for input responsiveness against
     /// very large buffers, per the first-pass large-buffer plan.
-    fn maybe_build_motion_frame_display(
+    pub(crate) fn maybe_build_motion_frame_display(
         &self,
         rope: &Rope,
         selections: &[Selection],
     ) -> Option<continuity_render::FrameDisplay> {
-        if !self.view.soft_wrap {
+        if !self.surface.view.soft_wrap {
             return None;
         }
         let metrics =
@@ -171,9 +179,11 @@ impl Window {
             &caret_bytes,
             &folds,
             metrics.wrap_width_dip,
-            self.font_state,
+            self.surface.render.font_state,
         );
-        if let Some((cached_query, cached_fd)) = self.last_painted_frame_display.as_ref() {
+        if let Some((cached_query, cached_fd)) =
+            self.surface.projection.last_painted_frame_display.as_ref()
+        {
             if cached_query.is_compatible_for_motion(&query)
                 && motion_cache_realized_covers_caret(cached_fd, selections)
             {
@@ -182,7 +192,7 @@ impl Window {
         }
         // Cache miss: skip the O(document) rebuild and fall back to
         // source-line stepping for this one keystroke. The next paint
-        // reseeds [`Window::last_painted_frame_display`] so any
+        // reseeds `EditorSurface::projection.last_painted_frame_display` so any
         // remaining motion in the burst hits the cache.
         None
     }

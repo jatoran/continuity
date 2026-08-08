@@ -28,6 +28,16 @@ structured-JSON outcome on stdout for agent consumption; the
 human-readable summary goes to stderr; exit code mirrors the JSON
 `pass` field.
 
+`bench-fast`, `bench`, and `perf-snapshot` group exact package/test coordinates
+into Cargo release/LTO invocations. Targets are merged only when their package
+sets are identical, avoiding Cargo's package × target cross-product. A failed
+group is rerun target-by-target to keep failure localization. This avoids
+recompiling the same editor dependency graph for every passing gate. Focused
+buffer/decorate/display-map/persist/render perf tests disable
+`continuity-test-support`'s default `native-harness` feature and therefore pull
+only the portable percentile/parity helpers; full core/UI tests explicitly
+enable the native harness.
+
 ## xtask command catalogue
 
 Run `cargo xtask help` for the canonical list. For hook/CI membership
@@ -49,6 +59,14 @@ and perf-gate command hints, use
 | `perf-history-append` | Appends the latest snapshot to `.perf/history.jsonl` (idempotent on `(sha, host_id)`). |
 | `perf-report [--last N]` | Prints a per-gate p99 / p99.9 / jitter trend table. |
 | `perf-compare --baseline <sha>` | Compares the latest snapshot against `<sha>` from history; non-zero exit on >10% p99 or >20% p99.9 growth. |
+| `wasm-package` | Builds the size-optimized WASM module, generated internal binding, and npm tarball under `target/wasm-sdk/`. |
+| `wasm-check` | Compiles the portable closure, runs native/WASM serialized parity, packs and clean-installs npm, and gates WASM, edited-viewport, installed-package, JavaScript, and lazy-entry budgets. |
+| `browser-check` | Runs `wasm-check`, clean-installs the tarball for Chromium, enforces Web Component behavior/accessibility/browser budgets over two passes (desktop pointer, then the touch-shield contract under coarse-pointer emulation), then clean-installs it for the Electron IPC persistence smoke. |
+| `desktop-check` | Installs the exact packed Web Component, tests/audits the Electron host, makes OS artifacts, audits ASAR/budgets, and runs packaged edit/export/recovery, single-instance handoff, and final-edit close probes. |
+| `sdk-check` | Packages/dry-runs the Cargo closure, audits/extracts archives into a clean Rust consumer, compiles the checked C ABI consumer, and clean-installs/tests the Python wheel. |
+| `sdk-release-check` | Verifies canonical SDK version, repository, MSRV, package coordinates, npm tags, Python floor, and C ABI metadata. |
+| `sdk-release-dry-run` | Runs native/npm packed gates once and emits the immutable hashes, C archive, wheel, npm tarball, Cargo archives, and CycloneDX SBOM. |
+| `sdk-release-verify` | Rehashes a staged SDK bundle and rejects missing, changed, or path-escaping artifacts. |
 
 ## Perf gates
 
@@ -69,6 +87,15 @@ variance-tail check landed in §B4 and lives in
 | memory empty session | `continuity-test-support` | `perf_gates_memory_empty` | 40 MB | 40 MB | fast |
 | memory 50 buffers | `continuity-test-support` | `perf_gates_memory_50` | 90 MB | 90 MB | fast |
 | memory 200 buffers / 50 MB | `continuity-test-support` | `perf_gates_memory_200` | 180 MB | 180 MB | fat |
+| browser component ready (1,500 lines) | packed npm / Chromium | `browser-suite.mjs` | — | 2,000 ms | wasm-sdk |
+| browser scroll to end | packed npm / Chromium | `browser-suite.mjs` | — | 100 ms | wasm-sdk |
+| browser input → paint-ready frame | packed npm / Chromium | `browser-suite.mjs` | 50 ms p99 | 50 ms p99 / 80 ms p99.9 | wasm-sdk |
+
+Browser gates are presentation-specific and do not reuse Direct2D budgets.
+The browser runner also inspects Chromium's platform accessibility tree for a
+named multiline textbox. Manual screen-reader checks remain human acceptance
+and are tracked in
+[`embeddable_presentation_spike_2026-07-17.md`](../development/archive/embeddable_presentation_spike_2026-07-17.md).
 
 The keypress→pixel 8 ms total breaks down per spec §15:
 
@@ -108,7 +135,7 @@ matching row.
 
 `cargo xtask perf-report` prints a per-gate trend table. `host_id`
 defaults to `$COMPUTERNAME` / `$HOSTNAME`; CI overrides it via
-`CONTINUITY_HOST_ID=github-actions-windows-latest` so cross-host
+`CONTINUITY_HOST_ID=github-actions-windows-2022` so cross-host
 samples don't false-trigger regressions.
 
 ## E2E harness
@@ -134,6 +161,26 @@ shipped tests live in `crates/ui/tests/`:
 The pixel canary deliberately does **not** use the C1 harness — it
 needs WARP for determinism, the harness drives hardware D3D for
 production fidelity. Different tools for different jobs.
+
+`crates/test_support/src/editor_control_harness.rs::EditorControlHarness` is
+the separate embedding harness. Its plain parent HWND owns the Win32 message
+pump and creates `WS_CHILD` controls without the desktop `Window`, actor,
+SQLite, placement, registry, or application services. The
+`editor_control_host` integration target covers native behavior, multiple
+controls, and teardown/recreation. Its ordinary tests run in CI. The latency,
+private-memory, and idle-CPU assertions run serially in release mode through
+`cargo xtask bench-fast` and higher perf tiers. To run only that target:
+
+```powershell
+cargo test --release -p continuity-ui --test editor_control_host -- --ignored --test-threads=1 --nocapture
+```
+
+Child budgets are <=8 ms keypress-to-present p99, <=48 MiB private commit per
+control, and <=5% idle process CPU over a two-second process-time sample in the
+dedicated serial process. On Windows, `xtask` launches performance-gate
+subprocesses in the high-priority process class so active desktop scheduling
+does not turn compositor contention into a false regression; the budgets and
+sample calculations are unchanged.
 
 ## Crash-recovery E2E
 
@@ -162,11 +209,41 @@ mid-batch, reopens, asserts every Ok-returned `append_edit` survived.
 
 `.github/workflows/ci.yml`:
 
-- **check-all** (`windows-latest`, every push + PR): runs
-  `xtask conventions` + `xtask check-all`. Uploads
-  `target/perf/snapshot-*.json` as an artifact.
+- **sdk-contract** (`ubuntu-latest`, every push + PR): verifies canonical SDK
+  coordinates, checks `continuity-engine` on Rust 1.89, syntax-checks JS,
+  type-checks the TypeScript declaration surface, Ruff-checks/formats Python,
+  and runs target-specific Cargo license/advisory/source policy.
+- **wasm-sdk** (`ubuntu-latest`, every push + PR): installs the
+  `wasm32-unknown-unknown` target, Node 22, and the lockfile-matched
+  `wasm-bindgen-cli`, then runs `xtask browser-check` against the exact packed
+  npm artifact and Chromium/Electron consumers.
+- **native-sdk** (`windows-latest`, every push + PR): installs stable Rust and
+  Python 3.13, then runs `xtask sdk-check` against Cargo archives, the MSVC C
+  ABI, and the CPython 3.10+ `abi3` wheel.
+- **desktop-web** (`windows-latest`, `macos-latest`, and `ubuntu-latest`, every
+  push + PR): runs `xtask desktop-check`, verifies the platform installer/DMG/
+  deb lifecycle, and uploads the native distributables. Pull-request artifacts
+  are unsigned; release signing/notarization uses separate credentials.
+- **check-all** (`windows-2022`, every push + PR): runs
+  `xtask conventions` + `xtask check-all`. The image is pinned because WARP/
+  DirectWrite pixel hashes and performance history require a stable operating-
+  system renderer baseline; the Windows distribution jobs continue covering
+  `windows-latest`. The job explicitly selects the separately recorded
+  `github-actions-windows-2022` text and inline-image pixel baseline, leaving
+  local Windows hashes untouched. Uploads `target/perf/snapshot-*.json` as an
+  artifact. Supply-chain verification runs `cargo audit`, `cargo deny check`,
+  and `cargo machete` with an explicit exit-code gate after every command so a
+  later successful check cannot mask an earlier failure. The UI manifest has a
+  narrow `windows-core` exemption because `windows::core::implement` expands to
+  direct `windows_core` paths that the manifest scanner cannot observe.
 - **perf-history** (push to `main` only): downloads the artifact, runs
   `perf-history-append`, commits `.perf/history.jsonl` with `[skip ci]`.
+
+`.github/workflows/sdk-release.yml` is a separate release train. Its packed
+Chromium/Electron performance preflight must pass before staging. Manual runs
+only stage. Protected `sdk-v*` tags build one immutable bundle, attest its
+provenance/SBOM, then require independent `npm`, `crates-io`, `pypi`, and
+`sdk-release` environment approvals before registry or GitHub mutation.
 - **pr-perf-compare** (PRs only): downloads the artifact, runs
   `perf-compare --baseline $(git merge-base origin/main HEAD)`, posts
   the result as a sticky PR comment. `continue-on-error: true` for

@@ -11,6 +11,12 @@ Use `.docs/generated/` for current mechanical facts before broad source search. 
 - [conventions.md](conventions.md) — file-length cap, no-mod-rs, no-unwrap, naming, commits.
 - [selection-edit-flow.md](selection-edit-flow.md) — keystroke → planner → undo group → persist (code walkthrough).
 - [paint-flow.md](paint-flow.md) — WM_PAINT → frame display → layout cache → D2D draw (code walkthrough).
+- [testing-and-perf.md](testing-and-perf.md) — validation tiers, performance gates, snapshots, and history.
+- [trace-guide.md](trace-guide.md) — native trace capture, analysis, and regression workflow.
+- [wasm-sdk.md](wasm-sdk.md) — WASM closure, npm facade, browser contracts, packaging, and budgets.
+- [native-sdk.md](native-sdk.md) — Cargo, C ABI, and Python distributions plus clean-consumer gates.
+- [desktop-web.md](desktop-web.md) — Electron host source map, packaging, artifact smoke, and release mechanics.
+- [editor-bakeoff.md](editor-bakeoff.md) — local Markdown editor comparison harness and measurement contract.
 
 ## Generated references
 
@@ -34,10 +40,15 @@ Use `.docs/generated/` for current mechanical facts before broad source search. 
 
 ## Where else to look
 - `.docs/design/` — system documentation (intent + invariants per feature).
-- `.docs/development/spec.md` — source of truth (long-form).
+- `.docs/development/archive/spec.md` — historical long-form specification;
+  current authority lives in design/technical docs.
 - `.docs/development/code_organization.md` — overlapping long-form layer graph + abstraction rules.
 - `.docs/development/development_conventions.md` — overlapping long-form conventions.
 - `crates/<x>/README.md` — one-paragraph crate purpose.
 - `xtask/src/conventions.rs` — machine-checkable rules.
 
-The `.docs/technical/` files here are **agent-optimized** (short, code-pointered, code-example-heavy). When they conflict with the long-form references in `.docs/development/`, the long-form wins as the canonical source.
+The `.docs/technical/` files here are **agent-optimized** (short,
+code-pointered, code-example-heavy). Current behavior and modification rules
+live in `.docs/design/`, `.docs/technical/`, package/crate READMEs, and
+generated inventories. `.docs/development/archive/` is historical evidence;
+`xtask/src/conventions.rs` wins for machine-checkable conventions.

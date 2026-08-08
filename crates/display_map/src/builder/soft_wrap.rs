@@ -14,7 +14,10 @@ use crate::id::{DisplayByte, SourceByte};
 use crate::line::DisplayLineSpec;
 use crate::segment::DisplaySegment;
 use crate::style::SpanStyle;
-use crate::wrap::{continuation_wrap_budget_dip, hanging_indent_dip, WidthMeasure, WrapConfig};
+use crate::wrap::{
+    continuation_wrap_budget_dip, hanging_indent_dip, list_item_content_start_byte,
+    preferred_word_break, WidthMeasure, WrapConfig,
+};
 
 /// If the line fits, return `[spec]`; otherwise split it at word-aware
 /// break points (falling back to grapheme breaks when no whitespace is
@@ -53,6 +56,7 @@ pub(super) fn soft_wrap_spec(
     // column by exactly the indent width.
     let hang_indent = hanging_indent_dip(line_text, measure);
     let continuation_max_width = continuation_wrap_budget_dip(max_width, hang_indent);
+    let protected_list_prefix_end = list_item_content_start_byte(spec.display_text());
 
     // Find wrap breakpoints in display space, then translate back to
     // source bytes via the spec's `display_to_source` table.
@@ -61,6 +65,7 @@ pub(super) fn soft_wrap_spec(
         line_text,
         max_width,
         continuation_max_width,
+        protected_list_prefix_end,
         measure,
     );
     if break_points.is_empty() {
@@ -178,6 +183,7 @@ fn grapheme_word_break_points_styled(
     line_text: &str,
     max_width: f32,
     continuation_max_width: f32,
+    protected_list_prefix_end: Option<usize>,
     measure: &mut dyn WidthMeasure,
 ) -> Vec<usize> {
     let mut breaks: Vec<usize> = Vec::new();
@@ -211,7 +217,12 @@ fn grapheme_word_break_points_styled(
                 running_at_word_break = running + w;
             }
             if running + w > row_budget && byte_off > line_start_byte {
-                let word_break = last_word_break.filter(|c| *c > line_start_byte);
+                let word_break = preferred_word_break(
+                    last_word_break,
+                    line_start_byte,
+                    byte_off,
+                    protected_list_prefix_end,
+                );
                 let cut = word_break.unwrap_or(byte_off);
                 breaks.push(cut);
                 line_start_byte = cut;

@@ -37,7 +37,7 @@ pub(crate) struct DocEndSnapStep {
 pub(crate) struct DocEndSnapPaintAction {
     /// Scroll value that the already-resolved frame was built for. When
     /// present, the current paint must draw with this value; the real
-    /// `Window::view` has already moved to the snap target for the next
+    /// `EditorSurface::view` has already moved to the snap target for the next
     /// paint.
     pub previous_scroll_y_dip: Option<f32>,
     /// Schedule the snap repaint after `EndPaint`, so Win32 cannot
@@ -142,7 +142,7 @@ impl Window {
         &mut self,
         frame_display: &FrameDisplay,
     ) -> DocEndSnapPaintAction {
-        if !self.pending_doc_end_scroll {
+        if !self.surface.pending_doc_end_scroll {
             return DocEndSnapPaintAction::default();
         }
 
@@ -156,13 +156,13 @@ impl Window {
         // fixed `END_OF_BUFFER_BOTTOM_PADDING_DIP`.
         let content_h = realized_rows as f32 * line_height;
         let scroll_extent_h = content_h + END_OF_BUFFER_BOTTOM_PADDING_DIP;
-        let previous_scroll_y_dip = self.view.scroll_y_dip;
+        let previous_scroll_y_dip = self.surface.view.scroll_y_dip;
         let step = compute_doc_end_snap_step(
             authoritative,
             scroll_extent_h,
-            self.view.viewport_height_dip,
-            self.view.scroll_y_dip,
-            self.pending_doc_end_scroll_attempts,
+            self.surface.view.viewport_height_dip,
+            self.surface.view.scroll_y_dip,
+            self.surface.pending_doc_end_scroll_attempts,
             DOC_END_SCROLL_MAX_ATTEMPTS,
         );
 
@@ -174,7 +174,7 @@ impl Window {
         // shows the under-report. Gated so the format runs only when tracing
         // is on.
         if crate::paint_trace::is_trace_enabled() {
-            let target = (scroll_extent_h - self.view.viewport_height_dip).max(0.0);
+            let target = (scroll_extent_h - self.surface.view.viewport_height_dip).max(0.0);
             let outcome = if step.jump_to.is_none() {
                 "settled_noop"
             } else if authoritative {
@@ -195,8 +195,8 @@ impl Window {
                     current = previous_scroll_y_dip,
                     realized = realized_rows,
                     est = estimated_rows,
-                    vp = self.view.viewport_height_dip,
-                    ain = self.pending_doc_end_scroll_attempts,
+                    vp = self.surface.view.viewport_height_dip,
+                    ain = self.surface.pending_doc_end_scroll_attempts,
                     aout = step.attempts,
                     fin = step.finalize,
                     inv = step.invalidate,
@@ -210,8 +210,8 @@ impl Window {
             // BOTTOM (one EOF inset), independent of scroll-past-end. Zero
             // the overscroll allowance so the clamp cannot raise the snap
             // target into the overscroll zone.
-            self.view.overscroll_bottom_dip = 0.0;
-            self.view.jump_to(target, scroll_extent_h);
+            self.surface.view.overscroll_bottom_dip = 0.0;
+            self.surface.view.jump_to(target, scroll_extent_h);
             action.previous_scroll_y_dip = Some(previous_scroll_y_dip);
             if !authoritative {
                 // The bottom region isn't realized yet — its paint would
@@ -228,9 +228,9 @@ impl Window {
         if step.invalidate {
             action.post_paint_invalidate = true;
         }
-        self.pending_doc_end_scroll_attempts = step.attempts;
+        self.surface.pending_doc_end_scroll_attempts = step.attempts;
         if step.finalize {
-            self.pending_doc_end_scroll = false;
+            self.surface.pending_doc_end_scroll = false;
         }
         action
     }

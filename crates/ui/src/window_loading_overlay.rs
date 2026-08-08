@@ -160,7 +160,7 @@ impl Window {
     ) -> (Option<LoadingOverlayDraw>, Option<SurfaceMotion>) {
         build_loading_overlay_frame(
             &self.loading_overlay_state,
-            self.view.viewport_width_dip.max(0.0),
+            self.surface.view.viewport_width_dip.max(0.0),
             editor_colors.loading_overlay_bg,
             editor_colors.loading_overlay_fg,
             editor_colors.loading_overlay_border,

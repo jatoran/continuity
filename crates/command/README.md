@@ -3,7 +3,12 @@
 Command registry, context predicates, dispatch. The single funnel through
 which the keymap, command palette, and tests invoke editor behavior.
 
-Layer: middle. Depends on `buffer`, `core`.
+Layer: middle. Depends on `host`, `buffer`, `core`.
+
+`src/portable_operation.rs` delegates context-free editor and Markdown command
+names to the storage-neutral `host` resolver. Desktop files, panes, tabs,
+windows, settings, and commands requiring live host settings remain registry
+handlers over `Context`.
 
 Owns one embedded asset: `assets/tutorial.md`, surfaced as
 `TUTORIAL_MD` and consumed by `help.tutorial` (see `src/help.rs`). The

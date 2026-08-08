@@ -8,7 +8,7 @@ use rusqlite::Connection;
 use crate::Error;
 
 /// The schema version this build of `continuity-persist` writes.
-pub const CURRENT_VERSION: u32 = 6;
+pub const CURRENT_VERSION: u32 = 8;
 
 /// SQL for the version-1 schema. Idempotent (`IF NOT EXISTS`).
 const SCHEMA_V1: &str = r#"
@@ -113,31 +113,11 @@ CREATE INDEX IF NOT EXISTS idx_windows_last_seen
 
 /// Migration to schema version 4.
 ///
-/// Phase I (history + metrics):
-/// - `buffer_snapshots.label` — optional user-supplied label for a
-///   named snapshot (`buffer.mark_snapshot "<label>"` — §I1).
-///   `ALTER TABLE … ADD COLUMN` is idempotent under the `PRAGMA
-///   user_version` gating; existing rows acquire `NULL`.
-/// - `metrics_daily` table backing the WPM + activity heatmap buffer
-///   (§I2). One row per local-calendar day; columns store totals so
-///   the buffer's heatmap and sparkline are a single range query.
+/// Adds `buffer_snapshots.label`, the optional user-supplied label for a
+/// named snapshot (`buffer.mark_snapshot "<label>"`). Existing rows acquire
+/// `NULL` under the `PRAGMA user_version` migration gate.
 const SCHEMA_V4: &str = r#"
 ALTER TABLE buffer_snapshots ADD COLUMN label TEXT;
-
-CREATE TABLE IF NOT EXISTS metrics_daily (
-    day_iso         TEXT    PRIMARY KEY,
-    keystrokes      INTEGER NOT NULL DEFAULT 0,
-    chars_typed     INTEGER NOT NULL DEFAULT 0,
-    chars_deleted   INTEGER NOT NULL DEFAULT 0,
-    active_ms       INTEGER NOT NULL DEFAULT 0,
-    wpm_peak        INTEGER NOT NULL DEFAULT 0,
-    wpm_sum         INTEGER NOT NULL DEFAULT 0,
-    wpm_samples     INTEGER NOT NULL DEFAULT 0,
-    updated_at      INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE INDEX IF NOT EXISTS idx_metrics_daily_day
-    ON metrics_daily(day_iso DESC);
 "#;
 
 /// Migration to schema version 5.
@@ -171,6 +151,26 @@ const SCHEMA_V6: &str = r#"
 ALTER TABLE buffers ADD COLUMN file_content_hash BLOB;
 "#;
 
+const SCHEMA_V7: &str = r#"
+CREATE TABLE IF NOT EXISTS known_vaults (
+    root_path       TEXT PRIMARY KEY COLLATE NOCASE,
+    display_name    TEXT NOT NULL,
+    pinned          INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
+    last_opened_ms  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_known_vaults_order
+    ON known_vaults(pinned DESC, last_opened_ms DESC);
+"#;
+
+/// Migration to schema version 8.
+///
+/// Removes the discontinued typing-metrics data. The feature has no runtime
+/// reader or writer, and product policy explicitly discards historical rows.
+const SCHEMA_V8: &str = r#"
+DROP TABLE IF EXISTS metrics_daily;
+"#;
+
 /// Apply the schema, advancing `user_version` as needed.
 pub(crate) fn migrate(conn: &Connection) -> Result<(), Error> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
@@ -194,6 +194,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), Error> {
     }
     if current < 6 {
         conn.execute_batch(SCHEMA_V6)?;
+    }
+    if current < 7 {
+        conn.execute_batch(SCHEMA_V7)?;
+    }
+    if current < 8 {
+        conn.execute_batch(SCHEMA_V8)?;
     }
     if current < CURRENT_VERSION {
         conn.pragma_update(None, "user_version", CURRENT_VERSION)?;
@@ -226,7 +232,7 @@ mod tests {
     }
 
     #[test]
-    fn migrate_to_v4_adds_label_column_and_metrics_table() {
+    fn migrate_adds_snapshot_label_without_metrics_table() {
         let conn = Connection::open_in_memory().unwrap();
         migrate(&conn).unwrap();
         // `label` column on buffer_snapshots is queryable.
@@ -238,11 +244,14 @@ mod tests {
             )
             .unwrap();
         assert_eq!(label_count, 0);
-        // `metrics_daily` exists.
-        let mcount: i64 = conn
-            .query_row("SELECT count(*) FROM metrics_daily", [], |r| r.get(0))
+        let metrics_table_count: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'metrics_daily'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
-        assert_eq!(mcount, 0);
+        assert_eq!(metrics_table_count, 0);
     }
 
     #[test]
@@ -254,5 +263,44 @@ mod tests {
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
         assert_eq!(v, CURRENT_VERSION);
+    }
+
+    #[test]
+    fn migration_drops_legacy_metrics_table_and_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE metrics_daily (
+                day_iso TEXT PRIMARY KEY,
+                keystrokes INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO metrics_daily (day_iso, keystrokes) VALUES ('2026-05-13', 42);
+            PRAGMA user_version = 7;",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let metrics_table_count: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'metrics_daily'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(metrics_table_count, 0);
+        let version: u32 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, CURRENT_VERSION);
+    }
+
+    #[test]
+    fn migrate_to_v7_creates_known_vaults_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT count(*) FROM known_vaults", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
     }
 }

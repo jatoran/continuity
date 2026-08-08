@@ -59,6 +59,11 @@ impl Window {
                 q.refilter();
                 true
             }
+            Overlays::VaultLauncher(launcher) => {
+                launcher.input.insert_char(ch);
+                launcher.refilter();
+                true
+            }
             Overlays::GotoLine(g) => {
                 g.input.insert_char(ch);
                 true
@@ -167,6 +172,37 @@ impl Window {
             }
             if vk == VK_LETTER_R {
                 self.open_timeline_for_highlighted_closed_buffer();
+                return true;
+            }
+        }
+        if matches!(self.overlays, Overlays::VaultLauncher(_)) {
+            if vk == VK_RETURN.0 && chord.modifiers.ctrl {
+                self.confirm_vault_launcher(true);
+                return true;
+            }
+            if chord.modifiers.ctrl && vk == 0x4F {
+                self.browse_vault_from_launcher();
+                return true;
+            }
+            if chord.modifiers.ctrl && vk == 0x49 {
+                self.initialize_vault_from_launcher();
+                return true;
+            }
+            if chord.modifiers.alt && !chord.modifiers.ctrl {
+                match vk {
+                    VK_LETTER_P => {
+                        self.toggle_selected_vault_pin();
+                        return true;
+                    }
+                    VK_LETTER_S => {
+                        self.shortcut_selected_vault();
+                        return true;
+                    }
+                    _ => {}
+                }
+            }
+            if chord.modifiers.ctrl && vk == VK_DELETE.0 {
+                self.forget_selected_vault();
                 return true;
             }
         }
@@ -364,6 +400,7 @@ impl Window {
             Overlays::FindInAll(fia) => fia.step(delta),
             Overlays::Palette(p) => p.step(delta),
             Overlays::QuickOpen(q) => q.step(delta),
+            Overlays::VaultLauncher(launcher) => launcher.step(delta),
             Overlays::GotoHeading(g) => g.step(delta),
             Overlays::FontPicker(fp) => {
                 fp.step(delta);
@@ -433,6 +470,12 @@ impl Window {
                 let changed = apply_input_op(&mut q.input, op);
                 if changed {
                     q.refilter();
+                }
+            }
+            Overlays::VaultLauncher(launcher) => {
+                let changed = apply_input_op(&mut launcher.input, op);
+                if changed {
+                    launcher.refilter();
                 }
             }
             Overlays::GotoLine(g) => {

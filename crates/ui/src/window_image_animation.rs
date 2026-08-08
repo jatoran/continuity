@@ -25,7 +25,7 @@ impl Window {
         if self.view_options.image_animation_timer_active {
             return;
         }
-        let Some(renderer) = self.renderer.as_ref() else {
+        let Some(renderer) = self.surface.render.renderer.as_ref() else {
             return;
         };
         if !renderer.has_animated_images() {
@@ -47,7 +47,7 @@ impl Window {
     /// one frame changed. Auto-disarms when no animated entries
     /// remain (eviction, device loss, or static-only session).
     pub(crate) fn on_image_animation_tick(&mut self, hwnd: windows::Win32::Foundation::HWND) {
-        let Some(renderer) = self.renderer.as_ref() else {
+        let Some(renderer) = self.surface.render.renderer.as_ref() else {
             self.disarm_image_animation_timer();
             return;
         };

@@ -19,8 +19,8 @@
 //!   `wrap_width_dip`, including the slow path's "overshoot" case
 //!   (a row of width slightly greater than `wrap_width_dip` when the
 //!   trigger fires at the trailing whitespace itself), and including
-//!   the slow path's trailing-empty-row idiosyncrasy on lines that end
-//!   with whitespace.
+//!   the materializer's rule that discards a terminal break instead of
+//!   creating an empty trailing row on lines ending with whitespace.
 //! - `None` when the slow path would have placed a cut at a non-
 //!   whitespace grapheme (mid-word cut). The cached profile does not
 //!   carry per-grapheme widths, so the caller must fall back to the
@@ -130,15 +130,10 @@ pub fn row_count_from_profile(
                 return None;
             }
             if i == n - 1 {
-                // Last candidate. If it is the end-of-line sentinel
-                // (`pre_ws == post_ws`) we cannot reach this branch
-                // because `row_through_post_ws > max_width` would
-                // already have implied `row_through_pre_ws > max_width`
-                // above. So this is a *real* trailing whitespace at
-                // the line's end. The slow path increments `breaks`
-                // and returns `breaks + 1`, leaving a notionally-empty
-                // trailing row in the count.
-                rows = rows.checked_add(1)?;
+                // This is real trailing whitespace at the line end.
+                // The slow walker observes the terminal cut, but
+                // `soft_wrap_spec` discards it because materializing it
+                // would create an empty trailing row. Do not add a row.
                 return Some(rows);
             }
             line_start_advance = post_ws_advance;
@@ -321,11 +316,10 @@ mod tests {
 
     #[test]
     fn trailing_whitespace_at_line_end() {
-        // "AB " ending with whitespace, max_width=2: slow path cuts
-        // at the trailing whitespace, leaving a trailing empty row
-        // → 2 rows.
+        // "AB " ending with whitespace, max_width=2: the walker sees a
+        // terminal cut, but materialization drops the empty trailing row.
         let entry = build_profile_unit_widths("AB ", 2);
-        assert_eq!(row_count_from_profile(&entry, 2, 2.0), Some(2));
+        assert_eq!(row_count_from_profile(&entry, 2, 2.0), Some(1));
         // At max_width=3 the line fits in one row.
         assert_eq!(row_count_from_profile(&entry, 3, 3.0), Some(1));
     }

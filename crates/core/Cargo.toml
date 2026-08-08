@@ -9,6 +9,8 @@ publish.workspace      = true
 [dependencies]
 continuity-text     = { workspace = true }
 continuity-buffer   = { workspace = true }
+continuity-engine   = { workspace = true }
+continuity-host     = { workspace = true }
 continuity-persist  = { workspace = true }
 continuity-trace    = { workspace = true }
 ropey               = { workspace = true }
@@ -17,5 +19,6 @@ ahash               = { workspace = true }
 thiserror           = { workspace = true }
 
 [dev-dependencies]
-continuity-test-support = { workspace = true }
+continuity-test-support = { workspace = true, features = ["native-harness"] }
+continuity-test-fixtures = { workspace = true }
 tempfile                = { workspace = true }

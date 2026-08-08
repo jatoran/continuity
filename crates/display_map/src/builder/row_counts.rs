@@ -32,7 +32,10 @@ use crate::image_row_reservation_provider::ImageRowReservation;
 use crate::markdown_toggles::MarkdownRenderToggles;
 use crate::segment::DisplaySegment;
 use crate::style::SpanStyle;
-use crate::wrap::{continuation_wrap_budget_dip, hanging_indent_dip, WidthMeasure, WrapConfig};
+use crate::wrap::{
+    continuation_wrap_budget_dip, hanging_indent_dip, preferred_word_break, WidthMeasure,
+    WrapConfig,
+};
 use crate::wrap_cache::{WrapCache, WrapCacheKey};
 use crate::{compute_line_projection_stamp, SegmentCache, SegmentCacheKey};
 
@@ -464,6 +467,7 @@ fn count_soft_wrap_rows(
     // and `crate::wrap_profile` for the consumer contract.
     let t_slowpath = stats.as_deref().map(|_| Instant::now());
     let mut breaks: u16 = 0;
+    let mut last_cut: Option<usize> = None;
     let mut line_start_byte = 0_usize;
     let mut last_word_break: Option<usize> = None;
     // `running_at_word_break` mirrors the exact carry-over fix in
@@ -481,6 +485,8 @@ fn count_soft_wrap_rows(
     // the hang-indent-reduced width (mirrors
     // `grapheme_word_break_points_styled`).
     let mut row_budget = max_width;
+    let protected_list_prefix_end =
+        list_prefix::compute_list_prefix_end(segments, line_text, source_byte_start_typed);
     for seg in segments {
         let bytes = seg.display_bytes(line_text, source_byte_start_typed);
         if bytes.is_empty() {
@@ -514,9 +520,15 @@ fn count_soft_wrap_rows(
             }
             cum_from_line_start += w;
             if running + w > row_budget && byte_off > line_start_byte {
-                let word_break = last_word_break.filter(|c| *c > line_start_byte);
+                let word_break = preferred_word_break(
+                    last_word_break,
+                    line_start_byte,
+                    byte_off,
+                    protected_list_prefix_end,
+                );
                 let cut = word_break.unwrap_or(byte_off);
                 breaks = breaks.saturating_add(1);
+                last_cut = Some(cut);
                 line_start_byte = cut;
                 row_budget = continuation_budget_dip;
                 // Exact carry-over with no re-measure (matches
@@ -536,7 +548,7 @@ fn count_soft_wrap_rows(
         segment_base += bytes.len();
     }
 
-    let rows = breaks.saturating_add(1);
+    let rows = row_result::compute_materialized_rows(breaks, last_cut, segment_base);
     accumulate_stage_us(&mut stats, t_slowpath, |s| &mut s.soft_wrap_walk_us);
     if let Some(stats) = stats.as_deref_mut() {
         stats.lines_slowpath = stats.lines_slowpath.saturating_add(1);
@@ -578,6 +590,8 @@ fn count_soft_wrap_rows(
 
 mod measure_width;
 use measure_width::measure_width;
+mod list_prefix;
+mod row_result;
 mod wrap_lookup;
 use wrap_lookup::try_cached_wrap_rows;
 

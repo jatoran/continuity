@@ -23,6 +23,7 @@ pub mod markdown_inserters;
 pub mod markdown_links_clipboard;
 pub mod motion_extras;
 pub mod panes;
+pub mod portable_operation;
 pub mod predicate;
 pub mod registry;
 pub mod search;
@@ -35,7 +36,7 @@ pub mod undo;
 pub mod view;
 pub mod view_context;
 pub mod view_modes;
-pub mod view_timeline_metrics;
+pub mod view_timeline;
 pub mod windows;
 
 pub use buffer_history::{register_buffer_history_commands, VIEW_BUFFER_HISTORY};
@@ -116,12 +117,13 @@ pub use panes::{
     PANE_RESIZE_LEFT, PANE_RESIZE_RIGHT, PANE_RESIZE_UP, PANE_SPLIT_HORIZONTAL,
     PANE_SPLIT_VERTICAL,
 };
+pub use portable_operation::editor_operation_for_command;
 pub use predicate::ContextPredicate;
 pub use registry::{Args, Handler, Registry};
 pub use search::{
     register_search_commands, EDITOR_FIND, EDITOR_FIND_IN_ALL, EDITOR_FIND_NEXT, EDITOR_FIND_PREV,
     EDITOR_FIND_REPLACE_ALL, EDITOR_FIND_REPLACE_ONE, EDITOR_GOTO_HEADING, EDITOR_GOTO_LINE,
-    EDITOR_REPLACE, OVERLAY_DISMISS, PALETTE_SHOW, QUICK_OPEN_SHOW,
+    EDITOR_REPLACE, OVERLAY_DISMISS, PALETTE_SHOW, QUICK_OPEN_SHOW, VAULT_LAUNCHER_SHOW,
 };
 pub use selection::{
     register_selection_commands, EDITOR_ADD_CURSOR_ABOVE, EDITOR_ADD_CURSOR_AT_ALL_MATCHES,
@@ -165,10 +167,7 @@ pub use view_modes::{
     VIEW_TAB_OVERLAY_SHOW, VIEW_TOGGLE_DISTRACTION_FREE, VIEW_TOGGLE_FOCUS_MODE,
     VIEW_TOGGLE_FOLD_AT_CARET, VIEW_UNFOLD, VIEW_UNFOLD_ALL,
 };
-pub use view_timeline_metrics::{
-    register_view_timeline_metrics_commands, BUFFER_MARK_SNAPSHOT, BUFFER_TIMELINE, METRICS_PURGE,
-    VIEW_METRICS,
-};
+pub use view_timeline::{register_view_timeline_commands, BUFFER_MARK_SNAPSHOT, BUFFER_TIMELINE};
 pub use windows::{
     register_window_commands, NewWindowHandler, TearOffHandler, WINDOW_NEW_WINDOW,
     WINDOW_TEAR_OFF_FOCUSED_TAB,

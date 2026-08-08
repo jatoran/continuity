@@ -37,6 +37,8 @@ use crate::motion::{StatusTransientDraw, StatusTransientGroup};
 use crate::params::Rgba;
 use crate::Error;
 
+mod icons;
+
 /// Status bar height in DIPs.
 pub const STATUS_BAR_HEIGHT_DIP: f32 = 22.0;
 
@@ -75,7 +77,7 @@ pub enum StatusBarSegmentKind {
     /// δ.2 — "idle Xm ago" indicator. Painted alongside other segments
     /// when the editor has been quiet long enough.
     IdleStale,
-    /// Phase C3: mixed line-endings or mixed-indent warning chip.
+    /// Mixed line-ending warning chip.
     /// Painted with warn coloring on the right.
     Chip,
     /// One-shot informational chip supplied by the UI. Painted through
@@ -86,6 +88,16 @@ pub enum StatusBarSegmentKind {
     /// thread has uncommitted bytes; vanishes when the queue drains.
     /// Click is a no-op — the chip is purely a confidence cue.
     PersistQueueChip,
+    /// Always-visible action that opens the pinned/recent vault launcher.
+    VaultLauncher,
+    /// Vault-only left action that collapses or expands the file tree.
+    VaultFiles,
+    /// Vault-only right action that toggles the minimap.
+    VaultMinimap,
+    /// Vault-only right action that toggles the outline.
+    VaultOutline,
+    /// Vault-only right action that opens `.continuity/vault.toml`.
+    VaultSettings,
 }
 
 /// One paintable segment.
@@ -195,12 +207,20 @@ pub fn min_slot_width_chars(kind: StatusBarSegmentKind) -> u8 {
         // Chips appear and vanish; sized to text.
         StatusBarSegmentKind::Chip
         | StatusBarSegmentKind::NoticeChip
-        | StatusBarSegmentKind::PersistQueueChip => 0,
+        | StatusBarSegmentKind::PersistQueueChip
+        | StatusBarSegmentKind::VaultLauncher
+        | StatusBarSegmentKind::VaultFiles
+        | StatusBarSegmentKind::VaultMinimap
+        | StatusBarSegmentKind::VaultOutline
+        | StatusBarSegmentKind::VaultSettings => 0,
     }
 }
 
 /// Slot width in DIPs — `max(estimated_text_width, reserved_min)`.
 fn slot_width_dip(kind: StatusBarSegmentKind, text: &str, font_size_dip: f32) -> f32 {
+    if let Some(width) = icons::slot_width_dip(kind) {
+        return width;
+    }
     let advance = font_size_dip * 0.55;
     let reserved = (min_slot_width_chars(kind) as f32) * advance;
     estimate_segment_width_dip(text, font_size_dip).max(reserved)
@@ -245,7 +265,8 @@ pub fn compute_layout(
 
     let mut right_cursor = (viewport_w - BAR_EDGE_PAD_DIP).max(0.0).round();
     for chip in data.chips {
-        let w = estimate_segment_width_dip(&chip.text, font_size_dip);
+        let w = icons::slot_width_dip(chip.kind)
+            .unwrap_or_else(|| estimate_segment_width_dip(&chip.text, font_size_dip));
         let right = right_cursor;
         let left = (right - w).max(0.0).round();
         bounds.push(SegmentBounds {
@@ -329,6 +350,9 @@ fn paint_status_bar_text(
     for seg in data.segments {
         let b = layout.bounds[iter_idx];
         iter_idx += 1;
+        if icons::paint_status_bar_icon(ctx, seg.kind, b, top, fg_brush, seg.alpha) {
+            continue;
+        }
         draw_segment(
             ctx,
             factory,
@@ -345,6 +369,9 @@ fn paint_status_bar_text(
     for chip in data.chips {
         let b = layout.bounds[iter_idx];
         iter_idx += 1;
+        if icons::paint_status_bar_icon(ctx, chip.kind, b, top, fg_brush, chip.alpha) {
+            continue;
+        }
         draw_segment(
             ctx,
             factory,

@@ -29,7 +29,7 @@ const PREWARM_BIG_BUFFER_LINE_CAP: usize = 2_000;
 impl Window {
     /// Start the idle prewarm timer.
     pub(crate) fn start_display_prewarm_timer(&mut self, hwnd: HWND) {
-        if self.display_prewarm_timer_active {
+        if self.surface.projection.display_prewarm_timer_active {
             return;
         }
         unsafe {
@@ -39,7 +39,7 @@ impl Window {
                 crate::window_timers::DISPLAY_PREWARM_TIMER_MS,
                 None,
             );
-            self.display_prewarm_timer_active = armed != 0;
+            self.surface.projection.display_prewarm_timer_active = armed != 0;
         }
     }
 
@@ -94,7 +94,9 @@ impl Window {
             );
             return;
         }
-        self.display_map_prewarm
+        self.surface
+            .projection
+            .display_map_prewarm
             .refresh_targets(&big_buffer_targets);
         // The previous budget check was a no-op (`start.elapsed()`
         // measured zero before the work). Drop it; the per-stage
@@ -117,7 +119,7 @@ impl Window {
     }
 
     fn is_idle_for_display_prewarm(&self, hwnd: HWND) -> bool {
-        if self.is_window_minimized || self.scroll_anim_active || self.state_save_pending {
+        if self.is_window_minimized || self.surface.scroll_anim_active || self.state_save_pending {
             return false;
         }
         if self
@@ -128,8 +130,8 @@ impl Window {
             return false;
         }
         let now = unsafe { GetTickCount64() };
-        if self.last_input_tick != 0
-            && now.saturating_sub(self.last_input_tick) < PREWARM_IDLE_GRACE_MS
+        if self.surface.last_input_tick != 0
+            && now.saturating_sub(self.surface.last_input_tick) < PREWARM_IDLE_GRACE_MS
         {
             return false;
         }

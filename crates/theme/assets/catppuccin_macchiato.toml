@@ -10,9 +10,9 @@ name = "catppuccin_macchiato"
 
 "panel.background"                  = "#1e2030"
 "panel.foreground"                  = "#b8c0e0"
-"panel.active_tab.background"       = "#2b2e45"
+"panel.active_tab.background"       = "#24273a"
 "panel.active_tab.foreground"       = "#cad3f5"
-"panel.inactive_tab.background"     = "#191b29"
+"panel.inactive_tab.background"     = "#2b2e45"
 "panel.inactive_tab.foreground"     = "#6e738d"
 
 "pane.border"                       = "#363a4f"

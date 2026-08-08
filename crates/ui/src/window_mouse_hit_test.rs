@@ -273,7 +273,7 @@ impl Window {
         let body = self.focused_body_rect();
         let y_in_body_max = (body.h - 1.0).max(0.0);
         let y_in_body = ((y as f32) - body.y).clamp(0.0, y_in_body_max);
-        let virtual_y = y_in_body + self.view.scroll_y_dip;
+        let virtual_y = y_in_body + self.surface.view.scroll_y_dip;
         (virtual_y / self.effective_line_height()).floor().max(0.0) as u32
     }
 
@@ -292,7 +292,7 @@ impl Window {
         body_origin_x: f32,
         leading_dip: f32,
     ) -> Option<u32> {
-        let format = self.text_format.as_ref()?;
+        let format = self.surface.render.text_format.as_ref()?;
         let left_margin = if self.view_options.line_numbers {
             continuity_render::chrome::gutter_width_for_line_count(
                 self.scaled_font_size(),
@@ -314,9 +314,9 @@ impl Window {
             return Some(u32::try_from(row_start_in_line).unwrap_or(0));
         }
 
-        let max_width = self.view.viewport_width_dip.max(1.0);
+        let max_width = self.surface.view.viewport_width_dip.max(1.0);
         let display_byte = hit_test_x_to_byte_for_spec(
-            self.dwrite.raw(),
+            self.surface.render.dwrite.raw(),
             format,
             spec,
             x_in_text,

@@ -239,7 +239,9 @@ fn is_markdown_link_path_like(s: &str) -> bool {
 fn has_repo_prefix(s: &str) -> bool {
     [
         ".docs/",
+        "apps/",
         "crates/",
+        "packages/",
         "xtask/",
         ".githooks/",
         ".github/",

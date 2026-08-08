@@ -66,7 +66,7 @@ impl Window {
         self.tab_session.view_bookmarks.insert(
             outgoing,
             TabViewBookmark {
-                scroll_y_dip: self.view.scroll_y_dip,
+                scroll_y_dip: self.surface.view.scroll_y_dip,
                 primary_selection,
             },
         );
@@ -86,14 +86,14 @@ impl Window {
             if buffer_changed {
                 // No saved state for a freshly-shown buffer — start at top,
                 // matching a freshly-opened pane.
-                self.view.scroll_y_dip = 0.0;
+                self.surface.view.scroll_y_dip = 0.0;
             }
             return;
         };
         if let Some(selection) = bookmark.primary_selection {
             let _ = self.editor.set_selections(self.buffer_id, vec![selection]);
         }
-        self.view.scroll_y_dip = bookmark.scroll_y_dip.max(0.0);
+        self.surface.view.scroll_y_dip = bookmark.scroll_y_dip.max(0.0);
     }
 
     /// Item 8 — compute the tab-strip layout metrics for `pane` exactly as

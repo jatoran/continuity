@@ -9,6 +9,7 @@ publish.workspace      = true
 [dependencies]
 continuity-buffer = { workspace = true }
 continuity-core   = { workspace = true }
+continuity-host   = { workspace = true }
 continuity-trace  = { workspace = true }
 ahash             = { workspace = true }
 serde_json        = { workspace = true }

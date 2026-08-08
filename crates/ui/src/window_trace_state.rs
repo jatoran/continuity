@@ -69,11 +69,13 @@ impl Window {
             SnapshotTrace::Live(_) => (0, "none".to_string(), "none".to_string()),
         };
         let last_frame_rows = self
+            .surface
+            .projection
             .last_painted_frame_display
             .as_ref()
             .map(|(_, frame)| frame.display_line_count())
             .unwrap_or(0);
-        let spectator_cache = self.spectator_frame_cache.borrow();
+        let spectator_cache = self.surface.projection.spectator_frame_cache.borrow();
         format!(
             concat!(
                 "reason={} hwnd={} snapshot={} rev={} lines={} ",
@@ -118,18 +120,18 @@ impl Window {
             self.dpi_scale(),
             body.w,
             body.h,
-            self.view.viewport_width_dip,
-            self.view.viewport_height_dip,
-            self.view.scroll_y_dip,
-            self.view.soft_wrap,
-            self.view.font_size_scale,
-            self.font_state.0,
+            self.surface.view.viewport_width_dip,
+            self.surface.view.viewport_height_dip,
+            self.surface.view.scroll_y_dip,
+            self.surface.view.soft_wrap,
+            self.surface.view.font_size_scale,
+            self.surface.render.font_state.0,
             self.overlays.is_active(),
             self.is_window_focused,
             self.is_window_minimized,
             self.is_live_resizing,
-            self.renderer.is_some(),
-            self.text_format.is_some(),
+            self.surface.render.renderer.is_some(),
+            self.surface.render.text_format.is_some(),
             last_frame_rows,
             spectator_cache.hits(),
             spectator_cache.misses(),

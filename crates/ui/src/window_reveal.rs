@@ -22,6 +22,34 @@ use crate::window_file::FileBanner;
 use crate::window_helpers::invalidate_hwnd_with_reason;
 
 impl Window {
+    pub(crate) fn open_file_buffer_tab(
+        &mut self,
+        buffer_id: BufferId,
+        content: String,
+        file: FileAssociation,
+        disposition: crate::window_config::FileOpenDisposition,
+        notices: Vec<String>,
+    ) {
+        if let Some((pane, tab)) = self.find_tab_for_buffer(buffer_id) {
+            self.activate_existing_tab(pane, tab);
+        } else if self.editor.snapshot(buffer_id).is_some() {
+            self.adopt_routed_file_buffer(buffer_id, disposition);
+            self.refresh_focused_viewport();
+            self.refresh_language();
+            self.maybe_submit_decoration();
+        } else {
+            return;
+        }
+        self.mark_tab_file_associated(buffer_id, &file);
+        let restore_path = file.path.clone();
+        self.reconcile_file_buffer(buffer_id, content, file);
+        self.apply_vault_tab_restore_on_open(&restore_path, buffer_id);
+        if let Some(text) = join_notices(&notices) {
+            self.file_banner = Some(FileBanner::new(text));
+        }
+        invalidate_hwnd_with_reason(self.hwnd, "open_file_buffer_tab");
+    }
+
     /// Surface `buffer_id` in this window and reconcile it against the
     /// freshly-read disk bytes. `notices` are launch-time banners (e.g. an
     /// encoding notice from a forwarded open) shown after reconciliation.
@@ -41,6 +69,7 @@ impl Window {
         } else {
             return;
         }
+        self.mark_tab_file_associated(buffer_id, &file);
         self.bring_to_foreground();
         self.reconcile_file_buffer(buffer_id, content, file);
         // A non-empty notice (e.g. encoding) is decision-relevant — show it

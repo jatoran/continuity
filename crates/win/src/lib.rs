@@ -26,10 +26,10 @@ pub use monitor::{
     cascade_origin_on_source_monitor, centered_origin_on_focused_monitor, focused_monitor_work_area,
 };
 pub use single_instance::{
-    activate_first_visible_window_of_current_process, send_to_instance_hub, InstanceHub,
-    SingleInstanceMutex,
+    activate_first_visible_window_of_current_process_on_current_desktop, send_to_instance_hub,
+    InstanceHub, SingleInstanceMutex,
 };
-pub use virtual_desktop::VirtualDesktopManager;
+pub use virtual_desktop::{activate_window_if_on_current_desktop, VirtualDesktopManager};
 pub use window::{HiddenWindow, WindowClass};
 /// Re-export of the opaque HIMC handle so callers don't reach into the
 /// `windows` crate path.

@@ -160,6 +160,8 @@ pub(crate) fn build_spectator_pane_data(
     let live_panes: Vec<crate::pane_tree::PaneId> =
         window.tree.root.leaf_ids().into_iter().collect();
     window
+        .surface
+        .projection
         .spectator_frame_cache
         .borrow_mut()
         .retain_panes(&live_panes);
@@ -289,11 +291,13 @@ pub(crate) fn build_spectator_pane_data(
             &caret_bytes[i],
             &[],
             wrap_width_dip,
-            window.font_state,
+            window.surface.render.font_state,
         )
         .with_image_reservations(&reservations);
         let spectator_folds: [FoldRange; 0] = [];
         let cache_outcome = window
+            .surface
+            .projection
             .spectator_frame_cache
             .borrow_mut()
             .lookup(p.pane_id, &query);
@@ -369,9 +373,11 @@ pub(crate) fn build_spectator_pane_data(
                 &caret_bytes[i],
                 &[],
                 0,
-                window.font_state,
+                window.surface.render.font_state,
             );
             match window
+                .surface
+                .projection
                 .spectator_frame_cache
                 .borrow_mut()
                 .lookup(p.pane_id, &stub_query)
@@ -413,13 +419,12 @@ pub(crate) fn build_spectator_pane_data(
                     );
                     let dec_rev = dec.map(|d| d.revision);
                     let dec_arc = dec.cloned().map(std::sync::Arc::new);
-                    window.spectator_frame_cache.borrow_mut().insert(
-                        p.pane_id,
-                        stub_query,
-                        built.clone(),
-                        dec_arc,
-                        dec_rev,
-                    );
+                    window
+                        .surface
+                        .projection
+                        .spectator_frame_cache
+                        .borrow_mut()
+                        .insert(p.pane_id, stub_query, built.clone(), dec_arc, dec_rev);
                     built
                 }
             }
@@ -510,13 +515,12 @@ pub(crate) fn build_spectator_pane_data(
             // `diff_dirty_lines` instead of falling to Cold.
             let dec_rev = dec.map(|d| d.revision);
             let dec_arc = dec.cloned().map(std::sync::Arc::new);
-            window.spectator_frame_cache.borrow_mut().insert(
-                p.pane_id,
-                query,
-                frame_display.clone(),
-                dec_arc,
-                dec_rev,
-            );
+            window
+                .surface
+                .projection
+                .spectator_frame_cache
+                .borrow_mut()
+                .insert(p.pane_id, query, frame_display.clone(), dec_arc, dec_rev);
         }
         frame_displays.push(frame_display);
     }

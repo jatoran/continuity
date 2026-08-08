@@ -15,11 +15,10 @@ use crate::{CommandId, Context, ContextPredicate, Registry};
 pub const EDITOR_CUT: CommandId = CommandId("editor.cut");
 /// `Ctrl+C` — copy the primary selection's source text.
 pub const EDITOR_COPY: CommandId = CommandId("editor.copy");
-/// `Ctrl+V` — paste clipboard text at the caret(s).
+/// `Ctrl+V` — paste at the caret(s); plain-text URLs remain literal.
 pub const EDITOR_PASTE: CommandId = CommandId("editor.paste");
-/// `Ctrl+Shift+V` — paste clipboard text stripped of any rich format
-/// (the editor only consumes `CF_UNICODETEXT` so this is a discoverable
-/// alias for the same path; future formats can route through here).
+/// `Ctrl+Shift+V` — paste only the clipboard's plain-text representation,
+/// bypassing native image import and rich-HTML conversion.
 pub const EDITOR_PASTE_AS_PLAIN_TEXT: CommandId = CommandId("editor.paste_as_plain_text");
 /// `Ctrl+Alt+V` — open the paste-history overlay.
 pub const EDITOR_PASTE_FROM_HISTORY: CommandId = CommandId("editor.paste_from_history");

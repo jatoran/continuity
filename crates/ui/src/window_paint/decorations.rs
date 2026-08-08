@@ -39,17 +39,23 @@ impl Window {
         // the worker submitted at). Carried into the classifier so a
         // stale parse vs. a fresh parse with the same transformed
         // rope-rev label can be distinguished — see the
-        // `Window::last_painted_decoration_parse_revision` doc for the
+        // surface projection-state parse-revision doc for the
         // bug-class this closes.
         let current_parse_revision: Option<u64> =
             self.decoration_cache.get(decoration_id).map(|d| d.revision);
-        let parse_advanced = current_parse_revision != self.last_painted_decoration_parse_revision;
+        let parse_advanced = current_parse_revision
+            != self
+                .surface
+                .projection
+                .last_painted_decoration_parse_revision;
         if crate::paint_trace::is_trace_enabled() {
             crate::paint_trace::log_event(
                 "decoration_parse_revision",
                 &format!(
                     "current={current_parse_revision:?} prev={:?} advanced={parse_advanced}",
-                    self.last_painted_decoration_parse_revision,
+                    self.surface
+                        .projection
+                        .last_painted_decoration_parse_revision,
                 ),
             );
         }

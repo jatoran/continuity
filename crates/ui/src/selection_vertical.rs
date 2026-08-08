@@ -2,8 +2,8 @@
 //!
 //! Extracted from [`crate::selection`] to keep that file under the
 //! 600-line cap. The state itself (`intended_columns`,
-//! `intended_columns_for`) lives on `crate::Window`; this module
-//! provides the pure positioning helper plus its tests.
+//! `intended_columns_for`) lives in `EditorSurface::selection`; this
+//! module provides the pure positioning helper plus its tests.
 
 use continuity_display_map::{DisplayByte, SourceByte};
 use continuity_render::FrameDisplay;
@@ -102,7 +102,7 @@ pub(crate) fn move_visual_row(
     }
     if target_row_raw >= total {
         // Below the document: clamp to last source line's content end.
-        let last_line = rope.len_lines().saturating_sub(1).max(0);
+        let last_line = rope.len_lines().saturating_sub(1);
         let end = line_content_end(rope, last_line);
         return Position::from_byte_offset(rope, end).unwrap_or(head);
     }
@@ -171,7 +171,7 @@ pub(crate) fn move_line_with_column(
     delta: i32,
     intended_col: u32,
 ) -> Position {
-    let max_line = rope.len_lines().saturating_sub(1).max(0);
+    let max_line = rope.len_lines().saturating_sub(1);
     let target_line_raw = position.line as i64 + i64::from(delta);
 
     if target_line_raw < 0 {

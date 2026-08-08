@@ -72,7 +72,7 @@ pub(crate) struct FrameResolutionOutputs {
     pub selection_reveal_dirty: Vec<u32>,
     /// `true` when `frame_display` is a reused/deferred frame that
     /// kept paint off an inline cold/partial path. Callers must NOT
-    /// seed `Window::last_painted_frame_display` or the spectator
+    /// seed the surface's `last_painted_frame_display` or the spectator
     /// cache with this frame because the current paint query may
     /// describe a newer viewport than the reused frame realizes. The
     /// next paint after the worker delivers the real frame re-seeds
@@ -127,7 +127,8 @@ impl Window {
         // `!image_reservations.is_empty()` bypass cold-walked every
         // paint for any buffer with an expanded image — the latent
         // pre-existing cliff that reverted Phase F.
-        let last_paint_candidate = match self.last_painted_frame_display.as_ref() {
+        let last_paint_candidate = match self.surface.projection.last_painted_frame_display.as_ref()
+        {
             None => {
                 crate::paint_trace::log_event("last_painted_frame_display", "miss=cache_empty");
                 None
@@ -176,7 +177,7 @@ impl Window {
         // because promotion was disabled before the compatible-cache
         // check could accept that same rendered frame.
         let last_paint_candidate = last_paint_candidate.or_else(|| {
-            let cache = self.spectator_frame_cache.borrow();
+            let cache = self.surface.projection.spectator_frame_cache.borrow();
             let promoted = cache.lookup_for_focused_paint(self.tree.focused, display_query)?;
             let promoted_fd = promoted.frame_display.clone();
             let promoted_decorations = promoted.decorations.clone();
@@ -198,8 +199,10 @@ impl Window {
             // the promote landed.
             let stamps = promoted_fd.row_index().stamps();
             if stamps.rope_revision == revision_for_projection {
-                self.last_painted_decorations = promoted_decorations;
-                self.last_painted_decoration_parse_revision = promoted_parse_revision;
+                self.surface.projection.last_painted_decorations = promoted_decorations;
+                self.surface
+                    .projection
+                    .last_painted_decoration_parse_revision = promoted_parse_revision;
                 crate::paint_trace::log_event(
                     "last_painted_frame_display",
                     "hit=spectator_promote shadowed=true",
@@ -223,7 +226,9 @@ impl Window {
             .is_empty()
             .then(|| {
                 prewarmed_frame_display.take().or_else(|| {
-                    self.display_map_prewarm
+                    self.surface
+                        .projection
+                        .display_map_prewarm
                         .frame_for_query(display_query, decorations.is_none())
                 })
             })
@@ -254,7 +259,9 @@ impl Window {
             },
         };
         let last_painted_rebuild_source = compute_compatible_last_painted_frame(
-            self.last_painted_frame_display
+            self.surface
+                .projection
+                .last_painted_frame_display
                 .as_ref()
                 .map(|(query, frame)| (query, frame)),
             display_query,
@@ -319,7 +326,11 @@ impl Window {
                 revision: revision_for_projection,
                 wrap_width_dip,
                 current_decorations: decorations,
-                last_painted_decorations: self.last_painted_decorations.as_deref(),
+                last_painted_decorations: self
+                    .surface
+                    .projection
+                    .last_painted_decorations
+                    .as_deref(),
                 cached_frame: cached_frame_display.as_ref(),
                 cached_frame_source,
                 last_painted_frame: last_painted_frame_ref,
@@ -364,19 +375,26 @@ impl Window {
         };
         let current_projection_stamp =
             crate::window_projection_worker::current_projection_stamp(&projection_inputs);
-        let worker_has_pending_for_stamp = self.projection_worker.as_ref().is_some_and(|worker| {
-            worker.has_pending_target_stamp(self.tree.focused, &current_projection_stamp)
-                || worker.has_pending_partial_fill_same_or_older_stamp(&current_projection_stamp)
-        });
+        let worker_has_pending_for_stamp = self
+            .surface
+            .projection
+            .projection_worker
+            .as_ref()
+            .is_some_and(|worker| {
+                worker.has_pending_target_stamp(self.tree.focused, &current_projection_stamp)
+                    || worker
+                        .has_pending_partial_fill_same_or_older_stamp(&current_projection_stamp)
+            });
         let scroll_anim_worker_pending =
             trace.invalidate_reason() == Some("scroll_anim") && worker_has_pending_for_stamp;
         // Fix A — a Ctrl+End / Ctrl+Home (or far reveal) jump armed the
         // off-thread poll; while a matching worker build is in flight,
         // reuse the prior frame + placeholder strip instead of inline-
         // walking the destination on the UI thread.
-        let jump_offthread_pending = self.jump_offthread_polls > 0 && worker_has_pending_for_stamp;
+        let jump_offthread_pending =
+            self.surface.jump_offthread_polls > 0 && worker_has_pending_for_stamp;
         let worker_outcome = crate::window_projection_worker::try_use_worker_result_rich(
-            self.projection_worker.as_ref(),
+            self.surface.projection.projection_worker.as_ref(),
             self.tree.focused,
             &current_projection_stamp,
             image_reservations,

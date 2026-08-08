@@ -1,0 +1,19 @@
+[package]
+name = "continuity-engine-c"
+version = "0.2.22"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Versioned C ABI for the synchronous Continuity editor engine"
+publish = false
+
+[lib]
+name = "continuity_engine"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+continuity-buffer = { workspace = true }
+continuity-engine-core = { package = "continuity-engine", path = "../engine", version = "0.2.22" }
+continuity-text = { workspace = true }

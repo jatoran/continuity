@@ -1,10 +1,18 @@
 [package]
 name             = "continuity-buffer"
-version          = "0.1.0"
+version          = "0.2.22"
 edition.workspace      = true
 rust-version.workspace = true
 license.workspace      = true
-publish.workspace      = true
+repository.workspace   = true
+homepage.workspace     = true
+description            = "Rope-backed buffer, revisions, selections, and undo state for Continuity"
+documentation          = "https://docs.rs/continuity-buffer"
+keywords               = ["editor", "buffer", "undo", "rope"]
+categories             = ["text-editors", "data-structures"]
+readme                 = "README.md"
+include                = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md"]
+publish                = true
 
 [dependencies]
 continuity-text = { workspace = true }
@@ -13,8 +21,14 @@ uuid            = { workspace = true }
 ropey           = { workspace = true }
 thiserror       = { workspace = true }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# UUIDv7 still comes from the shared buffer id types in portable builds. The
+# browser supplies time and cryptographic randomness through uuid's JS backend.
+uuid = { workspace = true, features = ["js"] }
+getrandom = { workspace = true, features = ["wasm_js"] }
+
 [dev-dependencies]
-continuity-test-support = { workspace = true }
+continuity-test-support = { workspace = true, default-features = false }
 criterion               = { workspace = true }
 proptest                = { workspace = true }
 

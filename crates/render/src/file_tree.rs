@@ -14,7 +14,7 @@ pub const FILE_TREE_ROW_HEIGHT_DIP: f32 = 22.0;
 pub struct FileTreeDraw {
     /// Pane rect `(x, y, w, h)` in client DIPs.
     pub rect: (f32, f32, f32, f32),
-    /// Header title, normally the opened root path.
+    /// Header title, normally the opened root directory name.
     pub title: String,
     /// Visible rows only, already clipped by the UI to viewport + overscan.
     pub rows: Vec<FileTreeRowDraw>,
@@ -30,6 +30,19 @@ pub struct FileTreeDraw {
     pub scroll_offset_dip: f32,
     /// Full visible-tree content height.
     pub content_height_dip: f32,
+    /// In-flight entry move feedback, if the pointer crossed the drag threshold.
+    pub drag: Option<FileTreeDragDraw>,
+}
+
+/// Visual feedback for a contained file-tree move.
+#[derive(Clone, Debug)]
+pub struct FileTreeDragDraw {
+    /// Source entry label painted beside the pointer.
+    pub label: String,
+    /// Current pointer position in client DIPs.
+    pub cursor: (f32, f32),
+    /// Top of the hovered destination row, when the pointer is over a row.
+    pub drop_target_top_dip: Option<f32>,
 }
 
 /// One visible file-tree row.
@@ -47,6 +60,21 @@ pub struct FileTreeRowDraw {
     pub selected: bool,
     /// Loading flag for directories waiting on worker listing.
     pub loading: bool,
+    /// Optional vault-config label color.
+    pub color_override: Option<Rgba>,
+    /// Inline filename editor replacing the normal label for this row.
+    pub inline_edit: Option<FileTreeInlineEditDraw>,
+}
+
+/// Single-line inline editor state for one file-tree row.
+#[derive(Clone, Debug)]
+pub struct FileTreeInlineEditDraw {
+    /// Actual file or folder name, including its extension.
+    pub text: String,
+    /// UTF-8 byte offset of the caret.
+    pub caret_byte: usize,
+    /// Selected UTF-8 byte range, when non-empty.
+    pub selection_range: Option<(usize, usize)>,
 }
 
 /// File-tree row kind.

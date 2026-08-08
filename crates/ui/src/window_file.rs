@@ -23,6 +23,7 @@ use crate::window_file_image_drop::is_dropped_image_path;
 pub struct FileBanner {
     text: String,
     pub(crate) pending: Option<PendingExternalChange>,
+    pub(crate) vault_initialization: Option<PathBuf>,
     /// UNIX-epoch milliseconds at which this banner should auto-dismiss.
     /// `None` means the banner is sticky and only dismisses on user
     /// action (Esc, reload/keep/diff button, etc.) — used for banners
@@ -43,6 +44,7 @@ impl FileBanner {
         Self {
             text,
             pending: None,
+            vault_initialization: None,
             expires_at_ms: None,
         }
     }
@@ -59,6 +61,7 @@ impl FileBanner {
         Self {
             text,
             pending: None,
+            vault_initialization: None,
             expires_at_ms: Some(now_ms.saturating_add(duration_ms)),
         }
     }
@@ -90,6 +93,16 @@ impl FileBanner {
                 disk_content: None,
                 from_save,
             }),
+            vault_initialization: None,
+            expires_at_ms: None,
+        }
+    }
+
+    pub(crate) fn vault_offer(root: PathBuf) -> Self {
+        Self {
+            text: format!("Use {} as a Continuity vault?", root.display()),
+            pending: None,
+            vault_initialization: Some(root),
             expires_at_ms: None,
         }
     }
@@ -142,6 +155,8 @@ impl Window {
 
     /// Drain file-I/O completion events.
     pub(crate) fn on_file_io_tick(&mut self, hwnd: HWND) {
+        self.discover_dirty_vault_buffers();
+        self.flush_due_vault_autosaves(false);
         let mut changed = false;
         let mut reason = "invalidate_rect";
         if let Some(file_io) = self.file_io.clone() {
@@ -201,8 +216,14 @@ impl Window {
         // render as a plain field. Geometry is shared with the click
         // hit-test via `banner_geometry` so painted and clickable rects
         // never drift (see `window_file_banner_buttons`).
-        let with_buttons = banner.pending.is_some();
-        let geo = self.banner_geometry(width, with_buttons);
+        let button_kind = if banner.pending.is_some() {
+            crate::window_file_banner_buttons::BannerButtonsKind::Conflict
+        } else if banner.vault_initialization.is_some() {
+            crate::window_file_banner_buttons::BannerButtonsKind::InitializeVault
+        } else {
+            crate::window_file_banner_buttons::BannerButtonsKind::None
+        };
+        let geo = self.banner_geometry(width, button_kind);
         let list_rows: Vec<_> = geo
             .buttons
             .iter()
@@ -333,7 +354,18 @@ impl Window {
     }
 
     pub(crate) fn file_open_paths_impl(&mut self, paths: Vec<PathBuf>) -> Result<(), CommandError> {
-        self.file_open_files_or_folder_paths(paths)
+        self.file_open_paths_with_disposition(
+            paths,
+            crate::window_config::FileOpenDisposition::NewWindow,
+        )
+    }
+
+    pub(crate) fn file_open_paths_with_disposition(
+        &mut self,
+        paths: Vec<PathBuf>,
+        disposition: crate::window_config::FileOpenDisposition,
+    ) -> Result<(), CommandError> {
+        self.file_open_files_or_folder_paths(paths, disposition)
     }
 
     pub(crate) fn file_save_impl(&mut self) -> Result<(), CommandError> {
@@ -380,161 +412,6 @@ impl Window {
         self.enqueue_save(self.buffer_id, path, content, None)
     }
 
-    fn handle_file_io_event(&mut self, event: FileIoEvent) {
-        match event {
-            FileIoEvent::Opened {
-                target_pane,
-                content,
-                file,
-            } => self.handle_opened_file(target_pane, content, file),
-            FileIoEvent::DirectoryListed {
-                root,
-                relative,
-                entries,
-                truncated,
-            } => self.handle_file_tree_directory_list(root, relative, entries, truncated),
-            FileIoEvent::Saved { buffer_id, file } => {
-                // Write confirmed — drop the failure-rollback baseline.
-                self.pending_save_baseline.remove(&buffer_id);
-                let _ = self
-                    .editor
-                    .set_file_association(buffer_id, Some(file.clone()));
-                self.mark_tab_file_associated(buffer_id, &file);
-                self.decoration_cache.evict(buffer_id.as_uuid().as_u128());
-                self.last_submitted_decoration_revision_per_buffer
-                    .borrow_mut()
-                    .remove(&buffer_id);
-                if buffer_id == self.buffer_id {
-                    self.language_revision = None;
-                    self.last_submitted_decoration_revision = None;
-                    self.refresh_language();
-                    self.maybe_submit_decoration();
-                }
-                if let Some(register_file_buffer) = self.register_file_buffer.as_ref() {
-                    register_file_buffer(buffer_id, file.clone());
-                }
-                let now = self.now_ms();
-                self.file_banner = Some(FileBanner::transient(
-                    format!("Saved {}", file.path.display()),
-                    now,
-                ));
-                // α.1 save-confirm chip — quick glanceable acknowledgement
-                // in the status bar. Real file I/O only; the durable
-                // autosave to SQLite stays invisible.
-                let file_label = file
-                    .path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("file")
-                    .to_string();
-                crate::window_status_notice::push_save_confirm_notice(
-                    &mut self.status_notices,
-                    &file_label,
-                    now,
-                );
-                self.start_motion_timer();
-                if let Some(file_io) = self.file_io.as_ref() {
-                    let _ = file_io.watch_file(buffer_id, file);
-                }
-            }
-            FileIoEvent::SaveConflict {
-                buffer_id,
-                path: _,
-                content,
-                file,
-            } => {
-                // The save was refused — the file changed on disk since we
-                // last synced. The optimistic `mark_saved_clean` was wrong
-                // (no write happened): roll the content hash back to its
-                // pre-save value so the buffer is dirty again, then run the
-                // standard reconcile, which raises the reload / keep-mine /
-                // diff banner instead of silently overwriting.
-                if let Some(baseline) = self.pending_save_baseline.remove(&buffer_id) {
-                    if let Some(stored) = self.editor.snapshot(buffer_id).and_then(|s| s.file) {
-                        let _ = self.editor.set_file_association(
-                            buffer_id,
-                            Some(stored.with_content_hash(baseline)),
-                        );
-                    }
-                }
-                self.reconcile_after_save_conflict(buffer_id, content, file);
-            }
-            FileIoEvent::Reloaded {
-                buffer_id,
-                content,
-                file,
-            } => self.apply_reloaded_file(buffer_id, content, file),
-            FileIoEvent::ExternalChanged {
-                buffer_id,
-                path: _,
-                content,
-                file,
-            } => {
-                // Clean buffer → silently reload; dirty buffer → raise the
-                // reload / keep-mine / diff banner. One decision point for
-                // every external-change trigger.
-                self.reconcile_file_buffer(buffer_id, content, file);
-            }
-            FileIoEvent::Rechecked {
-                buffer_id,
-                content,
-                file,
-            } => {
-                // One-shot disk recheck (session restore / explicit
-                // refresh) — same reconciliation as a live external change.
-                self.reconcile_file_buffer(buffer_id, content, file);
-            }
-            FileIoEvent::Deleted { buffer_id, path } => {
-                // δ.3 — sticky banner. The rope stays in memory; the
-                // file association is preserved so a subsequent
-                // `file.save` recreates the path. The watcher already
-                // dropped its `watched` entry.
-                if self.tree.tabs.values().any(|t| t.buffer_id == buffer_id) {
-                    self.file_banner = Some(FileBanner::new(format!(
-                        "{} was deleted externally — buffer kept in memory. Save to recreate.",
-                        path.display()
-                    )));
-                }
-            }
-            FileIoEvent::EncodingNotice { path, encoding } => {
-                // δ.3 — sticky banner so the user knows the file
-                // contained replacement characters before they
-                // re-save and overwrite the original encoding.
-                self.file_banner = Some(FileBanner::new(format!(
-                    "{} appears to be {encoding} — opened with replacement characters. \
-                     Re-save will write UTF-8 and discard the original encoding.",
-                    path.display()
-                )));
-            }
-            FileIoEvent::Failed {
-                buffer_id,
-                operation,
-                path,
-                reason,
-            } => {
-                // A failed write means the on-disk export is stale, so the
-                // optimistic `mark_saved_clean` was wrong: roll the buffer's
-                // content hash back to its pre-save value to re-flag dirty.
-                if let Some(bid) = buffer_id {
-                    if let Some(baseline) = self.pending_save_baseline.remove(&bid) {
-                        if let Some(file) = self.editor.snapshot(bid).and_then(|snap| snap.file) {
-                            let _ = self
-                                .editor
-                                .set_file_association(bid, Some(file.with_content_hash(baseline)));
-                        }
-                    }
-                }
-                let label = path
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "file".into());
-                self.file_banner = Some(FileBanner::new(format!(
-                    "{operation} failed for {label}: {reason}"
-                )));
-            }
-        }
-    }
-
     pub(crate) fn mark_tab_file_associated(&mut self, buffer_id: BufferId, file: &FileAssociation) {
         for tab in self.tree.tabs.values_mut() {
             if tab.buffer_id == buffer_id {
@@ -548,7 +425,12 @@ impl Window {
         }
     }
 
-    fn apply_reloaded_file(&mut self, buffer_id: BufferId, content: String, file: FileAssociation) {
+    pub(crate) fn apply_reloaded_file(
+        &mut self,
+        buffer_id: BufferId,
+        content: String,
+        file: FileAssociation,
+    ) {
         let Some(snap) = self.editor.snapshot(buffer_id) else {
             return;
         };
@@ -560,6 +442,7 @@ impl Window {
             let _ = self
                 .editor
                 .set_file_association(buffer_id, Some(file.clone()));
+            self.vault.resume_autosave(buffer_id);
             self.mark_tab_file_associated(buffer_id, &file);
             let now = self.now_ms();
             self.file_banner = Some(FileBanner::transient(

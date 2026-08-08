@@ -289,7 +289,7 @@ impl crate::Window {
         line_height_dip: f32,
         pane_width_dip: f32,
     ) -> Vec<ImageRowReservation> {
-        let Some(renderer) = self.renderer.as_ref() else {
+        let Some(renderer) = self.surface.render.renderer.as_ref() else {
             return Vec::new();
         };
         compute_image_reservations_for_pane(
@@ -325,7 +325,7 @@ impl crate::Window {
     /// renderer's last-frame hit cache.
     pub(crate) fn try_image_hit_at(&mut self, x_pane: f32, y_pane: f32) -> bool {
         let source_byte = {
-            let Some(renderer) = self.renderer.as_ref() else {
+            let Some(renderer) = self.surface.render.renderer.as_ref() else {
                 return false;
             };
             let hits = renderer.image_hits();

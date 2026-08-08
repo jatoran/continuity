@@ -60,11 +60,11 @@ pub(crate) fn build_pane_chrome(window: &Window) -> Option<PaneChromeDraw> {
             // focus: a background continuity window must not advertise
             // an "active" pane while the user works in another app
             // (`is_window_focused`, WM_ACTIVATEAPP) or in another
-            // continuity window (`has_keyboard_focus`, WM_SETFOCUS /
+            // continuity window (`surface.focus.has_keyboard_focus`, WM_SETFOCUS /
             // WM_KILLFOCUS).
             focused: *pane_id == window.tree.focused
                 && window.is_window_focused
-                && window.has_keyboard_focus,
+                && window.surface.focus.has_keyboard_focus,
             tabs: labels,
             active_index,
             focus_motion: None,

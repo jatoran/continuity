@@ -2,6 +2,8 @@
 
 TOML schema at `settings.toml`, parsed and validated at load time. A single watcher fans `ConfigEvent::Changed` out to every live window for hot reload. The full type definition lives in `crates/config/src/settings.rs::Settings`; live-toggle handlers in `Window::apply_settings` keep on-screen state in sync without restart.
 
+Folder-local vault policy is intentionally separate from global settings: `.continuity/vault.toml` is parsed as `VaultConfig` and watched by the file-I/O worker. It controls only files under the nearest marked root (autosave, tree ignore/sort/display rules, and appearance). See [Vaults](vaults.md).
+
 ## What it is
 - TOML-loaded settings at the runtime config path: `%APPDATA%\continuity\settings.toml` for normal launches, or `<exe>\data\settings.toml` when `--portable` is passed or a `data\` directory sits beside the executable. Hot-reloaded by a single watcher; fan-out to live windows. Validated at parse time. The full schema lives in `crates/config/src/settings.rs::Settings`.
 

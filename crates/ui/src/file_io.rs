@@ -1,22 +1,15 @@
-//! File-I/O worker used by Phase 15.
-//!
-//! Disk reads, writes, and directory watches live on this worker thread.
-//! UI threads enqueue requests and poll completion events.
+//! File-I/O worker requests, results, service, and client.
 
-#[cfg(test)]
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::thread::{self, JoinHandle};
 
 use continuity_buffer::{BufferId, FileAssociation};
+use continuity_config::{VaultConfig, VaultWorkspaceState};
 use crossbeam_channel::{bounded, Receiver, Sender};
 
 use crate::file_io_primitives::read_file;
-#[cfg(test)]
-use crate::file_io_primitives::{is_self_write, normalize_path, write_file};
-#[cfg(test)]
-use crate::file_io_worker::{handle_notify, WatchedFile};
 use crate::pane_tree::PaneId;
+use crate::window_config::FileOpenDisposition;
 use crate::DirectoryEntry;
 
 use crate::file_io_worker::CHANNEL_CAPACITY;
@@ -31,12 +24,11 @@ pub struct FileIoService {
 /// Clone-able client used by windows.
 #[derive(Clone)]
 pub struct FileIoClient {
-    tx: Sender<FileIoRequest>,
+    pub(crate) tx: Sender<FileIoRequest>,
     events: Receiver<FileIoEvent>,
 }
 
-/// A synchronously read file ready to install as a file-associated
-/// buffer.
+/// A synchronously read file ready to install as a file-associated buffer.
 #[derive(Clone, Debug)]
 pub struct StartupOpenedFile {
     /// Decoded text content.
@@ -47,9 +39,47 @@ pub struct StartupOpenedFile {
     pub encoding_notice: Option<&'static str>,
 }
 
+/// Kind of vault entry to create.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VaultEntryKind {
+    /// Empty Markdown file.
+    File,
+    /// Folder.
+    Directory,
+}
+
 /// Result event emitted by the file-I/O worker.
 #[derive(Clone, Debug)]
 pub enum FileIoEvent {
+    /// A requested folder was canonicalized and inspected for a vault marker.
+    FolderInspected {
+        /// Canonical folder the user selected.
+        requested_root: PathBuf,
+        /// Nearest vault root, or the selected folder for a normal browse.
+        root: PathBuf,
+        /// Validated vault config when a marker was found.
+        config: Option<VaultConfig>,
+        /// Portable vault UI state, absent for ordinary folder browsing.
+        workspace: Option<VaultWorkspaceState>,
+    },
+    /// An opened-tree mutation completed and affected these relative paths.
+    VaultEntriesChanged {
+        /// Canonical opened-folder root.
+        root: PathBuf,
+        /// Parent directory to refresh.
+        refresh_relative: PathBuf,
+        /// Old and new relative prefixes for a move.
+        moved: Option<(PathBuf, PathBuf)>,
+        /// Deleted relative prefix, when recycling.
+        deleted: Option<PathBuf>,
+    },
+    /// A watched vault marker was reloaded and revalidated.
+    VaultConfigChanged {
+        /// Vault root owning the marker.
+        root: PathBuf,
+        /// New validated configuration.
+        config: VaultConfig,
+    },
     /// A file was read and decoded.
     Opened {
         /// Pane that requested the open, if known.
@@ -58,6 +88,8 @@ pub enum FileIoEvent {
         content: String,
         /// File metadata.
         file: FileAssociation,
+        /// Requested placement semantics.
+        disposition: FileOpenDisposition,
     },
     /// One directory under an opened folder root was listed.
     DirectoryListed {
@@ -182,14 +214,55 @@ pub fn read_startup_file(path: &std::path::Path) -> std::io::Result<StartupOpene
 }
 
 pub(crate) enum FileIoRequest {
+    InspectFolder {
+        path: PathBuf,
+        reply: Sender<FileIoEvent>,
+    },
+    InitializeVault {
+        path: PathBuf,
+        reply: Sender<FileIoEvent>,
+    },
+    CreateVaultEntry {
+        root: PathBuf,
+        parent: PathBuf,
+        kind: VaultEntryKind,
+        reply: Sender<FileIoEvent>,
+    },
+    MoveVaultEntry {
+        root: PathBuf,
+        source: PathBuf,
+        destination_directory: PathBuf,
+        reply: Sender<FileIoEvent>,
+    },
+    RenameTreeEntry {
+        root: PathBuf,
+        source: PathBuf,
+        new_name: String,
+        reply: Sender<FileIoEvent>,
+    },
+    DeleteVaultEntry {
+        root: PathBuf,
+        relative: PathBuf,
+        reply: Sender<FileIoEvent>,
+    },
+    PersistVaultWorkspace {
+        root: PathBuf,
+        state: VaultWorkspaceState,
+        reply: Sender<FileIoEvent>,
+    },
     OpenFiles {
         paths: Vec<PathBuf>,
         target_pane: Option<PaneId>,
         reply: Option<Sender<FileIoEvent>>,
+        /// Window to wake after routed completions are enqueued.
+        wake_window: Option<usize>,
+        disposition: FileOpenDisposition,
     },
     ListDirectory {
         root: PathBuf,
         relative: PathBuf,
+        config: Option<VaultConfig>,
+        reply: Sender<FileIoEvent>,
     },
     SaveBuffer {
         buffer_id: BufferId,
@@ -201,6 +274,12 @@ pub(crate) enum FileIoRequest {
         /// external change happened since. `None` forces an
         /// unconditional write (save-as / explicit "keep mine").
         expected_hash: Option<u64>,
+        /// Where `Saved` / `SaveConflict` / `Failed` for this save are sent.
+        /// Routed to the requesting window so a sibling window draining the
+        /// shared event channel cannot steal the completion (which would
+        /// leave the owning window's autosave wedged `in_flight`). `None`
+        /// falls back to the shared channel for tests.
+        reply: Option<Sender<FileIoEvent>>,
     },
     ReloadBuffer {
         buffer_id: BufferId,
@@ -270,6 +349,8 @@ impl FileIoClient {
                 paths,
                 target_pane,
                 reply: None,
+                wake_window: None,
+                disposition: FileOpenDisposition::NewWindow,
             })
             .is_ok()
     }
@@ -284,24 +365,17 @@ impl FileIoClient {
         paths: Vec<PathBuf>,
         target_pane: Option<PaneId>,
         reply: Sender<FileIoEvent>,
+        wake_window: usize,
+        disposition: FileOpenDisposition,
     ) -> bool {
         self.tx
             .send(FileIoRequest::OpenFiles {
                 paths,
                 target_pane,
                 reply: Some(reply),
+                wake_window: Some(wake_window),
+                disposition,
             })
-            .is_ok()
-    }
-
-    /// Request a bounded listing for one directory under an opened root.
-    ///
-    /// # Errors
-    ///
-    /// Returns `false` when the worker has exited.
-    pub(crate) fn list_directory(&self, root: PathBuf, relative: PathBuf) -> bool {
-        self.tx
-            .send(FileIoRequest::ListDirectory { root, relative })
             .is_ok()
     }
 
@@ -316,6 +390,7 @@ impl FileIoClient {
         path: PathBuf,
         content: String,
         expected_hash: Option<u64>,
+        reply: Option<Sender<FileIoEvent>>,
     ) -> bool {
         self.tx
             .send(FileIoRequest::SaveBuffer {
@@ -323,6 +398,7 @@ impl FileIoClient {
                 path,
                 content,
                 expected_hash,
+                reply,
             })
             .is_ok()
     }
@@ -387,142 +463,5 @@ impl FileIoClient {
 // 600-line cap. See `crate::file_io_primitives`.
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn write_then_read_round_trips() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("note.md");
-        let file = write_file(&path, "hello").unwrap();
-        let result = read_file(&path).unwrap();
-        assert_eq!(result.content, "hello");
-        assert_eq!(file.hash, result.file.hash);
-        assert!(result.encoding_notice.is_none());
-    }
-
-    /// δ.3 — UTF-8 BOM is stripped silently and is NOT reported as an
-    /// encoding notice (it's still UTF-8).
-    #[test]
-    fn read_file_strips_utf8_bom_silently() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("bom.md");
-        let mut bytes = vec![0xEF, 0xBB, 0xBF];
-        bytes.extend_from_slice(b"hello");
-        std::fs::write(&path, &bytes).unwrap();
-        let result = read_file(&path).unwrap();
-        assert_eq!(result.content, "hello");
-        assert!(result.encoding_notice.is_none());
-    }
-
-    /// δ.3 — UTF-16 LE BOM triggers UTF-16 decode + an encoding notice.
-    #[test]
-    fn read_file_decodes_utf16_le_bom_with_notice() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("utf16.md");
-        let mut bytes = vec![0xFF, 0xFE]; // UTF-16 LE BOM
-        for ch in "hi".encode_utf16() {
-            bytes.extend_from_slice(&ch.to_le_bytes());
-        }
-        std::fs::write(&path, &bytes).unwrap();
-        let result = read_file(&path).unwrap();
-        assert_eq!(result.content, "hi");
-        assert_eq!(result.encoding_notice, Some("UTF-16 LE"));
-    }
-
-    /// δ.3 — UTF-16 BE BOM triggers UTF-16 decode + an encoding notice.
-    #[test]
-    fn read_file_decodes_utf16_be_bom_with_notice() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("utf16be.md");
-        let mut bytes = vec![0xFE, 0xFF]; // UTF-16 BE BOM
-        for ch in "hi".encode_utf16() {
-            bytes.extend_from_slice(&ch.to_be_bytes());
-        }
-        std::fs::write(&path, &bytes).unwrap();
-        let result = read_file(&path).unwrap();
-        assert_eq!(result.content, "hi");
-        assert_eq!(result.encoding_notice, Some("UTF-16 BE"));
-    }
-
-    /// δ.3 — invalid UTF-8 bytes still produce a `String` (via lossy
-    /// decode) but flag the encoding notice so the UI can banner.
-    #[test]
-    fn read_file_reports_non_utf8_with_notice() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("latin1.txt");
-        // 0xE9 alone is invalid as UTF-8 (start of a 3-byte sequence
-        // with no continuation bytes). It would be `é` in Latin-1.
-        std::fs::write(&path, [b'h', b'i', 0xE9]).unwrap();
-        let result = read_file(&path).unwrap();
-        assert_eq!(result.encoding_notice, Some("non-UTF-8"));
-        // U+FFFD replacement byte sequence ends the string.
-        assert!(result.content.starts_with("hi"));
-        assert!(result.content.contains('\u{FFFD}'));
-    }
-
-    /// δ.3 — when a watched file disappears between the notify
-    /// event firing and our follow-up read, `handle_notify` must
-    /// emit `FileIoEvent::Deleted` and prune the `watched` entry.
-    #[test]
-    fn handle_notify_emits_deleted_when_path_gone() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("gone.md");
-        std::fs::write(&path, "hi").unwrap();
-
-        let buffer_id = BufferId::new();
-        let file = FileAssociation::new(path.clone(), 0, 0);
-        let mut watched: HashMap<PathBuf, WatchedFile> = HashMap::new();
-        watched.insert(
-            normalize_path(&path),
-            WatchedFile {
-                buffer_id,
-                file: file.clone(),
-            },
-        );
-
-        // Delete the file so the follow-up read in handle_notify fails.
-        std::fs::remove_file(&path).unwrap();
-
-        let (tx, rx) = bounded::<FileIoEvent>(8);
-        let event: notify::Event =
-            notify::Event::new(notify::EventKind::Remove(notify::event::RemoveKind::File))
-                .add_path(path.clone());
-        handle_notify(Ok(event), &tx, &mut watched);
-
-        let received = rx.try_recv().expect("expected a Deleted event");
-        match received {
-            FileIoEvent::Deleted {
-                buffer_id: got_id,
-                path: got_path,
-            } => {
-                assert_eq!(got_id, buffer_id);
-                assert_eq!(got_path, path);
-            }
-            other => panic!("unexpected event: {other:?}"),
-        }
-        // Entry pruned so subsequent events for the path don't re-fire.
-        assert!(!watched.contains_key(&normalize_path(&path)));
-    }
-
-    #[test]
-    fn self_write_suppression_matches_post_save_fingerprint() {
-        // A notify event whose on-disk read matches the expected post-save
-        // fingerprint must be classified as a self-write — i.e. the same
-        // bytes the editor just wrote.
-        let expected = FileAssociation::new(PathBuf::from("note.md"), 1_700_000_000_000, 42);
-        let same = expected.clone();
-        assert!(is_self_write(&same, &expected));
-    }
-
-    #[test]
-    fn self_write_suppression_rejects_real_external_edit() {
-        let expected = FileAssociation::new(PathBuf::from("note.md"), 1_700_000_000_000, 42);
-        // Different hash → real external edit.
-        let observed_hash = FileAssociation::new(expected.path.clone(), expected.mtime_ms, 999);
-        assert!(!is_self_write(&observed_hash, &expected));
-        // Same hash but a later mtime → still real (e.g., touch).
-        let observed_mtime = FileAssociation::new(expected.path.clone(), 1_700_000_001_000, 42);
-        assert!(!is_self_write(&observed_mtime, &expected));
-    }
-}
+#[path = "file_io/tests.rs"]
+mod tests;

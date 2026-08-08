@@ -143,7 +143,7 @@ impl Window {
         match worker_outcome.into_result() {
             Ok(hit) => {
                 // The off-thread jump build (fix A) landed — stop polling.
-                self.jump_offthread_polls = 0;
+                self.surface.jump_offthread_polls = 0;
                 // P18.7: sub-stage timing for the worker-hit install
                 // arm. The arm itself is microseconds-scoped — the
                 // worker frame is `Arc<DisplayMap>` and is moved (not
@@ -232,8 +232,12 @@ impl Window {
                     );
                 }
                 let reuse_pending = scroll_anim_worker_pending || jump_offthread_pending;
-                let reuse_prev_frame = self.last_painted_frame_display.as_ref().and_then(
-                    |(cached_query, cached_frame)| {
+                let reuse_prev_frame = self
+                    .surface
+                    .projection
+                    .last_painted_frame_display
+                    .as_ref()
+                    .and_then(|(cached_query, cached_frame)| {
                         should_reuse_prior_frame_for_worker(
                             reuse_pending,
                             reason,
@@ -243,8 +247,7 @@ impl Window {
                             image_reservations.is_empty(),
                         )
                         .then(|| cached_frame.clone())
-                    },
-                );
+                    });
                 if let Some(prev_frame) = reuse_prev_frame {
                     if jump_offthread_pending {
                         // Cheap placeholder poll for the off-thread jump
@@ -254,8 +257,9 @@ impl Window {
                         // input preempts this poll — the UI stays responsive
                         // while the destination builds on the worker instead
                         // of freezing on the inline walk.
-                        self.jump_offthread_polls = self.jump_offthread_polls.saturating_sub(1);
-                        if self.jump_offthread_polls > 0 {
+                        self.surface.jump_offthread_polls =
+                            self.surface.jump_offthread_polls.saturating_sub(1);
+                        if self.surface.jump_offthread_polls > 0 {
                             self.invalidate_with_reason(self.hwnd(), "jump_offthread_poll");
                         }
                     }
@@ -280,7 +284,7 @@ impl Window {
                 // motion-compatible frame, non-partial kind, reservations
                 // present, …) falls through to the inline build below;
                 // stop polling so it doesn't re-arm on later paints.
-                self.jump_offthread_polls = 0;
+                self.surface.jump_offthread_polls = 0;
                 // γ — these candidates feed both the live-resize reuse
                 // and the cold-deferred stub, neither of which inspects
                 // the reservation set (they validate against the frame's
@@ -294,6 +298,8 @@ impl Window {
                 // rope/decoration/wrap) would substitute the stale
                 // expanded geometry for one frame.
                 let raw_last_painted = self
+                    .surface
+                    .projection
                     .last_painted_frame_display
                     .as_ref()
                     .filter(|(query, _)| {
@@ -303,6 +309,8 @@ impl Window {
                     })
                     .map(|(_, fd)| fd.clone());
                 let raw_spectator = self
+                    .surface
+                    .projection
                     .spectator_frame_cache
                     .borrow()
                     .lookup_same_document_for_reuse(self.tree.focused, display_query);

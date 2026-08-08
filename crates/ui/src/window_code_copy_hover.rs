@@ -14,7 +14,7 @@
 //! the painted frame display.
 //!
 //! **Thread ownership**: UI thread (one Window). All mutation happens
-//! on `Window::mouse_state.code_copy_hover`; never touched from worker
+//! on `EditorSurface::pointer.code_copy_hover`; never touched from worker
 //! threads.
 
 use continuity_decorate::{BlockKind, BlockSpan, Decorations};
@@ -26,7 +26,7 @@ use ropey::Rope;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{KillTimer, SetTimer};
 
-use crate::mouse::{CodeCopyFeedback, CodeCopyHover, CodeCopyKind};
+use crate::editor_surface::pointer::{CodeCopyFeedback, CodeCopyHover, CodeCopyKind};
 
 /// Rectangle in client DIP space — `(x, y, width, height)`. Matches the
 /// painted copy-button hit rect surfaced from
@@ -97,7 +97,7 @@ impl Window {
     ) -> bool {
         let (block, button_rect, inner_text) = target;
         let button_hovered = rect_contains(button_rect, x as f32, y as f32);
-        if let Some(prev) = self.mouse_state.code_copy_hover.as_mut() {
+        if let Some(prev) = self.surface.pointer.code_copy_hover.as_mut() {
             if prev.kind == CodeCopyKind::Fenced
                 && prev.block_start_byte == block.start_byte
                 && prev.block_end_byte == block.end_byte
@@ -109,7 +109,7 @@ impl Window {
                 return prev_button_hovered != button_hovered;
             }
         }
-        self.mouse_state.code_copy_hover = Some(CodeCopyHover {
+        self.surface.pointer.code_copy_hover = Some(CodeCopyHover {
             kind: CodeCopyKind::Fenced,
             block_start_byte: block.start_byte,
             block_end_byte: block.end_byte,
@@ -133,7 +133,7 @@ impl Window {
             button_hovered,
             inner_text,
         } = target;
-        if let Some(prev) = self.mouse_state.code_copy_hover.as_mut() {
+        if let Some(prev) = self.surface.pointer.code_copy_hover.as_mut() {
             if prev.kind == CodeCopyKind::Inline
                 && prev.inner_start_byte == inner_start_byte
                 && prev.inner_end_byte == inner_end_byte
@@ -145,7 +145,7 @@ impl Window {
                 return prev_button_hovered != button_hovered;
             }
         }
-        self.mouse_state.code_copy_hover = Some(CodeCopyHover {
+        self.surface.pointer.code_copy_hover = Some(CodeCopyHover {
             kind: CodeCopyKind::Inline,
             block_start_byte: outer_start_byte,
             block_end_byte: outer_end_byte,
@@ -164,7 +164,8 @@ impl Window {
     /// mouse-cursor router upgrades to `IDC_HAND` so the user gets a
     /// click affordance over the chip.
     pub(crate) fn cursor_over_code_copy_button(&self, x_dip: f32, y_dip: f32) -> bool {
-        self.mouse_state
+        self.surface
+            .pointer
             .code_copy_hover
             .as_ref()
             .is_some_and(|hover| rect_contains(hover.button_rect, x_dip, y_dip))
@@ -173,7 +174,7 @@ impl Window {
     /// Clear any visible copy-button hover. Returns `true` if state
     /// changed so the caller can invalidate.
     pub(crate) fn clear_code_copy_hover(&mut self) -> bool {
-        let had_hover = self.mouse_state.code_copy_hover.take().is_some();
+        let had_hover = self.surface.pointer.code_copy_hover.take().is_some();
         if had_hover {
             self.stop_code_copy_feedback_timer(self.hwnd);
         }
@@ -185,7 +186,7 @@ impl Window {
     /// the live rope) and flip the button to its feedback state.
     /// Returns `true` when the click was claimed.
     pub(crate) fn try_code_copy_button_left_down(&mut self, x: i32, y: i32) -> bool {
-        let Some(hover) = self.mouse_state.code_copy_hover.as_ref() else {
+        let Some(hover) = self.surface.pointer.code_copy_hover.as_ref() else {
             return false;
         };
         if !rect_contains(hover.button_rect, x as f32, y as f32) {
@@ -219,7 +220,7 @@ impl Window {
             Ok(()) => CodeCopyFeedback::Copied,
             Err(_) => CodeCopyFeedback::Failed,
         };
-        if let Some(hover) = self.mouse_state.code_copy_hover.as_mut() {
+        if let Some(hover) = self.surface.pointer.code_copy_hover.as_mut() {
             hover.feedback = feedback;
         }
         if crate::paint_trace::is_trace_enabled() {
@@ -263,7 +264,7 @@ impl Window {
     /// the confirmation.
     pub(crate) fn on_code_copy_feedback_timer(&mut self, hwnd: HWND) {
         self.stop_code_copy_feedback_timer(hwnd);
-        if let Some(hover) = self.mouse_state.code_copy_hover.as_mut() {
+        if let Some(hover) = self.surface.pointer.code_copy_hover.as_mut() {
             hover.feedback = CodeCopyFeedback::None;
         }
     }
@@ -283,11 +284,19 @@ impl Window {
     fn fenced_code_block_at_pixel(&self, x: i32, y: i32) -> Option<FencedCodeBlockHit> {
         let snap = self.current_snapshot()?;
         let document = self.buffer_id.as_uuid().as_u128();
-        let (last_painted_query, frame_display) = self.last_painted_frame_display.as_ref()?;
+        let (last_painted_query, frame_display) = self
+            .surface
+            .projection
+            .last_painted_frame_display
+            .as_ref()?;
         if last_painted_query.document() != document {
             return None;
         }
-        let decorations: &Decorations = self.last_painted_decorations.as_deref()?;
+        let decorations: &Decorations = self
+            .surface
+            .projection
+            .last_painted_decorations
+            .as_deref()?;
         let body = self.focused_body_rect();
         let rope = snap.rope_snapshot().rope();
         let xf = x as f32;
@@ -324,7 +333,7 @@ impl Window {
                 rope,
                 block,
                 self.effective_line_height(),
-                self.view.scroll_y_dip,
+                self.surface.view.scroll_y_dip,
             ) {
                 Some(span) => span,
                 None => continue,
@@ -374,7 +383,7 @@ impl Window {
         let rope = snap.rope_snapshot().rope();
         let xf = x as f32;
         let yf = y as f32;
-        let hits = self.renderer.as_ref()?.inline_code_hits();
+        let hits = self.surface.render.renderer.as_ref()?.inline_code_hits();
         if hits.is_empty() {
             return None;
         }
@@ -446,7 +455,7 @@ fn byte_to_line(rope: &Rope, byte: usize) -> usize {
 /// in place — the next `WM_MOUSEMOVE` will either clear it (cursor
 /// has drifted out of the block) or re-arm it (caret leaves again).
 pub(crate) fn build_code_copy_button_draw(window: &Window) -> Option<CodeCopyButtonDraw> {
-    let hover = window.mouse_state.code_copy_hover.as_ref()?;
+    let hover = window.surface.pointer.code_copy_hover.as_ref()?;
     let caret_inside = window
         .current_snapshot()
         .map(|snap| {

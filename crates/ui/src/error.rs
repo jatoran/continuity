@@ -33,6 +33,10 @@ pub enum Error {
     #[error(transparent)]
     Core(#[from] continuity_core::Error),
 
+    /// An error from the storage-neutral host runtime.
+    #[error(transparent)]
+    Host(#[from] continuity_host::Error),
+
     /// An error from theme loading or required-key validation.
     #[error(transparent)]
     Theme(#[from] continuity_theme::Error),
@@ -40,4 +44,17 @@ pub enum Error {
     /// A direct windows API call failed.
     #[error("win32: {0}")]
     Win32(#[from] windows::core::Error),
+
+    /// The supplied HWND is not a valid parent window.
+    #[error("editor control requires a valid parent HWND")]
+    InvalidControlParent,
+
+    /// The host event receiver disconnected while a lossless event batch
+    /// was being delivered.
+    #[error("editor control host-event receiver disconnected")]
+    HostEventSinkDisconnected,
+
+    /// The editor control has already been destroyed.
+    #[error("editor control has been destroyed")]
+    ControlDestroyed,
 }

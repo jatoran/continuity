@@ -31,6 +31,9 @@ perf.data*
 # Local staging checkout/copy for the future public repository. It has its own
 # history and must not be tracked by this private development repo.
 continuity-public/
+# Screenshots captured by a local preview session. Per-run artifacts of the
+# harness, not project source.
+.swe-mux/preview-shots/
 
 # === Node.js ===
 node_modules/
@@ -54,6 +57,7 @@ venv/
 dist/
 build/
 out/
+apps/desktop-web/out-*/
 
 # === JetBrains IDEs ===
 .idea/

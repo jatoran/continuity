@@ -1,6 +1,8 @@
 #![warn(missing_docs)]
-//! Win32 raw input, IME composition handling, and key-chord parsing for
-//! the keymap.
+//! Platform-neutral key-chord parsing for the keymap.
+//!
+//! Physical keyboard translation belongs to each host adapter. Native
+//! Windows virtual-key translation lives in `continuity-ui`.
 
 pub mod chord;
 pub mod error;

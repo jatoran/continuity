@@ -121,7 +121,7 @@ where
         .into_iter()
         .filter_map(|(idx, c)| score(query, c.as_ref()).map(|m| (idx, m)))
         .collect();
-    scored.sort_by(|a, b| b.1.score.cmp(&a.1.score));
+    scored.sort_by_key(|entry| std::cmp::Reverse(entry.1.score));
     scored
 }
 

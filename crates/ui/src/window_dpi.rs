@@ -143,16 +143,18 @@ impl Window {
 
     fn rebuild_text_format_for_current_dpi(&mut self) -> Result<(), Error> {
         let scaled_size = self.scaled_font_size();
-        let format = self
-            .dwrite
-            .text_format(&self.prose_font_family, scaled_size, FONT_LOCALE)?;
+        let format = self.surface.render.dwrite.text_format(
+            &self.prose_font_family,
+            scaled_size,
+            FONT_LOCALE,
+        )?;
         let next = self.current_font_state_id();
-        if next != self.font_state {
-            self.cache.invalidate_other_font_states(next);
+        if next != self.surface.render.font_state {
+            self.surface.render.cache.invalidate_other_font_states(next);
         }
-        self.text_format = Some(format);
+        self.surface.render.text_format = Some(format);
         self.apply_tab_stop_to_text_format();
-        self.font_state = next;
+        self.surface.render.font_state = next;
         Ok(())
     }
 
@@ -167,21 +169,21 @@ impl Window {
         let new_h = (rect.bottom - rect.top).max(1) as u32;
         let old_w = self.client_width;
         let old_h = self.client_height;
-        let old_viewport_w = self.view.viewport_width_dip;
-        let old_viewport_h = self.view.viewport_height_dip;
-        let old_wrap_width = self.view.wrap_width_key();
+        let old_viewport_w = self.surface.view.viewport_width_dip;
+        let old_viewport_h = self.surface.view.viewport_height_dip;
+        let old_wrap_width = self.surface.view.wrap_width_key();
 
         self.client_width = new_w;
         self.client_height = new_h;
         self.refresh_focused_viewport_unanchored();
 
         let mut renderer_resize = "renderer_absent";
-        if let Some(renderer) = self.renderer.as_mut() {
+        if let Some(renderer) = self.surface.render.renderer.as_mut() {
             if renderer
                 .resize_for_hwnd(hwnd, new_w.max(1), new_h.max(1))
                 .is_err()
             {
-                self.renderer = None;
+                self.surface.render.renderer = None;
                 renderer_resize = "error_dropped";
             } else {
                 renderer_resize = "ok";
@@ -189,8 +191,10 @@ impl Window {
         }
 
         if crate::paint_trace::is_trace_enabled() {
-            let new_wrap_width = self.view.wrap_width_key();
+            let new_wrap_width = self.surface.view.wrap_width_key();
             let renderer_target = self
+                .surface
+                .render
                 .renderer
                 .as_ref()
                 .map(|renderer| renderer.back_buffer_size())
@@ -213,8 +217,8 @@ impl Window {
                     renderer_target.1,
                     old_viewport_w,
                     old_viewport_h,
-                    self.view.viewport_width_dip,
-                    self.view.viewport_height_dip,
+                    self.surface.view.viewport_width_dip,
+                    self.surface.view.viewport_height_dip,
                     old_wrap_width,
                     new_wrap_width,
                     old_wrap_width != new_wrap_width,

@@ -235,7 +235,10 @@ fn load_theme_for_entry(entry: &ThemeEntry) -> Option<Theme> {
 /// matches nothing on disk and isn't bundled — apply_settings then
 /// leaves the slot alone, which preserves the prior valid theme rather
 /// than blanking it.
-fn resolve_theme_by_name(themes_dir: Option<&std::path::Path>, name: &str) -> Option<Theme> {
+pub(crate) fn resolve_theme_by_name(
+    themes_dir: Option<&std::path::Path>,
+    name: &str,
+) -> Option<Theme> {
     if continuity_theme::is_reserved_name(name) {
         return continuity_theme::assets::bundled_named(name).ok();
     }

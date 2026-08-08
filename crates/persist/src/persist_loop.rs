@@ -47,6 +47,22 @@ pub(crate) fn persist_loop(
 ) {
     while let Ok(msg) = rx.recv() {
         match msg {
+            PersistMessage::UpsertKnownVault { vault, reply } => {
+                let _ = reply.send(store.upsert_known_vault(&vault));
+            }
+            PersistMessage::ListKnownVaults { reply } => {
+                let _ = reply.send(store.list_known_vaults());
+            }
+            PersistMessage::SetKnownVaultPinned {
+                root_path,
+                pinned,
+                reply,
+            } => {
+                let _ = reply.send(store.set_known_vault_pinned(&root_path, pinned));
+            }
+            PersistMessage::RemoveKnownVault { root_path, reply } => {
+                let _ = reply.send(store.remove_known_vault(&root_path));
+            }
             PersistMessage::AppendEdit { row, edit_seq } => {
                 let _seq_guard = edit_seq.map(crate::trace::bind_edit_seq);
                 let cost = edit_row_byte_cost(&row);
@@ -218,29 +234,6 @@ pub(crate) fn persist_loop(
                 reply,
             } => {
                 let _ = reply.send(store.load_content_at_revision(buffer_id, target_revision));
-            }
-            PersistMessage::RecordMetricsDelta { delta } => {
-                if let Err(e) = store.record_metrics_delta(&delta) {
-                    report_write_failure(&events, PersistOperation::RecordMetricsDelta, &e);
-                }
-            }
-            PersistMessage::LoadMetricsRange {
-                start_day_iso,
-                end_day_iso,
-                reply,
-            } => {
-                let _ = reply.send(store.load_metrics_range(&start_day_iso, &end_day_iso));
-            }
-            PersistMessage::PurgeMetrics { reply } => {
-                let _ = reply.send(store.purge_metrics());
-            }
-            PersistMessage::LoadTopBuffersByEdits {
-                start_ms,
-                end_ms,
-                limit,
-                reply,
-            } => {
-                let _ = reply.send(store.load_top_buffers_by_edits(start_ms, end_ms, limit));
             }
             PersistMessage::ListBufferRecords { filter, reply } => {
                 let _ = reply.send(store.list_buffer_records(filter));

@@ -214,7 +214,7 @@ impl DisplayRowIndex {
         // coordinates correctly regardless of how the caller
         // assembled the chain.
         let mut ordered: Vec<RopeEditDelta> = deltas.to_vec();
-        ordered.sort_by(|a, b| b.at.cmp(&a.at));
+        ordered.sort_by_key(|edit| std::cmp::Reverse(edit.at));
 
         let mut dirty: Vec<u32> = Vec::new();
         let mut byte_shift: isize = 0;

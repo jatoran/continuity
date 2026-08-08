@@ -1,0 +1,28 @@
+[package]
+name = "continuity-wasm"
+version = "0.2.22"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+continuity-buffer = { workspace = true }
+continuity-decorate = { workspace = true }
+continuity-display-map = { workspace = true }
+continuity-engine = { workspace = true }
+continuity-host = { workspace = true }
+continuity-text = { workspace = true }
+ropey = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wasm-bindgen = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { workspace = true }
+
+[dev-dependencies]
+continuity-test-fixtures = { workspace = true }

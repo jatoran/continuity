@@ -17,7 +17,6 @@
 
 use continuity_input::KeyChord;
 use continuity_render::{OverlayDraw, Rect};
-use continuity_win::clipboard;
 use serde_json::Value;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_A, VK_C, VK_END, VK_HOME, VK_LEFT, VK_RIGHT, VK_V, VK_X,
@@ -75,7 +74,7 @@ impl Window {
     /// **Ordering**: matches the [`Overlays`] enum so a renderer reordering
     /// is a compile-time mismatch rather than a silent gap.
     pub(crate) fn focused_text_input(&mut self) -> Option<&mut TextInput> {
-        if !self.overlay_input_focused {
+        if !self.surface.focus.overlay_input_focused {
             return None;
         }
         match &mut self.overlays {
@@ -84,6 +83,7 @@ impl Window {
             Overlays::FindInAll(fia) => Some(&mut fia.input),
             Overlays::Palette(p) => Some(&mut p.input),
             Overlays::QuickOpen(q) => Some(&mut q.input),
+            Overlays::VaultLauncher(launcher) => Some(&mut launcher.input),
             Overlays::GotoLine(g) => Some(&mut g.input),
             Overlays::GotoHeading(g) => Some(&mut g.input),
             Overlays::FontPicker(fp) => Some(&mut fp.input),
@@ -97,7 +97,8 @@ impl Window {
 
     /// Returns `true` when an active overlay should receive keyboard input.
     pub(crate) fn overlay_has_keyboard_focus(&self) -> bool {
-        self.overlay_input_focused || matches!(self.overlays, Overlays::TabSwitcher(_))
+        self.surface.focus.overlay_input_focused
+            || matches!(self.overlays, Overlays::TabSwitcher(_))
     }
 
     /// Move keyboard focus to the active overlay text input, when it has one.
@@ -105,23 +106,24 @@ impl Window {
         if matches!(self.overlays, Overlays::Idle | Overlays::TabSwitcher(_)) {
             return;
         }
-        self.overlay_input_focused = true;
+        self.surface.focus.overlay_input_focused = true;
     }
 
     /// Return keyboard focus to the editor body while leaving the overlay open.
     pub(crate) fn blur_overlay_input(&mut self) {
-        self.overlay_input_focused = false;
+        self.surface.focus.overlay_input_focused = false;
     }
 
     /// Dismiss the active overlay and return keyboard focus to the editor
     /// body. Use this anywhere an overlay closes after committing — bare
     /// [`Overlays::dismiss`] flips the discriminant to `Idle` but leaves
-    /// [`Self::overlay_input_focused`] set, so the next `WM_KEYDOWN` hits
+    /// `EditorSurface::focus.overlay_input_focused` set, so the next
+    /// `WM_KEYDOWN` hits
     /// [`Self::overlay_has_keyboard_focus`] and gets swallowed (every
     /// keystroke dies until the user clicks back into the editor).
     pub(crate) fn dismiss_overlay_and_blur(&mut self) {
         self.overlays.dismiss();
-        self.overlay_input_focused = false;
+        self.surface.focus.overlay_input_focused = false;
     }
 
     /// Service a text-editing chord against the focused overlay input.
@@ -190,7 +192,7 @@ impl Window {
             .and_then(|input| input.selection_text().map(str::to_owned));
         if let Some(t) = text {
             if !t.is_empty() {
-                let _ = clipboard::write_text(self.hwnd, &t);
+                let _ = self.request_host_clipboard_write(&t);
             }
         }
         // Always consume Ctrl+C while an input is focused so the editor's
@@ -204,7 +206,7 @@ impl Window {
             .and_then(|input| input.selection_text().map(str::to_owned));
         if let Some(t) = text {
             if !t.is_empty() {
-                let _ = clipboard::write_text(self.hwnd, &t);
+                let _ = self.request_host_clipboard_write(&t);
                 if let Some(input) = self.focused_text_input() {
                     input.replace_selection("");
                 }
@@ -217,7 +219,7 @@ impl Window {
     fn overlay_paste_focused_input(&mut self) -> bool {
         // Best-effort: an OS read failure leaves the input untouched but
         // still consumes the chord so the editor doesn't paste behind.
-        let Ok(Some(raw)) = clipboard::read_text(self.hwnd) else {
+        let Ok(Some(raw)) = self.request_host_clipboard_read() else {
             return true;
         };
         // Overlay text fields are single-line. Drop CR/LF so a multi-line
@@ -241,11 +243,14 @@ impl Window {
             &self.registry,
             self.client_width_dip(),
             self.client_height_dip(),
-            self.overlay_input_focused,
+            self.surface.focus.overlay_input_focused,
         ) else {
             return false;
         };
-        if matches!(self.overlays, Overlays::Palette(_)) {
+        if matches!(
+            self.overlays,
+            Overlays::Palette(_) | Overlays::VaultLauncher(_)
+        ) {
             let hover = hit_list_row(&draw, x as f32, y as f32);
             let Some(palette) = self.overlays.palette_mut() else {
                 return false;
@@ -285,7 +290,7 @@ impl Window {
             &self.registry,
             self.client_width_dip(),
             self.client_height_dip(),
-            self.overlay_input_focused,
+            self.surface.focus.overlay_input_focused,
         ) else {
             return false;
         };
@@ -317,7 +322,7 @@ impl Window {
             &self.registry,
             self.client_width_dip(),
             self.client_height_dip(),
-            self.overlay_input_focused,
+            self.surface.focus.overlay_input_focused,
         ) else {
             return false;
         };
@@ -341,7 +346,7 @@ impl Window {
             &self.registry,
             self.client_width_dip(),
             self.client_height_dip(),
-            self.overlay_input_focused,
+            self.surface.focus.overlay_input_focused,
         )?;
         if let Some(fb) = self.overlays.find_bar() {
             if hit_test_find_bar(fb, draw.panel.rect, x, y).is_some()
@@ -390,6 +395,7 @@ impl Window {
         match &mut self.overlays {
             Overlays::Palette(p) => p.refilter(),
             Overlays::QuickOpen(q) => q.refilter(),
+            Overlays::VaultLauncher(launcher) => launcher.refilter(),
             Overlays::GotoHeading(g) => g.refilter(),
             Overlays::FontPicker(fp) => fp.refilter(),
             Overlays::ThemePicker(tp) => tp.refilter(),

@@ -157,6 +157,17 @@ impl RopeSnapshot {
 mod tests {
     use super::*;
 
+    fn count_snapshots_for_rope(registry: &RopeSnapshotRegistry, rope: &Arc<Rope>) -> usize {
+        registry
+            .by_id
+            .lock()
+            .expect("test registry lock should not be poisoned")
+            .values()
+            .filter_map(Weak::upgrade)
+            .filter(|registered| Arc::ptr_eq(registered, rope))
+            .count()
+    }
+
     #[test]
     fn snapshot_clone_shares_underlying_rope() {
         let rope = Arc::new(Rope::from_str("hello"));
@@ -178,23 +189,21 @@ mod tests {
     #[test]
     fn snapshot_registry_tracks_distinct_heads() {
         // Two snapshots cloned from the same Arc share one head; a
-        // separately-constructed snapshot bumps the head count. After
-        // every snapshot drops, both counters return to their prior
-        // baseline.
+        // separately-constructed snapshot occupies another head. Inspect
+        // only this test's Arc identities because the registry is process-wide
+        // and other parallel tests legitimately create snapshots.
         let registry = RopeSnapshotRegistry::instance();
-        let heads_before = registry.distinct_arc_heads();
-        let live_before = registry.live_snapshot_count();
         let rope_a = Arc::new(Rope::from_str("alpha"));
         let s1 = RopeSnapshot::new(Arc::clone(&rope_a), Revision(1));
         let s2 = s1.clone();
-        assert_eq!(registry.live_snapshot_count(), live_before + 2);
-        assert_eq!(registry.distinct_arc_heads(), heads_before + 1);
+        assert_eq!(count_snapshots_for_rope(registry, &rope_a), 2);
         let rope_b = Arc::new(Rope::from_str("beta"));
-        let s3 = RopeSnapshot::new(rope_b, Revision(2));
-        assert_eq!(registry.distinct_arc_heads(), heads_before + 2);
+        let s3 = RopeSnapshot::new(Arc::clone(&rope_b), Revision(2));
+        assert_eq!(count_snapshots_for_rope(registry, &rope_b), 1);
         drop(s1);
         drop(s2);
         drop(s3);
-        assert_eq!(registry.live_snapshot_count(), live_before);
+        assert_eq!(count_snapshots_for_rope(registry, &rope_a), 0);
+        assert_eq!(count_snapshots_for_rope(registry, &rope_b), 0);
     }
 }

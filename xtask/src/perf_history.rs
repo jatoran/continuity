@@ -78,25 +78,31 @@ pub fn snapshot_with_path(_args: &[String]) -> Result<PathBuf> {
         ("continuity-test-support", "perf_gates_memory_200"),
     ];
     let mut failures: Vec<String> = Vec::new();
-    for (krate, target) in gates {
-        eprintln!("---- perf gate: {krate} :: {target} ----");
-        let status = Command::new(env!("CARGO"))
-            .args([
-                "test",
-                "--release",
-                "-p",
-                krate,
-                "--test",
-                target,
-                "--",
-                "--ignored",
-                "--test-threads=1",
-                "--nocapture",
-            ])
-            .env("CONTINUITY_PERF_LOG_DIR", &log_dir)
-            .status()?;
-        if !status.success() {
-            failures.push(format!("{krate}::{target}"));
+    if !crate::bench::run_gate_coordinate_batches(
+        &gates,
+        Some(("CONTINUITY_PERF_LOG_DIR", &log_dir)),
+    )? {
+        eprintln!("batched snapshot failed; rerunning each target to localize failures");
+        for (crate_name, target) in gates {
+            eprintln!("---- perf gate fallback: {crate_name} :: {target} ----");
+            let status = Command::new(env!("CARGO"))
+                .args([
+                    "test",
+                    "--release",
+                    "-p",
+                    crate_name,
+                    "--test",
+                    target,
+                    "--",
+                    "--ignored",
+                    "--test-threads=1",
+                    "--nocapture",
+                ])
+                .env("CONTINUITY_PERF_LOG_DIR", &log_dir)
+                .status()?;
+            if !status.success() {
+                failures.push(format!("{crate_name}::{target}"));
+            }
         }
     }
 

@@ -9,7 +9,7 @@
 //! to its insert site.
 //!
 //! Thread ownership: UI thread of one window. Reads
-//! `Window::spectator_frame_cache` for the seed-frame lookup; the
+//! `EditorSurface::projection.spectator_frame_cache` for the seed-frame lookup; the
 //! caller still owns the post-paint cache insert.
 
 use std::ops::Range;
@@ -157,6 +157,8 @@ pub(crate) fn resolve_main_cache_outcome(
     };
     let seeded_partial = || {
         let seed_frame: Option<FrameDisplay> = window
+            .surface
+            .projection
             .spectator_frame_cache
             .borrow()
             .lookup_same_document(pane_id, query);

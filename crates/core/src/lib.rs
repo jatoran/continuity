@@ -1,57 +1,38 @@
 #![warn(missing_docs)]
-//! The singleton editor state machine.
+//! Native threaded host for the synchronous editor engine.
 //!
-//! `core` is the only crate that owns mutable buffer state. It receives
-//! `EditorMessage`s on a channel and broadcasts `EditEvent`s back. All
-//! buffer mutation must flow through this crate.
+//! The Windows core actor owns one [`continuity_engine::Engine`], receives
+//! [`EditorMessage`] values, adapts change batches to SQLite, and broadcasts
+//! [`EditEvent`] values. Direct embedders own an engine without this actor.
 
 pub mod clock;
 pub(crate) mod dispatch;
-pub(crate) mod edit_indent_shift;
-pub mod edit_indent_subtree;
-pub(crate) mod edit_inline;
-pub(crate) mod edit_line_text;
-pub(crate) mod edit_line_text_helpers;
-pub(crate) mod edit_lines;
-pub(crate) mod edit_lines_movement;
-pub(crate) mod edit_list;
-pub(crate) mod edit_markdown;
-pub(crate) mod edit_markdown_blocks;
-pub(crate) mod edit_markdown_strip;
-pub(crate) mod edit_normalize;
-pub(crate) mod edit_pairs;
-pub(crate) mod edit_planning;
-pub(crate) mod edit_words;
 pub mod error;
 pub mod handle;
 pub mod indent_fold_provider;
 pub mod markdown_heading_fold_provider;
 pub mod message;
+mod persistence_bridge;
 pub mod policy;
-pub mod rope_edit_delta_points;
-pub mod selection_coalesce;
-pub mod selection_edit;
-pub mod state;
 pub(crate) mod trace;
-pub mod undo;
-pub mod wpm;
 
 pub use clock::{Clock, SystemClock};
-pub use edit_indent_subtree::{
+pub use continuity_engine::{
     all_top_level_subtrees, indent_subtree, line_indent, next_sibling_subtree,
-    previous_sibling_subtree, IndentRange,
+    previous_sibling_subtree, AutoPairConfig, IndentRange,
 };
-pub use edit_pairs::AutoPairConfig;
+pub use continuity_engine::{edit_indent_subtree, edit_pairs, selection_edit};
+pub use continuity_engine::{rope_edit_delta_points, selection_coalesce, state};
+pub use continuity_engine::{
+    CaseKind, EmphasisKind, IndentUnit, LineEnding, SelectionEdit, SelectionEditPlan, SortKind,
+};
+pub use continuity_engine::{CoalesceKind, COALESCE_WINDOW_MS};
+pub use continuity_engine::{EditPoint, EngineState, RopeEditDeltaWithPoints};
+/// Compatibility name for the engine-owned buffer collection.
+pub type EditorState = EngineState;
 pub use error::Error;
 pub use handle::EditorHandle;
 pub use indent_fold_provider::{compute_indent_fold_byte_ranges, IndentFoldByteRange};
 pub use markdown_heading_fold_provider::compute_heading_fold_byte_ranges;
 pub use message::{BufferSummary, CoreMemoryStats, EditEvent, EditorMessage, EditorSnapshot};
 pub use policy::{edit_byte_delta, SnapshotPolicy, SnapshotTracker, SnapshotTrigger};
-pub use rope_edit_delta_points::{EditPoint, RopeEditDeltaWithPoints};
-pub use selection_edit::{
-    CaseKind, EmphasisKind, IndentUnit, LineEnding, SelectionEdit, SelectionEditPlan, SortKind,
-};
-pub use state::EditorState;
-pub use undo::{CoalesceKind, UndoOrchestrator, COALESCE_WINDOW_MS};
-pub use wpm::WpmTracker;

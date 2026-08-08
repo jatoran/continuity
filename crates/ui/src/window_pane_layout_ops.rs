@@ -104,7 +104,7 @@ impl Window {
                 }
             }
         }
-        self.view = view;
+        self.surface.view = view;
         self.language = Self::default_language();
         self.language_revision = None;
         self.last_submitted_decoration_revision = None;

@@ -129,6 +129,75 @@ pub fn list_marker_display_columns(after_indent: &str) -> usize {
     }
 }
 
+/// Byte offset where visible list-item content begins after leading
+/// whitespace, a rendered/source list marker, and its separator.
+///
+/// Recognizes canonical source markers (`-`, `*`, `+`, `N.`, `N)`) and
+/// projected markers (`•`, `☐`, `☑`). Returns `None` for non-list text.
+#[must_use]
+pub fn list_item_content_start_byte(display_text: &str) -> Option<usize> {
+    let leading_end = display_text
+        .char_indices()
+        .take_while(|(_, character)| matches!(character, ' ' | '\t'))
+        .map(|(offset, character)| offset + character.len_utf8())
+        .last()
+        .unwrap_or(0);
+    let after_indent = &display_text[leading_end..];
+    let marker_end = projected_marker_end(after_indent)?;
+    let separator_end = after_indent[marker_end..]
+        .char_indices()
+        .take_while(|(_, character)| matches!(character, ' ' | '\t'))
+        .map(|(offset, character)| offset + character.len_utf8())
+        .last()?;
+    Some(leading_end + marker_end + separator_end)
+}
+
+/// Byte offset of the prefix used as a soft-wrap hanging indent.
+/// Non-list lines return the end of their leading spaces/tabs; list
+/// lines return [`list_item_content_start_byte`].
+#[must_use]
+pub fn hanging_indent_display_byte_end(display_text: &str) -> usize {
+    list_item_content_start_byte(display_text).unwrap_or_else(|| {
+        display_text
+            .char_indices()
+            .take_while(|(_, character)| matches!(character, ' ' | '\t'))
+            .map(|(offset, character)| offset + character.len_utf8())
+            .last()
+            .unwrap_or(0)
+    })
+}
+
+fn projected_marker_end(after_indent: &str) -> Option<usize> {
+    let mut characters = after_indent.char_indices();
+    let (_, first) = characters.next()?;
+    if matches!(first, '-' | '*' | '+' | '•' | '☐' | '☑') {
+        return Some(first.len_utf8());
+    }
+    if !first.is_ascii_digit() {
+        return None;
+    }
+    for (offset, character) in characters {
+        if character.is_ascii_digit() {
+            continue;
+        }
+        return matches!(character, '.' | ')').then_some(offset + character.len_utf8());
+    }
+    None
+}
+
+pub(crate) fn preferred_word_break(
+    last_word_break: Option<usize>,
+    line_start_byte: usize,
+    overflow_byte: usize,
+    protected_list_prefix_end: Option<usize>,
+) -> Option<usize> {
+    last_word_break
+        .filter(|candidate| *candidate > line_start_byte)
+        .filter(|candidate| {
+            protected_list_prefix_end != Some(*candidate) || overflow_byte <= *candidate
+        })
+}
+
 /// Hanging indent (DIPs) the painter applies to soft-wrap continuation
 /// rows of `line_text`: leading spaces and tabs at their rendered
 /// advances plus the rendered list-marker width. Uses the same

@@ -9,3 +9,6 @@ The bundled default map includes find-bar-scoped chords for search mode
 toggles and replace actions. Those bindings use `when = "find_bar.visible"`
 so the same chords remain available to normal editor commands outside the
 overlay.
+
+`Ctrl+Alt+Up/Down` are reserved for adding cursors above/below. Pane resize
+bindings must not shadow that pair.

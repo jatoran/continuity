@@ -12,12 +12,9 @@ use crossbeam_channel::Sender;
 use crate::buffer_history::BufferHistoryLane;
 use crate::buffer_listing::{BufferListFilter, BufferRecord};
 use crate::closed_history::{ClosedHistoryEntry, ClosedHistoryKind};
-use crate::store::{
-    EditRow, MetricsDailyDelta, MetricsDailyRow, SnapshotRow, SnapshotSummaryRow, TopBufferRow,
-    UndoGroupRow,
-};
+use crate::store::{EditRow, SnapshotRow, SnapshotSummaryRow, UndoGroupRow};
 use crate::window_state::WindowRow;
-use crate::Error;
+use crate::{Error, KnownVault};
 
 /// A request sent to the persistence thread.
 ///
@@ -25,6 +22,34 @@ use crate::Error;
 /// into; senders that disconnect before the result lands are silently
 /// dropped (the caller has gone away).
 pub enum PersistMessage {
+    /// Insert or refresh a vault in the machine-local launcher registry.
+    UpsertKnownVault {
+        /// Canonical root, derived display name, and last-opened time.
+        vault: KnownVault,
+        /// Completion channel.
+        reply: Sender<Result<(), Error>>,
+    },
+    /// Return known vaults with pinned entries first, then by recency.
+    ListKnownVaults {
+        /// Completion channel.
+        reply: Sender<Result<Vec<KnownVault>, Error>>,
+    },
+    /// Change a known vault's pinned state.
+    SetKnownVaultPinned {
+        /// Canonical vault root.
+        root_path: PathBuf,
+        /// New pinned state.
+        pinned: bool,
+        /// Completion channel.
+        reply: Sender<Result<bool, Error>>,
+    },
+    /// Remove a vault from launcher history without touching its files.
+    RemoveKnownVault {
+        /// Canonical vault root.
+        root_path: PathBuf,
+        /// Completion channel.
+        reply: Sender<Result<bool, Error>>,
+    },
     /// Append one [`EditRow`] to the edit log. Fire-and-forget.
     AppendEdit {
         /// The fully-encoded edit row.
@@ -222,40 +247,6 @@ pub enum PersistMessage {
         target_revision: Revision,
         /// Reply channel — carries the materialized content.
         reply: Sender<Result<Option<String>, Error>>,
-    },
-    /// Phase I2: merge a [`MetricsDailyDelta`] into today's row.
-    /// Fire-and-forget (the editor never blocks on metrics).
-    RecordMetricsDelta {
-        /// The delta to apply.
-        delta: MetricsDailyDelta,
-    },
-    /// Phase I2: load every metric row inside the inclusive ISO-date
-    /// window `[start, end]`, ordered ascending by day.
-    LoadMetricsRange {
-        /// Inclusive lower bound (`YYYY-MM-DD`).
-        start_day_iso: String,
-        /// Inclusive upper bound (`YYYY-MM-DD`).
-        end_day_iso: String,
-        /// Reply channel.
-        reply: Sender<Result<Vec<MetricsDailyRow>, Error>>,
-    },
-    /// Phase I2: drop every row from `metrics_daily`. Replies with the
-    /// number of rows removed.
-    PurgeMetrics {
-        /// Reply channel.
-        reply: Sender<Result<usize, Error>>,
-    },
-    /// Phase I2: rank buffers by edit count inside `[start_ms, end_ms)`
-    /// and return the top `limit`.
-    LoadTopBuffersByEdits {
-        /// Inclusive lower bound (unix ms).
-        start_ms: i64,
-        /// Exclusive upper bound (unix ms).
-        end_ms: i64,
-        /// Max rows to return.
-        limit: usize,
-        /// Reply channel.
-        reply: Sender<Result<Vec<TopBufferRow>, Error>>,
     },
     /// δ.4: enumerate `buffers` rows for the previous-buffer browser,
     /// joined with each row's latest snapshot so the persist thread

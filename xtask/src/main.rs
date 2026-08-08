@@ -5,16 +5,25 @@
 mod analyze_trace;
 mod analyze_trace_memory_sections;
 mod analyze_trace_sections;
+mod artifact_budget;
 mod bench;
 mod conventions;
 mod conventions_b_rules;
 mod conventions_identifier_rules;
+mod conventions_portable;
+mod desktop;
 mod docs_gen;
 mod installer;
 mod perf_history;
 mod release;
 mod scan;
+mod sdk;
+mod sdk_release;
+mod sdk_release_artifact;
+mod sdk_release_manifest;
+mod sdk_release_sbom;
 mod tutorial_gen;
+mod wasm;
 
 use std::env;
 use std::path::Path;
@@ -70,6 +79,14 @@ fn main() -> ExitCode {
         "release" => release::release(&rest),
         "gen-tutorial" => tutorial_gen::run(),
         "analyze-trace" => analyze_trace::run(&rest),
+        "wasm-check" => wasm::check(),
+        "wasm-package" => wasm::package(),
+        "browser-check" => wasm::browser_check(),
+        "desktop-check" => desktop::check(),
+        "sdk-check" => sdk::check(),
+        "sdk-release-check" => sdk_release::check(),
+        "sdk-release-dry-run" => sdk_release::dry_run(&rest),
+        "sdk-release-verify" => sdk_release::verify(&rest),
         other => Err(anyhow!("unknown xtask `{other}` — try `help`")),
     };
 
@@ -131,6 +148,18 @@ fn print_help() {
     println!("  sign              sign the release exe using CONTINUITY_SIGN_CERT/PASS");
     println!("  release           build, sign, and assemble release artifacts including MSI");
     println!("                    pass --skip-sign for local unsigned artifact smoke tests");
+    println!();
+    println!("Portable WASM SDK:");
+    println!("  wasm-check        compile WASM, run parity, pack npm, and test a clean consumer");
+    println!("  wasm-package      build the release WASM module and npm tarball");
+    println!("  browser-check     test the packed Web Component in Chromium and Electron");
+    println!("  desktop-check     package and smoke the cross-platform Electron application");
+    println!("  sdk-check         package Cargo crates, compile the C consumer, and test a wheel");
+    println!("  sdk-release-check verify canonical SDK versions and public coordinates");
+    println!("  sdk-release-dry-run [--allow-dirty]");
+    println!("                    build once and stage hashed SDK artifacts without publishing");
+    println!("  sdk-release-verify [bundle-directory]");
+    println!("                    verify every immutable artifact against its release manifest");
     println!();
     println!("Tutorial:");
     println!("  gen-tutorial      regenerate crates/command/assets/tutorial.md from");

@@ -466,6 +466,42 @@ pub fn hit_test_x_to_byte_for_spec(
     hit_test_layout_to_byte(&layout, text, x)
 }
 
+/// Measure the leading-edge x coordinate for an absolute source byte inside
+/// a projected display row.
+///
+/// The layout applies the same projected text and style runs as soft-wrap
+/// painting, so hidden Markdown markers, headings, and proportional glyphs
+/// produce the same caret geometry as the rendered row.
+#[must_use]
+pub fn caret_x_for_spec(
+    factory: &IDWriteFactory,
+    format: &IDWriteTextFormat,
+    spec: &DisplayLineSpec,
+    source_byte: usize,
+    max_width: f32,
+    base_font_size_dip: f32,
+    heading_scale: [f32; 6],
+) -> Option<f32> {
+    let text = spec.display_text();
+    if text.is_empty() {
+        return Some(0.0);
+    }
+    let wide: Vec<u16> = text.encode_utf16().collect();
+    let layout: IDWriteTextLayout = unsafe {
+        factory
+            .CreateTextLayout(&wide, format, max_width.max(1.0), f32::INFINITY)
+            .ok()?
+    };
+    apply_style_runs(
+        &layout,
+        spec.style_runs(),
+        base_font_size_dip,
+        heading_scale,
+    );
+    let utf16_index = caret_utf16_for_spec(text, spec, source_byte);
+    hit_test_x(&layout, utf16_index)
+}
+
 fn hit_test_layout_to_byte(layout: &IDWriteTextLayout, text: &str, x: f32) -> Option<usize> {
     let mut is_trailing = BOOL(0);
     let mut is_inside = BOOL(0);

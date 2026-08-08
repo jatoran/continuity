@@ -80,18 +80,18 @@ impl Window {
                 "pane_root_rect_dip": rect_json(self.pane_root_rect()),
                 "body_rect_dip": rect_json(body),
                 "viewport_dip": {
-                    "width": self.view.viewport_width_dip,
-                    "height": self.view.viewport_height_dip,
-                    "wrap_width_key": self.view.wrap_width_key(),
+                    "width": self.surface.view.viewport_width_dip,
+                    "height": self.surface.view.viewport_height_dip,
+                    "wrap_width_key": self.surface.view.wrap_width_key(),
                     "projection_wrap_width": projection.wrap_width_dip,
                     "projection_char_width": projection.char_width_dip,
                 },
                 "view": {
-                    "scroll_y_dip": self.view.scroll_y_dip,
-                    "font_size_scale": self.view.font_size_scale,
-                    "soft_wrap": self.view.soft_wrap,
+                    "scroll_y_dip": self.surface.view.scroll_y_dip,
+                    "font_size_scale": self.surface.view.font_size_scale,
+                    "soft_wrap": self.surface.view.soft_wrap,
                     "font_size_dip": self.scaled_font_size(),
-                    "font_state": format!("{:?}", self.font_state),
+                    "font_state": format!("{:?}", self.surface.render.font_state),
                     "font_family": self.prose_font_family,
                 },
                 "chrome": chrome,
@@ -138,6 +138,8 @@ impl Window {
 
     fn layout_diagnostics_window(&self) -> Value {
         let renderer_back_buffer = self
+            .surface
+            .render
             .renderer
             .as_ref()
             .map(|renderer| renderer.back_buffer_size());
@@ -252,7 +254,8 @@ impl Window {
     }
 
     fn layout_diagnostics_last_frame(&self) -> Value {
-        let Some((query, frame)) = self.last_painted_frame_display.as_ref() else {
+        let Some((query, frame)) = self.surface.projection.last_painted_frame_display.as_ref()
+        else {
             return json!({ "present": false });
         };
         let row_index = frame.row_index();

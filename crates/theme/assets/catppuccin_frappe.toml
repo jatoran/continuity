@@ -10,9 +10,9 @@ name = "catppuccin_frappe"
 
 "panel.background"                  = "#292c3c"
 "panel.foreground"                  = "#b5bfe2"
-"panel.active_tab.background"       = "#363a4f"
+"panel.active_tab.background"       = "#303446"
 "panel.active_tab.foreground"       = "#c6d0f5"
-"panel.inactive_tab.background"     = "#232633"
+"panel.inactive_tab.background"     = "#363a4f"
 "panel.inactive_tab.foreground"     = "#737994"
 
 "pane.border"                       = "#414559"

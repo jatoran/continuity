@@ -1,0 +1,30 @@
+[package]
+name = "continuity-engine"
+version = "0.2.22"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Synchronous, storage-neutral Continuity editor engine"
+documentation = "https://docs.rs/continuity-engine"
+keywords = ["editor", "markdown", "text", "embedding"]
+categories = ["text-editors"]
+readme = "README.md"
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md"]
+publish = true
+
+[dependencies]
+continuity-text = { workspace = true }
+continuity-buffer = { workspace = true }
+ropey = { workspace = true }
+ahash = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+continuity-test-fixtures = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "editing"
+harness = false

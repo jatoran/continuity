@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use crate::docs_gen::rust_source::{brace_delta, parse_enum_variants};
 use crate::docs_gen::{escape_md_cell, new_doc};
 
-const SOURCE_PATH: &str = "crates/core/src/selection_edit.rs";
+const SOURCE_PATH: &str = "crates/engine/src/selection_edit.rs";
 const HELPER_ENUMS: &[&str] = &[
     "SortKind",
     "CaseKind",
@@ -25,7 +25,7 @@ pub(crate) fn write_selection_edits(workspace: &Path) -> Result<String> {
     let planners = planner_map(&text);
 
     let mut out = new_doc("Selection Edits");
-    out.push_str("Generated from `crates/core/src/selection_edit.rs`.\n\n");
+    out.push_str("Generated from `crates/engine/src/selection_edit.rs`.\n\n");
     out.push_str("## `SelectionEdit`\n\n");
     out.push_str("| Variant | Payload | Planner(s) | Source | First doc line |\n");
     out.push_str("|---|---|---|---|---|\n");

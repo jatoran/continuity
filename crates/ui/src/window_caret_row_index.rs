@@ -26,7 +26,11 @@ impl Window {
         wrap_width_dip: u32,
         char_width_dip: f32,
     ) -> Option<FrameDisplay> {
-        let (previous_query, previous_frame) = self.last_painted_frame_display.as_ref()?;
+        let (previous_query, previous_frame) = self
+            .surface
+            .projection
+            .last_painted_frame_display
+            .as_ref()?;
         if previous_query.document() != query.document() {
             return None;
         }

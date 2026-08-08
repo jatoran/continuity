@@ -198,13 +198,13 @@ impl Window {
         // Preconditions — every one matches a paint-time guard. Skip
         // quietly when paint itself would not yet have a worker to
         // dispatch to.
-        if self.projection_worker.is_none() {
+        if self.surface.projection.projection_worker.is_none() {
             return log_early_dispatch(reason, "absent", EarlyDispatchSkip::WorkerAbsent, 0);
         }
-        if self.renderer.is_none() {
+        if self.surface.render.renderer.is_none() {
             return log_early_dispatch(reason, "absent", EarlyDispatchSkip::RendererAbsent, 0);
         }
-        if self.text_format.is_none() {
+        if self.surface.render.text_format.is_none() {
             return log_early_dispatch(reason, "absent", EarlyDispatchSkip::TextFormatAbsent, 0);
         }
         let snap = {
@@ -226,7 +226,7 @@ impl Window {
         let decoration_id = self.buffer_id.as_uuid().as_u128();
         // Worker parse revision sampled BEFORE `transformed_through`
         // overwrites the revision label. See the matching site in
-        // `on_paint` and `Window::last_painted_decoration_parse_revision`
+        // `on_paint` and the surface's `last_painted_decoration_parse_revision`
         // for the full rationale.
         let current_decoration_parse_revision: Option<u64> =
             self.decoration_cache.get(decoration_id).map(|d| d.revision);
@@ -280,8 +280,8 @@ impl Window {
         let line_height = self.effective_line_height();
         let viewport_rows = viewport_rows_override.unwrap_or_else(|| {
             visible_display_row_range(
-                self.view.scroll_y_dip,
-                self.view.viewport_height_dip,
+                self.surface.view.scroll_y_dip,
+                self.surface.view.viewport_height_dip,
                 line_height,
             )
         });
@@ -310,12 +310,12 @@ impl Window {
             &caret_bytes,
             &folds,
             projection_metrics.wrap_width_dip,
-            self.font_state,
+            self.surface.render.font_state,
         )
         .with_image_reservations(&image_reservations);
 
         let last_painted_frame = previous_frame::compatible_last_painted_frame(
-            self.last_painted_frame_display.as_ref(),
+            self.surface.projection.last_painted_frame_display.as_ref(),
             &display_query,
         );
         let last_painted_frame_ref = last_painted_frame.map(|(_, frame)| frame);
@@ -342,7 +342,7 @@ impl Window {
             revision,
             wrap_width_dip: projection_metrics.wrap_width_dip,
             current_decorations: decorations,
-            last_painted_decorations: self.last_painted_decorations.as_deref(),
+            last_painted_decorations: self.surface.projection.last_painted_decorations.as_deref(),
             cached_frame: None,
             cached_frame_source: CachedFrameSource::None,
             last_painted_frame: last_painted_frame_ref,
@@ -354,18 +354,23 @@ impl Window {
             // paint so a worker submission triggered by a fresh parse
             // delivery doesn't get short-circuited to `CacheHit`.
             decoration_parse_advanced: current_decoration_parse_revision
-                != self.last_painted_decoration_parse_revision,
+                != self
+                    .surface
+                    .projection
+                    .last_painted_decoration_parse_revision,
         });
 
         let plan = match focus_prewarm::plan_for_focus_change(&projection_kind, submit_reason) {
-            Some(_) if self.last_early_dispatch_stamp.as_ref() == Some(&stamp) => {
+            Some(_)
+                if self.surface.projection.last_early_dispatch_stamp.as_ref() == Some(&stamp) =>
+            {
                 return log_early_dispatch(reason, "skip", EarlyDispatchSkip::Dedupe, revision);
             }
             Some(plan) => plan,
             None => match decide_early_dispatch_action(
                 &projection_kind,
                 &stamp,
-                self.last_early_dispatch_stamp.as_ref(),
+                self.surface.projection.last_early_dispatch_stamp.as_ref(),
             ) {
                 Ok(plan) => plan,
                 Err(skip) => return log_early_dispatch(reason, "skip", skip, revision),
@@ -397,6 +402,8 @@ impl Window {
             )
         };
         let worker = self
+            .surface
+            .projection
             .projection_worker
             .as_ref()
             .expect("invariant: worker presence checked above");
@@ -406,7 +413,7 @@ impl Window {
         if !submitted {
             return log_early_dispatch(reason, "skip", EarlyDispatchSkip::SubmitFailed, revision);
         }
-        self.last_early_dispatch_stamp = Some(stamp);
+        self.surface.projection.last_early_dispatch_stamp = Some(stamp);
         if crate::paint_trace::is_trace_enabled() {
             let detail = format!(
                 "reason={reason} submitted=true plan={plan_label} stamp_rev={revision} seq={seq}",
@@ -434,165 +441,4 @@ fn log_early_dispatch(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    use std::sync::Arc;
-
-    use continuity_buffer::BufferId;
-    use continuity_display_map::wrap::FixedCharWidth;
-    use continuity_display_map::{FoldRange, ImageRowReservation, RowSplice};
-    use continuity_layout::FontStateId;
-    use continuity_render::FrameDisplay;
-    use ropey::Rope;
-
-    use crate::projection_worker::ProjectionStamp;
-
-    fn make_stamp(revision: u64) -> ProjectionStamp {
-        let caret: Vec<usize> = vec![0];
-        let folds: Vec<FoldRange> = Vec::new();
-        let reservations: Vec<ImageRowReservation> = Vec::new();
-        ProjectionStamp {
-            document: 0,
-            rope_revision: revision,
-            decoration_revision: None,
-            decoration_parse_revision: None,
-            caret_signature: ProjectionStamp::caret_signature(&caret),
-            fold_signature: ProjectionStamp::fold_signature(&folds),
-            image_reservations_signature: ProjectionStamp::image_reservations_signature(
-                &reservations,
-            ),
-            wrap_width_dip: 0,
-            font_state: FontStateId::default(),
-            viewport_rows: 0..8,
-            overscan: 20,
-        }
-    }
-
-    fn tiny_frame_display(revision: u64) -> FrameDisplay {
-        let rope = Rope::from_str("a\nb\nc\n");
-        let mut measure = FixedCharWidth::new(8.0);
-        FrameDisplay::build_viewport_measured(
-            &rope,
-            revision,
-            None,
-            &[0usize],
-            &[],
-            &[],
-            0,
-            &mut measure,
-            0..3,
-            0,
-        )
-    }
-
-    #[test]
-    fn decide_submits_cold_plan_when_reservations_present() {
-        let stamp = make_stamp(1);
-        let kind = ProjectionBuildKind::Cold;
-        let plan = decide_early_dispatch_action(&kind, &stamp, None)
-            .expect("image reservations ride through the worker request");
-        assert!(matches!(plan, ProjectionPlan::Cold));
-    }
-
-    #[test]
-    fn decide_returns_cache_hit_when_classifier_returns_cache_hit() {
-        let frame = tiny_frame_display(1);
-        let stamp = make_stamp(1);
-        let kind = ProjectionBuildKind::CacheHit(frame);
-        let outcome = decide_early_dispatch_action(&kind, &stamp, None);
-        assert_eq!(outcome.err(), Some(EarlyDispatchSkip::CacheHit));
-    }
-
-    #[test]
-    fn decide_returns_dedupe_when_stamp_matches_last() {
-        let stamp = make_stamp(7);
-        let prev_frame = tiny_frame_display(6);
-        let kind = ProjectionBuildKind::Dirty {
-            prev: prev_frame,
-            dirty: vec![0u32],
-        };
-        let last = stamp.clone();
-        let outcome = decide_early_dispatch_action(&kind, &stamp, Some(&last));
-        assert_eq!(outcome.err(), Some(EarlyDispatchSkip::Dedupe));
-    }
-
-    #[test]
-    fn decide_submits_dirty_plan_when_classifier_returns_dirty() {
-        let stamp = make_stamp(2);
-        let prev_frame = tiny_frame_display(1);
-        let kind = ProjectionBuildKind::Dirty {
-            prev: prev_frame,
-            dirty: vec![3u32, 7u32],
-        };
-        let plan =
-            decide_early_dispatch_action(&kind, &stamp, None).expect("dirty kind must submit");
-        match plan {
-            ProjectionPlan::Dirty { dirty, .. } => {
-                assert_eq!(&*dirty, &[3u32, 7u32]);
-            }
-            other => panic!(
-                "expected Dirty plan, got {:?}",
-                core::mem::discriminant(&other)
-            ),
-        }
-    }
-
-    #[test]
-    fn decide_submits_splice_plan_when_classifier_returns_splice() {
-        let stamp = make_stamp(2);
-        let prev_frame = tiny_frame_display(1);
-        let splice = RowSplice {
-            at: 1,
-            removed: 1,
-            inserted: 2,
-            dirty: vec![1, 2],
-        };
-        let kind = ProjectionBuildKind::Splice {
-            prev: prev_frame,
-            splice,
-            deltas: Arc::from(Vec::<continuity_text::RopeEditDelta>::new()),
-        };
-        let plan =
-            decide_early_dispatch_action(&kind, &stamp, None).expect("splice kind must submit");
-        assert!(matches!(plan, ProjectionPlan::Splice { .. }));
-    }
-
-    #[test]
-    fn decide_submits_cold_plan_when_classifier_returns_cold() {
-        let stamp = make_stamp(1);
-        let kind = ProjectionBuildKind::Cold;
-        let plan =
-            decide_early_dispatch_action(&kind, &stamp, None).expect("cold kind must submit");
-        assert!(matches!(plan, ProjectionPlan::Cold));
-    }
-
-    #[test]
-    fn decide_does_not_dedupe_when_revision_changed() {
-        let stamp = make_stamp(2);
-        let last = make_stamp(1);
-        let kind = ProjectionBuildKind::Cold;
-        let plan = decide_early_dispatch_action(&kind, &stamp, Some(&last))
-            .expect("different revision must submit");
-        assert!(matches!(plan, ProjectionPlan::Cold));
-    }
-
-    #[test]
-    fn skip_reason_strings_are_stable() {
-        // Trace string format is part of the diagnostics contract;
-        // dev logs and follow-up roadmap items grep these.
-        assert_eq!(
-            EarlyDispatchSkip::WorkerAbsent.as_str(),
-            "skip_worker_absent"
-        );
-        assert_eq!(EarlyDispatchSkip::CacheHit.as_str(), "skip_cache_hit");
-        assert_eq!(EarlyDispatchSkip::Dedupe.as_str(), "skip_dedupe");
-        assert_eq!(
-            EarlyDispatchSkip::EditBurstCoalesce.as_str(),
-            "skip_edit_burst_coalesce"
-        );
-        // Silence unused-import warnings when fields stay private.
-        let _ = Arc::<u8>::new(0);
-        let _: BufferId = BufferId::new();
-    }
-}
+mod tests;

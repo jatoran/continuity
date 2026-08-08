@@ -1,0 +1,25 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "continuity-editor"
+version = "0.2.22"
+description = "Headless synchronous Continuity editor engine"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Rust",
+  "Operating System :: Microsoft :: Windows",
+  "Topic :: Text Editors",
+]
+
+[tool.maturin]
+manifest-path = "Cargo.toml"
+python-source = "python"
+module-name = "continuity_editor._continuity_editor"
+bindings = "pyo3"
+include = ["README.md", "CHANGELOG.md", "python/continuity_editor/py.typed"]

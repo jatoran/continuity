@@ -2,7 +2,7 @@
 //! DirectWrite text-format/font-state (re)initialization. All three
 //! belong together because they share the same trigger — the first
 //! paint after a window resize or font change — and they collectively
-//! own the renderer + `text_format` slots on `Window`.
+//! own the renderer + `text_format` slots in `EditorSurface::render`.
 //!
 //! **Thread ownership**: the window's UI thread.
 
@@ -23,15 +23,17 @@ impl Window {
                 let new_h = (rect.bottom - rect.top).max(1) as u32;
                 let client_size_changed = new_w != self.client_width || new_h != self.client_height;
                 let renderer_target_mismatch = self
+                    .surface
+                    .render
                     .renderer
                     .as_ref()
                     .is_some_and(|renderer| renderer.back_buffer_size() != (new_w, new_h));
                 if client_size_changed || renderer_target_mismatch {
                     let old_w = self.client_width;
                     let old_h = self.client_height;
-                    let old_viewport_w = self.view.viewport_width_dip;
-                    let old_viewport_h = self.view.viewport_height_dip;
-                    let old_wrap_width = self.view.wrap_width_key();
+                    let old_viewport_w = self.surface.view.viewport_width_dip;
+                    let old_viewport_h = self.surface.view.viewport_height_dip;
+                    let old_wrap_width = self.surface.view.wrap_width_key();
                     let resize_delta = ClientResizeDelta::from_clients(
                         ClientSize::new(old_w, old_h),
                         ClientSize::new(new_w, new_h),
@@ -68,7 +70,7 @@ impl Window {
                     // next paint goes through the cold construction path and
                     // surfaces the error there.
                     let mut renderer_resize = "renderer_absent";
-                    if let Some(renderer) = self.renderer.as_mut() {
+                    if let Some(renderer) = self.surface.render.renderer.as_mut() {
                         let current_target = renderer.back_buffer_size();
                         let can_defer_shrink = self.is_live_resizing
                             && resize_delta.has_shrink_axis()
@@ -105,7 +107,7 @@ impl Window {
                                 .resize_for_hwnd(hwnd, new_w.max(1), new_h.max(1))
                                 .is_err()
                             {
-                                self.renderer = None;
+                                self.surface.render.renderer = None;
                                 self.deferred_renderer_resize = None;
                                 renderer_resize = "error_dropped";
                             } else {
@@ -115,8 +117,10 @@ impl Window {
                         }
                     }
                     if crate::paint_trace::is_trace_enabled() {
-                        let new_wrap_width = self.view.wrap_width_key();
+                        let new_wrap_width = self.surface.view.wrap_width_key();
                         let renderer_target = self
+                            .surface
+                            .render
                             .renderer
                             .as_ref()
                             .map(|renderer| renderer.back_buffer_size())
@@ -139,8 +143,8 @@ impl Window {
                                 renderer_target.1,
                                 old_viewport_w,
                                 old_viewport_h,
-                                self.view.viewport_width_dip,
-                                self.view.viewport_height_dip,
+                                self.surface.view.viewport_width_dip,
+                                self.surface.view.viewport_height_dip,
                                 old_wrap_width,
                                 new_wrap_width,
                                 old_wrap_width != new_wrap_width,
@@ -180,7 +184,7 @@ impl Window {
         if self.client_width == 0 || self.client_height == 0 {
             self.refresh_client_size(hwnd);
         }
-        if self.renderer.is_none() {
+        if self.surface.render.renderer.is_none() {
             let renderer =
                 Renderer::for_hwnd(hwnd, self.client_width.max(1), self.client_height.max(1))?;
             // F5 Pass 2 fix: `apply_settings` runs during `Window::new`
@@ -192,17 +196,17 @@ impl Window {
             // images rendered as the raw `![](url)` text instead of
             // the decoded bitmap).
             renderer.set_image_cache_capacity(self.image_cache_bytes_target);
-            self.renderer = Some(renderer);
+            self.surface.render.renderer = Some(renderer);
         }
-        if self.text_format.is_none() {
+        if self.surface.render.text_format.is_none() {
             let scaled_size = self.scaled_font_size();
-            self.text_format = Some(self.dwrite.text_format(
+            self.surface.render.text_format = Some(self.surface.render.dwrite.text_format(
                 &self.prose_font_family,
                 scaled_size,
                 FONT_LOCALE,
             )?);
             self.apply_tab_stop_to_text_format();
-            self.font_state = self.current_font_state_id();
+            self.surface.render.font_state = self.current_font_state_id();
         }
         Ok(())
     }
@@ -220,11 +224,11 @@ impl Window {
         if tab_width == 0 {
             return;
         }
-        let Some(format) = self.text_format.as_ref() else {
+        let Some(format) = self.surface.render.text_format.as_ref() else {
             return;
         };
         let space_advance = continuity_render::text_metrics::measure_space_advance_dip(
-            self.dwrite.raw(),
+            self.surface.render.dwrite.raw(),
             format,
             self.scaled_font_size(),
         );
@@ -235,7 +239,7 @@ impl Window {
         let Some((width, height)) = self.deferred_renderer_resize.take() else {
             return Ok(());
         };
-        let Some(renderer) = self.renderer.as_mut() else {
+        let Some(renderer) = self.surface.render.renderer.as_mut() else {
             return Ok(());
         };
         let old_target = renderer.back_buffer_size();
@@ -279,7 +283,7 @@ impl Window {
         }
 
         if result.is_err() {
-            self.renderer = None;
+            self.surface.render.renderer = None;
         }
         result.map_err(Error::from)
     }
@@ -294,12 +298,12 @@ impl Window {
     /// captured before any font-state change. See the call sites in
     /// `window_view`, `window_runtime`, and `window_settings_reload`.
     pub(crate) fn invalidate_font_state(&mut self) {
-        self.text_format = None;
+        self.surface.render.text_format = None;
         // Drop layouts that were built against any other font_state. We
         // recompute `font_state` next paint and the LRU bound trims the rest.
         let next = self.current_font_state_id();
-        if next != self.font_state {
-            self.cache.invalidate_other_font_states(next);
+        if next != self.surface.render.font_state {
+            self.surface.render.cache.invalidate_other_font_states(next);
         }
     }
 }

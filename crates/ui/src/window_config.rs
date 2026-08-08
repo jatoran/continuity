@@ -12,6 +12,17 @@ use continuity_command::Registry;
 use continuity_keymap::Keymap;
 use continuity_persist::PersistClient;
 
+/// Where a runtime file-open request should land.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FileOpenDisposition {
+    /// Reuse the window's navigation-preview tab when safe.
+    Preview,
+    /// Open a permanent focused tab in the source window.
+    NewTab,
+    /// Open a new top-level window.
+    NewWindow,
+}
+
 /// Window construction parameters.
 pub struct WindowConfig {
     /// Title shown in the title bar.
@@ -63,6 +74,12 @@ pub struct OpenFileWindowRequest {
     pub cascade_from: Option<(i32, i32, i32, i32)>,
     /// Launch-time banners to show in the spawned window.
     pub recovery_notices: Vec<String>,
+    /// Requested placement semantics.
+    pub disposition: FileOpenDisposition,
+    /// Stable source window used for same-window opens.
+    pub source_window_id: Option<continuity_buffer::WindowId>,
+    /// Active vault root inherited by a new top-level window.
+    pub vault_root: Option<PathBuf>,
 }
 
 /// Callback used by UI-owned file commands to ask the app registry for
@@ -72,6 +89,13 @@ pub type OpenFileWindow = Arc<dyn Fn(OpenFileWindowRequest) + Send + Sync>;
 /// Callback used by save/open paths to keep the app registry's
 /// file-path-to-buffer index current across windows.
 pub type RegisterFileBuffer = Arc<dyn Fn(BufferId, FileAssociation) + Send + Sync>;
+
+/// Callback used by the vault launcher to open a root in a same-desktop
+/// existing window or a fresh window on the current desktop.
+pub type OpenVaultWindow = Arc<dyn Fn(PathBuf) + Send + Sync>;
+
+/// Callback announcing that a window successfully activated a vault root.
+pub type VaultActivated = Arc<dyn Fn(PathBuf) + Send + Sync>;
 
 /// Command and keymap state used by a window.
 pub struct WindowCommands {
@@ -104,10 +128,12 @@ pub struct WindowCommands {
     /// Registry-owned file-buffer index updater. Save-as uses this to
     /// make future opens of the same path reuse the saved buffer.
     pub register_file_buffer: Option<RegisterFileBuffer>,
-    /// Phase-I2 metrics persistence client. Used to record per-keystroke
-    /// WPM samples and to purge the `metrics_daily` table on the
-    /// `metrics.purge` command. `None` disables metrics recording (test
-    /// windows, headless canary).
+    /// Registry-owned vault-window router.
+    pub open_vault_window: Option<OpenVaultWindow>,
+    /// Registry-owned live vault-window index updater.
+    pub vault_activated: Option<VaultActivated>,
+    /// Persistence client used by history, file, and vault surfaces.
+    /// `None` is supported by test windows and headless canaries.
     pub persist_client: Option<PersistClient>,
     /// δ.3 — banner strings to raise at window construction, before the
     /// first paint. Used by the registry to surface recovery halts

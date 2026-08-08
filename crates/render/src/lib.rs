@@ -41,8 +41,6 @@ pub mod image_layout;
 pub mod image_paint;
 mod jump_glow_paint;
 pub mod loading_overlay;
-pub mod metrics_panel;
-pub mod metrics_panel_paint;
 pub mod minimap;
 mod minimap_paint;
 pub mod motion;
@@ -72,6 +70,7 @@ mod renderer_misc;
 mod renderer_post_body;
 mod renderer_scroll_placeholder;
 mod renderer_table_chrome;
+mod row_text_paint;
 pub mod scroll_fractional;
 pub mod scroll_placeholder;
 pub mod scrollbar;
@@ -110,8 +109,9 @@ pub use decoration_paint::{
     FENCED_BLOCK_RIGHT_PADDING_DIP,
 };
 pub use file_tree::{
-    FileTreeColors, FileTreeDraw, FileTreeEntryKind, FileTreeRowDraw, FILE_TREE_DEFAULT_WIDTH_DIP,
-    FILE_TREE_HEADER_HEIGHT_DIP, FILE_TREE_ROW_HEIGHT_DIP,
+    FileTreeColors, FileTreeDragDraw, FileTreeDraw, FileTreeEntryKind, FileTreeInlineEditDraw,
+    FileTreeRowDraw, FILE_TREE_DEFAULT_WIDTH_DIP, FILE_TREE_HEADER_HEIGHT_DIP,
+    FILE_TREE_ROW_HEIGHT_DIP,
 };
 pub use file_tree_paint::paint_file_tree_no_present;
 pub use minimap::{
@@ -134,14 +134,10 @@ pub mod text_helpers;
 pub mod text_metrics;
 mod wrap_paint;
 
-/// Default markdown heading scale. Spec §14 documents the *ideal*
-/// hierarchy as `[2.0, 1.6, 1.35, 1.2, 1.1, 1.05]`, but the renderer
-/// reserves one constant `LINE_HEIGHT_DIP` per logical row — so a glyph
-/// rendered at 2.0× body height clips into the next row and looks like
-/// overlapping text. Until per-row variable line heights land, the
-/// renderer caps each level at `line_height / font_size ≈ 1.42` so the
-/// hierarchy still reads "bigger at the top" without the visual clip.
-pub const DEFAULT_HEADING_SCALE: [f32; 6] = [1.42, 1.32, 1.22, 1.14, 1.08, 1.04];
+/// Default markdown heading scale for the editor's fixed display-row height.
+/// The hierarchy remains visible while the largest level stays modest enough
+/// to avoid visibly cropped descenders under the mandatory per-row glyph clip.
+pub const DEFAULT_HEADING_SCALE: [f32; 6] = [1.20, 1.16, 1.12, 1.08, 1.04, 1.02];
 pub use display_projection::FrameDisplay;
 pub use error::Error;
 pub use image_cache::{ImageCache, ImageCacheError};
@@ -201,7 +197,7 @@ pub use table_layout::{
 };
 pub use table_suppress::compute_suppressed_table_blocks;
 pub use text_helpers::{
-    hit_test_x_to_byte, hit_test_x_to_byte_for_spec, hit_test_x_to_byte_sized,
+    caret_x_for_spec, hit_test_x_to_byte, hit_test_x_to_byte_for_spec, hit_test_x_to_byte_sized,
     utf16_index_to_utf8_byte,
 };
 pub use text_metrics::{DirectWriteCacheStats, DirectWriteWidthMeasure};

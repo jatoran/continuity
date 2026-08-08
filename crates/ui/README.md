@@ -1,11 +1,55 @@
 # ui
 
-The only crate that touches HWNDs. Owns top-level windows, the pane
-tree, tab strip, find bar, command palette, and the per-window message
-pump. Each window runs on its own UI thread.
+The only crate that touches HWNDs. `DesktopShell` owns top-level show/activate,
+the private message pump, and desktop-loop termination. `Window` composes the
+pane tree, tab strip, find bar, command palette, renderer, and
+`EditorSurface`. Each composition runs on its own UI thread.
+
+`EditorControl` is the Rust embeddable composition. It creates a real
+`WS_CHILD` under a host-owned parent and pump, owns a synchronous
+storage-neutral `HostRuntime`, and reuses `EditorSurface` plus the native
+renderer/input/accessibility adapters. It never owns placement, application
+registries, SQLite, or quit behavior. The authoritative ownership and API
+contract is `.docs/design/features/embeddable-windows-control.md`.
+
+Milestone 5 moved editor-local state behind `EditorSurface` without a
+feature-flag matrix. Input/composition state, the focused `ViewState` and its
+scroll/reveal coordination, caret presentation transients, editor-body pointer
+and selection-drag state, projection workers and caches, plus renderer and
+layout resources have moved. Editor-control keyboard focus and nested
+overlay-input focus now live in `EditorSurface::focus`; app activation remains
+desktop-host state. `EditorSurface::selection` owns sticky vertical-motion
+columns and per-buffer last-edit rings; engine snapshots remain selection
+truth. `EditorSurface::selection_dispatch` captures pre-edit surface context,
+updates last-edit memory after a successful dispatch, and returns an optional
+edit-pulse request. `window_selection_adapter` is the single native boundary
+for vault autosave, projection scheduling, and persistence-chip timing.
+`EditorSurface::clipboard` owns the ephemeral paste-history ring and
+platform-boundary line-ending normalization. Plain-text reads and writes are
+expressed as `HostRequest` and resolved by `window_clipboard_adapter`; native
+HTML/DIB/drop formats remain explicit Windows extensions in `continuity_win`.
+`EditorSurface::render` owns the DirectWrite
+factory/text format, D2D/DXGI renderer, active font identity, bounded layout
+cache, shared projection-walker caches, and focused-table layout cache. HWND
+client pixels, DPI notifications, and deferred live-resize targets remain on
+`Window` as desktop-host adapter state.
+`EditorSurface::pointer` defines the editor-body click, hover, selection-drag,
+autoscroll, scrollbar, minimap, table-resize, and code-copy interaction state.
+`mouse::MouseState` now contains only HWND capture and desktop chrome drags;
+`window_pointer_adapter` translates Win32 messages to normalized
+`PointerIntent` values before routing them into the surface. Capture calls
+remain native adapter work.
+`EditorSurface::accessibility` publishes immutable rope, selection, read-only,
+enabled, and focus state. `window_accessibility` exposes that state through UI
+Automation Text/Text2 and raises text, selection, caret, and focus events;
+selection changes are marshalled back to the owning UI thread.
+Inactive pane snapshots, panes/tabs, file/session operations, placement,
+registry, and SQLite-backed desktop durability remain desktop responsibilities.
+IME candidate geometry reuses the projected soft-wrap row and DirectWrite
+caret measurement used by paint.
 
 Layer: top. Depends on `render`, `layout`, `input`, `command`, `win`,
-`theme`, `core`.
+`theme`, `engine`, `host`, `core`.
 
 Per-feature handlers live in topic-named sibling files (no `mod.rs`).
 F2's right-docked outline sidebar splits across `window_paint.rs`
@@ -48,10 +92,43 @@ the core thread. The window remains the only owner of overlay hover state and
 HWND cursor shape; core remains the only writer of buffer text.
 
 The left file-tree pane is UI-thread state in `file_tree.rs` and
-`window_file_tree.rs`. Directory enumeration stays on the file-I/O
-worker (`file_io_directory.rs` + `file_io_worker.rs`); the UI stores only
-bounded shallow listings and projects visible rows into `render::FileTreeDraw`.
-The pane never exposes delete/rename/write directory operations.
+`window_file_tree.rs`; resize and vault behavior live in
+`window_file_tree_resize.rs`, `vault.rs`, `window_vault_autosave.rs`, and
+`window_vault_theme.rs`. Directory discovery/enumeration and contained
+create/move/rename/Recycle-Bin operations stay on the file-I/O worker
+(`file_io_{directory,vault,vault_entries,worker}.rs`). The UI stores only
+bounded shallow listings, per-window autosave schedules, and visible-row
+projections, including drag-source/drop-target feedback and sidebar/status
+geometry. Routed file opens wake the target HWND after worker and registry
+delivery while periodic timers remain fallback drains. Core remains the only
+writer of rope/buffer state.
+
+Inline tree rename keeps its `TextInput` and keyboard focus on the UI thread
+(`file_tree/rename.rs`, `window_file_tree_rename.rs`). `F2` and the row context
+menu enter that field; commit dispatches a contained `RenameTreeEntry` request.
+The worker updates watch paths, while the UI event path reassociates open file
+buffers and vault-specific expanded-directory state.
+
+Vault tree chrome is portable through `.continuity/workspace.toml`:
+`file_io_vault_workspace.rs` reads/writes the versioned snapshot on the
+file-I/O thread, while `window_vault_workspace.rs` projects UI-thread-owned
+width, visibility, and expanded-directory state after completed interactions.
+Restoration chains existing shallow listings and defers descendants while the
+sidebar is hidden. Actionable status segments use `IDC_HAND`; passive status
+indicators retain the arrow cursor.
+
+`vault_launcher.rs` owns the fuzzy pinned/recent projection,
+`window_vault_launcher.rs` owns its UI actions, and `windows_shortcut.rs`
+creates native `.lnk` files named from the vault alone, with numeric suffixes
+only on collision. The app registry—not the UI—decides whether a vault request
+focuses a same-desktop window or spawns a new one.
+
+Selection mutation remains UI-thread coordinated and core-thread applied.
+`selection::multi_cursor` grows `Ctrl+Alt+Up/Down` from the outermost existing
+cursor, preserving the primary intended column and using the cached
+`FrameDisplay` for visual-row steps under soft wrap. Double-click word drags
+keep word-granularity state in `MouseState`, preventing incidental rapid-click
+motion from collapsing the initial whole-word selection.
 
 Motion is UI-thread state on `Window`. `motion.rs` owns the shared
 ease-out-cubic contract, reduced-motion policy, and `StaggerScheduler`;
@@ -60,7 +137,8 @@ overlay/banner/chord, pane/tab chrome, and status-chip transient frames
 into immutable render params. The render crate paints the supplied frame
 but does not own timers or mutable animation state.
 
-Footnote hover-peek is passive UI-thread state in `mouse::MouseState`, not a
+Footnote hover-peek is passive UI-thread state in
+`editor_surface::pointer::PointerState`, not a
 modal overlay session. `window_footnote_hover.rs` resolves hovered footnote
 references through the current decoration snapshot, arms the 300 ms dwell
 timer, paints the definition body via `OverlayDraw`, and clears on mouse-out
@@ -84,8 +162,9 @@ DirtyPartial | SplicePartial`) is computed once per paint. The inline realizatio
 through `ProjectionBuildKind::to_worker_plan() -> Option<ProjectionPlan>`.
 One source of truth keeps a worker result from ever disagreeing with
 what the inline path would have built; `CacheHit` maps to `None`
-and skips worker dispatch outright. One `ProjectionWorker` per window,
-owned by `Window` and joined on drop. `Window::on_paint` polls the
+and skips worker dispatch outright. One `ProjectionWorker` per editor surface,
+stored in `EditorSurface::projection` and joined when that surface drops.
+`Window::on_paint` polls the
 worker between the classification step and the rebuild branch; a
 stamp-matched result skips the inline path entirely. Worker miss falls
 through immediately to the inline realization of the same kind — the
@@ -136,7 +215,7 @@ worker gets a `ProjectionPlan::Cold` immediately so the UI can paint the
 bounded partial now and receive a full row index later. `cached_frame` is passed as `None` —
 `prewarmed_frame_display` would need `.take()` (state mutation paint
 owns); the classifier picks Splice / Dirty / Cold against
-`last_painted_frame`. `Window::last_early_dispatch_stamp` coalesces
+`last_painted_frame`. `EditorSurface::projection.last_early_dispatch_stamp` coalesces
 identical back-to-back submissions; image reservations ride through
 the worker request and are validated by the projection stamp. The
 post-paint dispatch in `on_paint` remains as the warm-up / fallback
@@ -208,7 +287,7 @@ scroll / zoom / reveal methods.
 
 Ctrl+End / Shift+Ctrl+End defer the exact bottom snap to the paint path:
 `editor.move_doc_end` / `editor.extend_doc_end` set
-`Window::pending_doc_end_scroll` after moving the caret, the generic
+`EditorSurface::pending_doc_end_scroll` after moving the caret, the generic
 `ensure_primary_caret_visible` post-hook approximates the bottom so the
 next paint's cold build covers the bottom rows, then `on_paint` snaps
 `scroll_y_dip` to `frame_display.display_line_count() * LINE_HEIGHT_DIP
@@ -424,7 +503,8 @@ renderer's placeholder strip cover the gap.
 
 `window_mouse_autoscroll.rs` owns the text-selection autoscroll timer
 (16 ms) that fires while the user drags a selection past the focused
-pane's body edge. Direction and last cursor live on `mouse::Autoscroll`;
+pane's body edge. Direction and last cursor live on `mouse::Autoscroll` inside
+`EditorSurface::pointer`;
 the timer extends the selection at the clamped body edge and stops
 on button-up / capture loss / re-entry into the body / scroll clamp at
 the document edge.
@@ -435,6 +515,21 @@ within 3000 ms targeting the same `(PaneId, BufferId)` commits the
 close. Cancel triggers: any other command, editor-body click,
 focused-pane change, app focus loss, mouse wheel, normal tab
 activation, clean close.
+
+`window_panes/close_reopen.rs` also owns folder-view's intentional zero-tab
+state. The window UI thread replaces the closed tab with a synthetic read-only
+blank render backing but leaves the focused group empty; the next close posts `WM_CLOSE`.
+Immediately before destruction it installs a clean restore tab so the pane
+codec never persists an invalid empty group.
+`window_shutdown.rs` owns the final `WM_CLOSE` / `WM_DESTROY` preparation and
+flush sequence; it runs on that same UI thread.
+
+`window_status_bar.rs` builds empty-text vault action slots: pane/sidebar and
+compact settings controls on the left, outline list and miniature document map
+on the right. Settings and the tree context menu share
+`Window::open_vault_settings`; right-side layout uses full client width so
+painted vectors and UI-thread-owned hit bounds remain identical with the file
+tree expanded.
 
 `window_theme_apply.rs` splits theme picker preview from commit.
 `apply_theme_entry` is preview-only (no disk write, no broadcast);

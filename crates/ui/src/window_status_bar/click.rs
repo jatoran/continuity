@@ -1,9 +1,7 @@
 //! Status-bar left-click routing: pixel → segment kind →
 //! per-kind action (Go-to-line picker, count-mode cycle, line-ending
-//! toggle, chip-normalize). Chip clicks inspect the rope to decide
-//! which anomalies need normalising and run each as its own undo
-//! group, surfacing a non-blocking banner so the user knows the
-//! action ran (Ctrl+Z reverts).
+//! toggle, mixed-line-ending normalization). Chip clicks surface a
+//! non-blocking banner so the user knows the action ran (Ctrl+Z reverts).
 //!
 //! Thread ownership: UI thread of one window.
 
@@ -54,6 +52,21 @@ impl Window {
                 // banner with the undo affordance.
                 self.handle_status_chip_click();
             }
+            StatusBarSegmentKind::VaultFiles => {
+                let _ = self.toggle_file_tree_impl();
+            }
+            StatusBarSegmentKind::VaultLauncher => {
+                self.open_vault_launcher_impl();
+            }
+            StatusBarSegmentKind::VaultMinimap => {
+                let _ = self.toggle_minimap_impl();
+            }
+            StatusBarSegmentKind::VaultOutline => {
+                let _ = self.toggle_outline_impl();
+            }
+            StatusBarSegmentKind::VaultSettings => {
+                let _ = self.open_vault_settings();
+            }
             StatusBarSegmentKind::Encoding
             | StatusBarSegmentKind::NumericSum
             | StatusBarSegmentKind::Selection
@@ -102,15 +115,6 @@ impl Window {
         );
     }
 
-    /// Normalise every leading tab to four spaces. One undo group via
-    /// the standard `apply_selection_edit` path.
-    pub(crate) fn normalize_indent_tabs_to_spaces(&mut self) {
-        let _ = self.editor.apply_selection_edit(
-            self.buffer_id,
-            SelectionEdit::TabsToSpacesAll { tab_width: 4 },
-        );
-    }
-
     /// Chip click. Inspects the rope to decide which anomalies need
     /// normalizing, runs them (each as its own undo group), and
     /// surfaces a non-blocking banner with the result so the user
@@ -124,13 +128,6 @@ impl Window {
         if detect_line_endings(&rope).is_mixed() {
             self.normalize_line_endings_to_lf();
             applied.push("line endings → LF");
-        }
-        if crate::window_status_chips::detect_chips(&rope)
-            .iter()
-            .any(|c| c.text.contains("indent"))
-        {
-            self.normalize_indent_tabs_to_spaces();
-            applied.push("indent → 4 spaces");
         }
         if !applied.is_empty() {
             let summary = format!("Normalized {} (Ctrl+Z to undo)", applied.join(" + "));

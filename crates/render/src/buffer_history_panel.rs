@@ -1,10 +1,9 @@
 //! Buffer-history swimlane panel — custom Direct2D paint surface
 //! for the buffer-history visualization tab.
 //!
-//! Layout + paint in one file (compact swimlane); modeled on
-//! [`crate::metrics_panel_paint`] (same shape: pure-data
-//! [`BufferHistoryPanelLayout`] consumed by
-//! [`paint_buffer_history_panel`]). Paints inside the focused
+//! Layout + paint in one file (compact swimlane): a pure-data
+//! [`BufferHistoryPanelLayout`] is consumed by
+//! [`paint_buffer_history_panel`]. Paints inside the focused
 //! pane's body rect after the regular pipeline has drawn the
 //! tab strip / status bar / pane border — chrome stays untouched.
 //!
@@ -228,10 +227,9 @@ pub fn paint_buffer_history_panel(
     Ok(())
 }
 
-/// Paint pass without the final `Present`. Symmetric to
-/// [`crate::metrics_panel_paint::paint_metrics_panel_no_present`] so a
-/// capture canary can sample the back buffer before flip-discard
-/// makes its contents undefined.
+/// Paint pass without the final `Present`, allowing a capture canary
+/// to sample the back buffer before flip-discard makes its contents
+/// undefined.
 ///
 /// # Errors
 ///

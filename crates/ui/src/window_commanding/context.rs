@@ -19,7 +19,7 @@ impl Context for Window {
                 .current_snapshot()
                 .and_then(|s| s.selections().first().map(|selection| selection.is_caret()))
                 .and_then(|is_caret| is_caret.then_some("true")),
-            "shift.held" => self.shift_held.then_some("true"),
+            "shift.held" => self.surface.shift_held.then_some("true"),
             "language" => Some(self.language_atom()),
             // G1: predicate atom that gates the Alt+C/W/R toggles to when
             // the find bar is the active overlay. Visibility is whatever
@@ -107,23 +107,11 @@ impl Context for Window {
     }
 
     fn delete_back(&mut self) -> Result<(), continuity_command::Error> {
-        let result = self.delete_back_at_selections();
-        if result.is_ok() {
-            self.note_metrics_keystroke(crate::window_time_machine::MetricsKeystroke::Deleted {
-                chars: 1,
-            });
-        }
-        result
+        self.delete_back_at_selections()
     }
 
     fn delete_forward(&mut self) -> Result<(), continuity_command::Error> {
-        let result = self.delete_forward_at_selections();
-        if result.is_ok() {
-            self.note_metrics_keystroke(crate::window_time_machine::MetricsKeystroke::Deleted {
-                chars: 1,
-            });
-        }
-        result
+        self.delete_forward_at_selections()
     }
 
     fn apply_selection_edit(
@@ -194,8 +182,8 @@ impl Context for Window {
 
     fn move_doc_end(&mut self) -> Result<(), continuity_command::Error> {
         let _ = self.move_doc_end_selection(false);
-        self.pending_doc_end_scroll = true;
-        self.pending_doc_end_scroll_attempts = 0;
+        self.surface.pending_doc_end_scroll = true;
+        self.surface.pending_doc_end_scroll_attempts = 0;
         Ok(())
     }
 
@@ -226,8 +214,8 @@ impl Context for Window {
 
     fn extend_doc_end(&mut self) -> Result<(), continuity_command::Error> {
         let _ = self.move_doc_end_selection(true);
-        self.pending_doc_end_scroll = true;
-        self.pending_doc_end_scroll_attempts = 0;
+        self.surface.pending_doc_end_scroll = true;
+        self.surface.pending_doc_end_scroll_attempts = 0;
         Ok(())
     }
 
@@ -342,6 +330,11 @@ impl Context for Window {
         self.overlays.open(crate::overlays::OverlayKind::QuickOpen);
         self.focus_overlay_input();
         self.populate_quick_open_candidates();
+        Ok(())
+    }
+
+    fn open_vault_launcher(&mut self) -> Result<(), continuity_command::Error> {
+        self.open_vault_launcher_impl();
         Ok(())
     }
 

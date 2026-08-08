@@ -14,7 +14,7 @@ Palette-mode surfaces: command palette, quick-open, find / find-and-replace, fin
 - **`GotoLine`** — numeric target parser.
 - **`GotoHeading`** — fuzzy filter over `Decorations::headings`.
 - **Overlay input focus** — `Window::overlay_input_focused` tracks whether the visible overlay's text input owns keyboard focus. Clicking an overlay input focuses it; clicking a pane body blurs most overlay inputs and leaves the overlay visible while keystrokes return to the editor. The command palette is stricter: outside click dismisses it so the underlying UI click can continue. Cursor shape comes from overlay hit-testing: I-beam over text fields, hand over clickable controls / regex snippets / command-palette rows, arrow over panel background.
-- **Passive hover-peek** — footnote hover uses the same `OverlayDraw` paint primitive but does not enter the `Overlays` enum and never owns keyboard focus. `Window::mouse_state.footnote_hover` is UI-thread state only; it starts a 300 ms dwell timer over a `SegmentHit::FootnoteReference`, paints the definition body, and clears on mouse-out or chord.
+- **Passive hover-peek** — footnote hover uses the same `OverlayDraw` paint primitive but does not enter the `Overlays` enum and never owns keyboard focus. `EditorSurface::pointer.footnote_hover` is UI-thread state only; it starts a 300 ms dwell timer over a `SegmentHit::FootnoteReference`, paints the definition body, and clears on mouse-out or chord.
 - **Overlay motion layer** — `Window::project_overlay_layer` wraps the current or dismissing `OverlayDraw` in the shared 160 ms ease-out-cubic fade/slide contract. Reduced motion projects the final static overlay and schedules zero frames.
 
 ## Dispatch order (`Window::on_keydown`)

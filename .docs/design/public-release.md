@@ -2,7 +2,7 @@
 
 ## Scope
 - In: local public staging repo, release artifact staging, GitHub Releases upload flow.
-- Out: source-history rewriting, GitHub repository creation, CI policy.
+- Out: source-history rewriting, GitHub repository creation, SDK registry publication.
 
 ## Vocabulary
 - **Source checkout**: workspace root, the working source of truth.
@@ -16,10 +16,13 @@
 - Public staging excludes private development docs, generated docs, `trace-guide.md`, tests/benches directories, hooks, perf snapshots, and release build internals.
 - `continuity-public\releases\` is ignored by the public repo. Release assets are uploaded to GitHub Releases; they are not committed.
 - The release version comes from `crates\app\Cargo.toml`.
+- SDK packages use an independent `sdk-v*` train and `sdk/release.toml`; see
+  [SDK Release](sdk-release.md). `sync-public.ps1` includes the SDK sources and
+  release workflow without coupling their version to the desktop release.
 - **The next version MUST be verified against the actual published releases via `gh release list --repo jatoran/continuity` — NOT local `git tag`, which is frequently stale (un-fetched tags) and will under-report the latest version.** `gh release create` rejects a duplicate tag. `sync-public.ps1` prints a loud preflight warning if a release for the current `Cargo.toml` version already exists on GitHub.
 
 ## Distribution Modes
-- **MSI**: normal install; Start Menu, optional desktop shortcut, uninstall, upgrade, and file association support.
+- **MSI**: normal install; Start Menu, optional desktop shortcut, uninstall, upgrade, and file association support. The completion-page option to open Windows Default Apps is visible but unchecked by default, so Finish exits unless the user explicitly opts in.
 - **Portable zip**: `continuity.exe` plus `data\`; double-clicking the exe auto-detects `data\` and keeps settings, themes, keymap, database, tutorial state, and backups in the extracted folder.
 - **Standalone zip**: only `continuity.exe`; settings, themes, keymap, database, and backups use normal Windows AppData locations.
 

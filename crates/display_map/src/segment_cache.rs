@@ -131,7 +131,7 @@ pub fn compute_line_projection_stamp(
     // below is hashed relative to `line_start` for the same reason. Hashing
     // the absolute origin here silently defeats cache reuse — it was the
     // cause of the ~0% hit rate under editing (Block 1.5,
-    // `.docs/development/memory_optimization_plan.md`).
+    // `.docs/development/archive/memory_optimization_plan.md`).
     line_end.saturating_sub(line_start).hash(&mut hasher);
     // P18.12e (2026-05-22) — filter most caret input to carets
     // falling inside this line, matching the fold/decoration filters

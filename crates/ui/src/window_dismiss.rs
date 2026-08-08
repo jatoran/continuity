@@ -43,7 +43,7 @@ impl Window {
             return true;
         }
         // Followup slots (no tracking issue; tracked in
-        // .docs/development/roadmap_v2.md):
+        // .docs/development/archive/roadmap_v2.md):
         // - E3 / E4 / I1: cancel an active per-pane ViewOverlay
         //   reveal-preview when those features land.
         // - F1 / F2: dismiss sticky breadcrumb popover, outline-sidebar

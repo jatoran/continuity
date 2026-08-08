@@ -107,9 +107,9 @@ impl Window {
         wrap_width_dip: u32,
         fallback_char_width_dip: f32,
     ) -> FrameDisplay {
-        if let Some(format) = self.text_format.as_ref() {
+        if let Some(format) = self.surface.render.text_format.as_ref() {
             let mut measure = DirectWriteWidthMeasure::new(
-                self.dwrite.raw(),
+                self.surface.render.dwrite.raw(),
                 format,
                 self.scaled_font_size(),
                 continuity_render::DEFAULT_HEADING_SCALE,
@@ -158,10 +158,12 @@ impl Window {
             folds,
             image_reservations,
             wrap_width_dip,
-            self.font_state,
+            self.surface.render.font_state,
         )
         .is_some_and(|key| {
-            self.row_index_cache
+            self.surface
+                .projection
+                .row_index_cache
                 .borrow()
                 .contains_exact_or_compatible(&key)
         })
@@ -202,10 +204,10 @@ impl Window {
             folds,
             image_reservations,
             wrap_width_dip,
-            self.font_state,
+            self.surface.render.font_state,
         );
         let cached_index = cache_key.as_ref().and_then(|k| {
-            let mut cache = self.row_index_cache.borrow_mut();
+            let mut cache = self.surface.projection.row_index_cache.borrow_mut();
             if let Some(row_index) = cache.get(k) {
                 Some((row_index, RowIndexLookupSource::Exact))
             } else {
@@ -256,9 +258,9 @@ impl Window {
                     overscan,
                     walker_reason,
                 )
-            } else if let Some(format) = self.text_format.as_ref() {
+            } else if let Some(format) = self.surface.render.text_format.as_ref() {
                 let mut measure = DirectWriteWidthMeasure::new(
-                    self.dwrite.raw(),
+                    self.surface.render.dwrite.raw(),
                     format,
                     self.scaled_font_size(),
                     continuity_render::DEFAULT_HEADING_SCALE,
@@ -338,9 +340,9 @@ impl Window {
                         ),
                     );
                 }
-                if let Some(format) = self.text_format.as_ref() {
+                if let Some(format) = self.surface.render.text_format.as_ref() {
                     let mut measure = DirectWriteWidthMeasure::new(
-                        self.dwrite.raw(),
+                        self.surface.render.dwrite.raw(),
                         format,
                         self.scaled_font_size(),
                         continuity_render::DEFAULT_HEADING_SCALE,
@@ -383,7 +385,13 @@ impl Window {
                 if crate::paint_trace::is_trace_enabled() && cache_key.is_some() {
                     let miss_reason = cache_key
                         .as_ref()
-                        .map(|k| self.row_index_cache.borrow().closest_match_diff(k))
+                        .map(|k| {
+                            self.surface
+                                .projection
+                                .row_index_cache
+                                .borrow()
+                                .closest_match_diff(k)
+                        })
                         .unwrap_or("no_entry");
                     crate::paint_trace::log_event(
                         "row_index_cache",
@@ -419,7 +427,9 @@ impl Window {
         // next paint of this buffer at the same geometry — in any
         // pane / tab / layout — reuses it.
         if let Some(key) = cache_key {
-            self.row_index_cache
+            self.surface
+                .projection
+                .row_index_cache
                 .borrow_mut()
                 .insert(key, fd.row_index_arc());
         }
@@ -446,9 +456,9 @@ impl Window {
         visible_rows: std::ops::Range<u32>,
         overscan: u32,
     ) -> FrameDisplay {
-        if let Some(format) = self.text_format.as_ref() {
+        if let Some(format) = self.surface.render.text_format.as_ref() {
             let mut measure = DirectWriteWidthMeasure::new(
-                self.dwrite.raw(),
+                self.surface.render.dwrite.raw(),
                 format,
                 self.scaled_font_size(),
                 continuity_render::DEFAULT_HEADING_SCALE,

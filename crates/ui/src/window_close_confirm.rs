@@ -39,6 +39,17 @@ impl Window {
             .iter()
             .find_map(|(id, group)| group.tabs.contains(&tab_id).then_some(*id))
             .unwrap_or(self.tree.focused);
+        // In an autosave vault, a file-associated buffer under the vault
+        // root is continuously exported and the user never opts into manual
+        // saving. Closing must guarantee the on-disk file is current and
+        // must never raise the "unsaved changes" prompt. Force the export
+        // now and close silently. A buffer whose autosave is suspended (an
+        // unresolved external-change conflict) is excluded so the prompt
+        // still warns the user.
+        if self.try_export_vault_tab_on_close(tab.buffer_id) {
+            self.clear_unsaved_close_arm();
+            return true;
+        }
         // Item 9 — the close gate arms not only for file-associated dirty
         // buffers but also for untitled (non-file-associated) buffers that
         // carry typed content. `is_tab_dirty` keeps strict file-hash
@@ -97,19 +108,45 @@ impl Window {
     /// advanced past the initial empty state) also arms the gate. An empty
     /// untitled tab returns `false` and closes immediately.
     fn tab_close_needs_confirmation(&self, tab: &crate::pane_tree::Tab) -> bool {
-        if crate::window_paint_builders::is_tab_dirty(self, tab) {
-            return true;
-        }
-        if tab.file_associated {
-            return false;
-        }
+        let is_dirty = crate::window_paint_builders::is_tab_dirty(self, tab);
         let Some(snap) = self.editor.snapshot(tab.buffer_id) else {
             return false;
         };
         let rope_snapshot = snap.rope_snapshot();
         let has_content = rope_snapshot.rope().len_bytes() > 0;
         let edited = rope_snapshot.revision().get() > 0;
-        has_content || edited
+        let is_file_associated = tab.file_associated || snap.file.is_some();
+        compute_tab_close_needs_confirmation(is_dirty, is_file_associated, has_content, edited)
+    }
+
+    /// When `tab`'s buffer is a file-associated, non-suspended member of an
+    /// active autosave vault, force its continuous export to disk and report
+    /// that the close may proceed silently (no unsaved-changes prompt).
+    /// Returns `false` for ephemeral buffers, non-vault files, ignored
+    /// paths, vaults with autosave disabled, or a buffer whose autosave is
+    /// suspended by an unresolved conflict — those keep the normal gate.
+    fn try_export_vault_tab_on_close(&mut self, buffer_id: BufferId) -> bool {
+        let is_active = self.vault.is_active();
+        let autosave_on = self
+            .vault
+            .config()
+            .is_some_and(|config| config.save.autosave);
+        let is_suspended = self.vault.suspended_autosaves.contains(&buffer_id);
+        let is_owned = self
+            .editor
+            .snapshot(buffer_id)
+            .and_then(|snapshot| snapshot.file)
+            .is_some_and(|file| self.vault.owns_file(&file.path));
+        if !should_export_vault_buffer_on_close(is_active, autosave_on, is_owned, is_suspended) {
+            return false;
+        }
+        // `schedule` records the latest revision; the forced flush discovers
+        // and dispatches every dirty vault buffer (a no-op when already
+        // exported). The write is captured now and drains through the
+        // file-I/O worker even after the tab is gone.
+        self.schedule_vault_autosave(buffer_id);
+        self.flush_due_vault_autosaves(true);
+        true
     }
 
     pub(crate) fn clear_unsaved_close_arm(&mut self) {
@@ -127,6 +164,27 @@ impl Window {
             self.file_banner = None;
         }
     }
+}
+
+/// Whether closing a tab should silently force a vault export instead of
+/// running the ordinary unsaved-changes gate. True only for a file that is
+/// an active, autosave-enabled, non-suspended member of the vault.
+fn should_export_vault_buffer_on_close(
+    is_active: bool,
+    autosave_on: bool,
+    is_owned: bool,
+    is_suspended: bool,
+) -> bool {
+    is_active && autosave_on && is_owned && !is_suspended
+}
+
+fn compute_tab_close_needs_confirmation(
+    is_dirty: bool,
+    is_file_associated: bool,
+    has_content: bool,
+    was_edited: bool,
+) -> bool {
+    is_dirty || (!is_file_associated && (has_content || was_edited))
 }
 
 fn compute_close_confirm_decision(
@@ -165,8 +223,10 @@ mod tests {
     use continuity_buffer::BufferId;
 
     use super::{
-        clear_unsaved_close_arm_slot, compute_close_confirm_decision, CloseConfirmDecision,
-        UnsavedCloseArm, UNSAVED_CLOSE_CONFIRM_BANNER, UNSAVED_CLOSE_CONFIRM_MS,
+        clear_unsaved_close_arm_slot, compute_close_confirm_decision,
+        compute_tab_close_needs_confirmation, should_export_vault_buffer_on_close,
+        CloseConfirmDecision, UnsavedCloseArm, UNSAVED_CLOSE_CONFIRM_BANNER,
+        UNSAVED_CLOSE_CONFIRM_MS,
     };
     use crate::pane_tree::PaneId;
 
@@ -181,6 +241,43 @@ mod tests {
         assert!(UNSAVED_CLOSE_CONFIRM_BANNER.contains("trash"));
         assert!(UNSAVED_CLOSE_CONFIRM_BANNER.contains("recoverable"));
         assert!(UNSAVED_CLOSE_CONFIRM_BANNER.contains("Ctrl+W"));
+    }
+
+    #[test]
+    fn autosave_vault_member_closes_without_prompt() {
+        // Active vault, autosave on, buffer owned and not suspended → the
+        // close path force-exports and skips the unsaved-changes gate.
+        assert!(should_export_vault_buffer_on_close(true, true, true, false));
+    }
+
+    #[test]
+    fn suspended_or_non_vault_buffers_keep_the_gate() {
+        // Suspended by an unresolved conflict → keep the prompt.
+        assert!(!should_export_vault_buffer_on_close(true, true, true, true));
+        // Not owned by the vault (outside root / ignored) → keep the prompt.
+        assert!(!should_export_vault_buffer_on_close(
+            true, true, false, false
+        ));
+        // Autosave disabled in the marker → keep the prompt.
+        assert!(!should_export_vault_buffer_on_close(
+            true, false, true, false
+        ));
+        // No active vault at all → keep the prompt.
+        assert!(!should_export_vault_buffer_on_close(
+            false, true, true, false
+        ));
+    }
+
+    #[test]
+    fn unchanged_file_content_closes_without_confirmation() {
+        assert!(!compute_tab_close_needs_confirmation(
+            false, true, true, false
+        ));
+    }
+
+    #[test]
+    fn dirty_file_still_requires_confirmation() {
+        assert!(compute_tab_close_needs_confirmation(true, true, true, true));
     }
 
     #[test]

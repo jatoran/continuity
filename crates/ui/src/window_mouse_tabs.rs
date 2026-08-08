@@ -214,11 +214,15 @@ impl Window {
         true
     }
 
-    /// `WM_MBUTTONDOWN`: tab-strip middle-click closes the tab under
-    /// the cursor. Middle-click on the strip's empty trailing area
-    /// opens a fresh tab in that pane. Outside the tab strip the click
-    /// is ignored.
+    /// `WM_MBUTTONDOWN`: file-tree middle-click opens the file under the
+    /// cursor in a new tab (matching Ctrl+click). Otherwise, tab-strip
+    /// middle-click closes the tab under the cursor, and middle-click on
+    /// the strip's empty trailing area opens a fresh tab in that pane.
+    /// Outside both surfaces the click is ignored.
     pub(crate) fn on_middle_button_down(&mut self, x: i32, y: i32) -> bool {
+        if self.try_file_tree_middle_down(x, y) {
+            return true;
+        }
         self.try_tab_strip_middle_down(x, y)
     }
 

@@ -17,6 +17,7 @@ type Result<T> = std::result::Result<T, Error>;
 pub(crate) struct StartupPaths {
     pub(crate) files: Vec<PathBuf>,
     pub(crate) folders: Vec<PathBuf>,
+    pub(crate) vaults: Vec<PathBuf>,
 }
 
 /// Filesystem roots the app should use for this process.
@@ -54,13 +55,20 @@ impl StartupOptions {
         let mut portable = false;
         let mut new_instance = false;
         let mut paths = Vec::new();
-        for arg in args {
+        let mut vaults = Vec::new();
+        let mut args = args.into_iter();
+        while let Some(arg) = args.next() {
             if arg == "--portable" {
                 portable = true;
             } else if arg == "--new-instance" {
                 new_instance = true;
             } else if arg == "--" {
                 continue;
+            } else if arg == "--vault" {
+                let root = args.next().ok_or_else(|| {
+                    Error::InvalidStartupArgument("--vault requires a folder path".into())
+                })?;
+                vaults.push(PathBuf::from(root));
             } else {
                 paths.push(PathBuf::from(arg));
             }
@@ -72,7 +80,11 @@ impl StartupOptions {
             RuntimePaths::installed()
         };
         Ok(Self {
-            startup_paths: split_startup_paths(paths),
+            startup_paths: {
+                let mut startup_paths = split_startup_paths(paths);
+                startup_paths.vaults = vaults;
+                startup_paths
+            },
             runtime_paths,
             new_instance,
         })
@@ -136,7 +148,11 @@ fn split_startup_paths(paths: Vec<PathBuf>) -> StartupPaths {
             files.push(path);
         }
     }
-    StartupPaths { files, folders }
+    StartupPaths {
+        files,
+        folders,
+        vaults: Vec::new(),
+    }
 }
 
 #[cfg(test)]
@@ -182,5 +198,27 @@ mod tests {
             .runtime_paths
             .settings_path
             .ends_with(PathBuf::from("data").join("settings.toml")));
+    }
+
+    #[test]
+    fn vault_flag_is_parsed_as_explicit_vault_root() {
+        let opts = StartupOptions::from_args_with_auto_portable(
+            [OsString::from("--vault"), OsString::from(r"C:\notes\work")],
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            opts.startup_paths.vaults,
+            vec![PathBuf::from(r"C:\notes\work")]
+        );
+        assert!(opts.startup_paths.files.is_empty());
+    }
+
+    #[test]
+    fn vault_flag_requires_path() {
+        assert!(
+            StartupOptions::from_args_with_auto_portable([OsString::from("--vault")], false,)
+                .is_err()
+        );
     }
 }

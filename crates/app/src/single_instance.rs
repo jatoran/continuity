@@ -4,8 +4,9 @@
 //! session — that duplicates every open window. Instead the first process
 //! holds a named mutex derived from the database path and runs a hidden
 //! message hub; later launches forward their command-line paths to the hub
-//! over `WM_COPYDATA` and exit (a bare launch just activates the running
-//! instance). `--new-instance` or the e2e insert hook bypass the handoff.
+//! over `WM_COPYDATA` and exit. A bare launch activates a Continuity window
+//! on the current virtual desktop, or opens a blank window there when none
+//! exists. `--new-instance` or the e2e insert hook bypass the handoff.
 //!
 //! Thread ownership: [`claim_or_forward`] runs on the main thread before
 //! any worker spawns. The hub callback runs on the hub's message-pump
@@ -18,8 +19,8 @@ use std::time::Duration;
 
 use continuity_core::EditorHandle;
 use continuity_win::{
-    activate_first_visible_window_of_current_process, send_to_instance_hub, InstanceHub,
-    SingleInstanceMutex,
+    activate_first_visible_window_of_current_process_on_current_desktop, send_to_instance_hub,
+    InstanceHub, SingleInstanceMutex,
 };
 use crossbeam_channel::Sender;
 
@@ -78,7 +79,8 @@ pub(crate) fn claim_or_forward(db: &Path, startup: &StartupPaths) -> InstanceCla
 /// in-process opens, so an already-open file focuses its existing window
 /// tab and reconciles against the current disk bytes (clean → silent
 /// reload, dirty → conflict banner) rather than spawning a stale duplicate;
-/// a bare-launch forward activates the top-most existing window.
+/// a bare-launch forward activates a window on the current virtual desktop,
+/// or requests a blank window there when none exists.
 pub(crate) fn spawn_instance_hub(
     db: &Path,
     editor: Arc<EditorHandle>,
@@ -98,12 +100,30 @@ pub(crate) fn spawn_instance_hub(
 }
 
 fn handle_forwarded_payload(payload: &str, editor: &Arc<EditorHandle>, tx: &Sender<RegistryEvent>) {
-    let (files, folders) = parse_forward_payload(payload);
-    if files.is_empty() && folders.is_empty() {
-        if !activate_first_visible_window_of_current_process() {
-            eprintln!("continuity: forwarded activation found no visible window");
+    let (files, folders, vaults) = parse_forward_payload(payload);
+    if files.is_empty() && folders.is_empty() && vaults.is_empty() {
+        if activate_first_visible_window_of_current_process_on_current_desktop() {
+            return;
         }
+        let buffer_id = editor.open_buffer("");
+        let _ = tx.send(RegistryEvent::Spawn(SpawnRequest {
+            initial_buffer_id: buffer_id,
+            restored: None,
+            activate_on_restore: false,
+            explicit_origin: startup_file_window_origin(0),
+            cascade_from: None,
+            recovery_notices: Vec::new(),
+            open_tutorial_on_init: false,
+            startup_open_buffer_ids: Vec::new(),
+            startup_folder_roots: Vec::new(),
+            reconcile_on_init: None,
+        }));
         return;
+    }
+    for root in vaults {
+        let _ = tx.send(RegistryEvent::Vault(
+            crate::registry_vaults::VaultRegistryEvent::Open(root),
+        ));
     }
     let mut opened = 0usize;
     for path in files {
@@ -153,6 +173,9 @@ fn forwarded_file_open_event(path: &Path, ordinal: usize) -> Option<RegistryEven
                 explicit_origin: startup_file_window_origin(ordinal),
                 cascade_from: None,
                 recovery_notices,
+                disposition: continuity_ui::window_config::FileOpenDisposition::NewWindow,
+                source_window_id: None,
+                vault_root: None,
             })
         }
         Err(e) => {
@@ -187,7 +210,8 @@ fn hub_class_name(key: &str) -> String {
 fn forward_payload_json(startup: &StartupPaths) -> String {
     let files: Vec<String> = startup.files.iter().map(|p| absolute_lossy(p)).collect();
     let folders: Vec<String> = startup.folders.iter().map(|p| absolute_lossy(p)).collect();
-    serde_json::json!({ "files": files, "folders": folders }).to_string()
+    let vaults: Vec<String> = startup.vaults.iter().map(|p| absolute_lossy(p)).collect();
+    serde_json::json!({ "files": files, "folders": folders, "vaults": vaults }).to_string()
 }
 
 /// Forwarded paths must be absolute: the receiving process has a
@@ -199,9 +223,9 @@ fn absolute_lossy(path: &Path) -> String {
         .into_owned()
 }
 
-fn parse_forward_payload(payload: &str) -> (Vec<PathBuf>, Vec<PathBuf>) {
+fn parse_forward_payload(payload: &str) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
-        return (Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), Vec::new());
     };
     let collect = |key: &str| -> Vec<PathBuf> {
         value
@@ -216,7 +240,7 @@ fn parse_forward_payload(payload: &str) -> (Vec<PathBuf>, Vec<PathBuf>) {
             })
             .unwrap_or_default()
     };
-    (collect("files"), collect("folders"))
+    (collect("files"), collect("folders"), collect("vaults"))
 }
 
 #[cfg(test)]
@@ -228,21 +252,25 @@ mod tests {
         let startup = StartupPaths {
             files: vec![PathBuf::from("a.md")],
             folders: vec![PathBuf::from("notes")],
+            vaults: vec![PathBuf::from("work")],
         };
         let payload = forward_payload_json(&startup);
-        let (files, folders) = parse_forward_payload(&payload);
+        let (files, folders, vaults) = parse_forward_payload(&payload);
         assert_eq!(files.len(), 1);
         assert_eq!(folders.len(), 1);
         assert!(files[0].is_absolute());
         assert!(folders[0].is_absolute());
+        assert_eq!(vaults.len(), 1);
+        assert!(vaults[0].is_absolute());
         assert!(files[0].ends_with("a.md"));
     }
 
     #[test]
     fn malformed_payload_parses_to_empty() {
-        let (files, folders) = parse_forward_payload("not json");
+        let (files, folders, vaults) = parse_forward_payload("not json");
         assert!(files.is_empty());
         assert!(folders.is_empty());
+        assert!(vaults.is_empty());
     }
 
     #[test]

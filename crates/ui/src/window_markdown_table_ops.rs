@@ -462,7 +462,9 @@ impl Window {
         // on and off per keystroke). Delete-table is the one case
         // where empty is genuinely correct, so the handler that
         // performed the delete clears the cache here.
-        self.last_focused_table_layouts
+        self.surface
+            .render
+            .last_focused_table_layouts
             .borrow_mut()
             .remove(&self.buffer_id);
         self.cancel_display_prewarm_for_buffer(self.buffer_id);
@@ -572,7 +574,9 @@ impl Window {
         self.editor
             .apply_edit(self.buffer_id, op)
             .map_err(|e| map_ui_to_command_error(crate::Error::Core(e)))?;
-        self.last_focused_table_layouts
+        self.surface
+            .render
+            .last_focused_table_layouts
             .borrow_mut()
             .remove(&self.buffer_id);
         self.cancel_display_prewarm_for_buffer(self.buffer_id);

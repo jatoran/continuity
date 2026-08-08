@@ -12,6 +12,11 @@ It is built in Rust as a small Win32 app with DirectWrite/Direct2D rendering, ro
 
 Continuity is early, Windows-only software. It is usable enough to package, but it is still changing quickly.
 
+The native end-user application is Windows-only. Preview SDK surfaces also
+support headless Rust, C, Python, and WASM use plus a Chromium/Electron Web
+Component. See [EMBEDDING.md](EMBEDDING.md) for current coordinates, supported
+targets, local artifacts, and integration contracts.
+
 ## Features
 
 - Native Win32 editor for Windows 10 and Windows 11.

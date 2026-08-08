@@ -74,10 +74,18 @@ pub(crate) fn write_crates(inventory: &WorkspaceInventory) -> String {
 
 pub(crate) fn write_file_tree(inventory: &WorkspaceInventory) -> String {
     let mut out = new_doc("File Tree");
-    out.push_str("Compact tree by maintained surface. Counts exclude `.docs/generated/`, `target/`, and VCS internals.\n\n");
+    out.push_str("Compact tree by maintained surface. Counts exclude generated documentation, build output, dependencies, and VCS internals.\n\n");
     out.push_str("| Surface | Rust | Markdown | TOML | Other tracked inputs |\n");
     out.push_str("|---|---:|---:|---:|---:|\n");
-    for prefix in [".docs", "crates", "xtask", ".githooks", ".github"] {
+    for prefix in [
+        ".docs",
+        "apps",
+        "crates",
+        "packages",
+        "xtask",
+        ".githooks",
+        ".github",
+    ] {
         let counts = count_by_kind(&inventory.files, prefix);
         out.push_str(&format!(
             "| `{}` | {} | {} | {} | {} |\n",
@@ -182,7 +190,15 @@ fn collect_crates(workspace: &Path) -> Result<Vec<CrateInfo>> {
 
 fn collect_files(workspace: &Path) -> Result<Vec<FileInfo>> {
     let mut files = Vec::new();
-    for root in [".docs", "crates", "xtask", ".githooks", ".github"] {
+    for root in [
+        ".docs",
+        "apps",
+        "crates",
+        "packages",
+        "xtask",
+        ".githooks",
+        ".github",
+    ] {
         let path = workspace.join(root);
         if path.exists() {
             collect_files_under(workspace, &path, &mut files)?;
@@ -230,13 +246,18 @@ fn direct_workspace_deps(manifest: &toml::Value) -> Vec<String> {
             continue;
         };
         for (name, value) in table {
-            let is_workspace = value
-                .as_table()
+            let dependency = value.as_table();
+            let is_workspace = dependency
                 .and_then(|table| table.get("workspace"))
                 .and_then(toml::Value::as_bool)
                 .unwrap_or(false);
-            if is_workspace && name.starts_with("continuity-") {
-                deps.push(name.clone());
+            let has_path = dependency.and_then(|table| table.get("path")).is_some();
+            let package_name = dependency
+                .and_then(|table| table.get("package"))
+                .and_then(toml::Value::as_str)
+                .unwrap_or(name);
+            if (is_workspace || has_path) && package_name.starts_with("continuity-") {
+                deps.push(package_name.to_string());
             }
         }
     }
@@ -287,6 +308,9 @@ fn file_kind(path: &Path) -> FileKind {
 fn should_skip(relative: &str) -> bool {
     relative.starts_with(".docs/generated/")
         || relative.contains("/target/")
+        || relative.contains("/dist/")
+        || relative.starts_with("dist/")
+        || relative.contains("/node_modules/")
         || relative.starts_with(".git/")
 }
 
@@ -386,5 +410,12 @@ mod tests {
         assert!(out.contains("crates/ui/src/window_paint.rs"));
         assert!(!out.contains(".docs/development/roadmap.md"));
         assert!(!out.contains("crates/keymap/assets/default.toml"));
+    }
+
+    #[test]
+    fn workspace_inventory_ignores_vite_distribution_output() {
+        assert!(should_skip("apps/editor-bakeoff/dist/index.html"));
+        assert!(should_skip("dist/index.html"));
+        assert!(!should_skip("apps/editor-bakeoff/index.html"));
     }
 }

@@ -11,20 +11,29 @@ SQLite-backed durable storage with WAL journaling, FNV-1a checksummed edit log, 
 - **Snapshot policy** — fires on 500 edits OR 256 KiB cumulative changed bytes OR 60 s of activity OR explicit close.
 - **`PersistClient`** — clonable handle (a `crossbeam Sender`) into the persist thread.
 - **`PersistHandle`** — the owning thread + `JoinHandle`; held by `app::registry`.
+- **`PersistenceBridge`** — native core adapter that assigns per-buffer edit
+  sequence numbers and encodes storage-neutral engine batches into SQLite rows.
 - **Hot backup** — `rusqlite::backup` every 15 min into `%LOCALAPPDATA%\continuity\backups\session-N.db`.
 
 ## Data model
-See [`data_model.md`](../data_model.md) for the schema. Tables: `buffers`, `buffer_snapshots`, `buffer_edits`, `undo_groups`, `windows`, `panes`, `tabs`, `view_states`, `trash`, `settings`, `keybindings`, `themes`, `closed_history`.
+See [`data_model.md`](../data_model.md) for the schema. Tables include `buffers`, `buffer_snapshots`, `buffer_edits`, `undo_groups`, `windows`, `trash`, `closed_history`, and `known_vaults`.
 
 `fts_buffers` is removed (Phase G6 / spec delta §L#17). Schema
-`CURRENT_VERSION = 6`; v5 added `closed_history`, v6 added
-`buffers.file_content_hash` for decoded-text dirty checks.
+`CURRENT_VERSION = 8`; v5 added `closed_history`, v6 added
+`buffers.file_content_hash` for decoded-text dirty checks, and v7 added the
+machine-local pinned/recent vault registry. V8 drops the discontinued
+`metrics_daily` table and its historical rows. Vault contents and portable
+vault configuration remain outside these tables.
 
 ## Operations
 
 ### Write protocol (per accepted edit, on core thread)
-1. `Buffer::apply(op)` mutates the rope, bumps revision, auto-transforms selections, and updates the buffer-owned running FNV-1a checksum.
-2. Core pushes an `EditRecord` onto the persist channel with `checksum_after = Buffer::running_checksum()`; every `CHECKSUM_VERIFY_INTERVAL` edits, and before snapshot-threshold captures, core verifies the running value against a full rope walk and reseats on drift.
+1. Core calls the synchronous engine; `Buffer::apply` mutates the rope, bumps
+   revision, transforms selections, updates the checksum, and contributes an
+   ordered entry to `ChangeBatch`.
+2. Core's `PersistenceBridge` owns database sequence numbers, encodes each
+   batch entry, and pushes it onto the persist channel. The engine verifies
+   checksums at the interval; native snapshot boundaries verify again.
 3. Persist thread drains the queue on a 250 ms timer or 64 KiB threshold.
 4. Persist begins a transaction, inserts edit rows, commits.
 5. If snapshot policy fires, persist serializes the rope (zstd), writes a `buffer_snapshots` row, then prunes covered `buffer_edits` rows.
@@ -174,7 +183,7 @@ The buffer returned alongside a halt carries the *last valid* rope — the state
 - paths: `crates/persist/src/paths.rs`
 - recovery driver: `crates/persist/src/recover.rs`
 - backup scheduler (cadence + retention): `crates/persist/src/backup.rs`
-- running edit checksum: `crates/buffer/src/checksum.rs`, `crates/buffer/src/buffer.rs`, `crates/core/src/undo.rs`, `crates/core/src/dispatch.rs`
+- running edit checksum and batch: `crates/buffer/src/checksum.rs`, `crates/engine/src/undo.rs`, `crates/engine/src/change.rs`, `crates/core/src/persistence_bridge.rs`
 - closed-history CRUD + stack cap: `crates/persist/src/closed_history.rs`
 - smart `tab.reopen_closed`: `crates/app/src/registry_closed_history.rs`
 - pane-tree codec legacy / lenient decode: `crates/ui/src/pane_tree_codec/legacy.rs`

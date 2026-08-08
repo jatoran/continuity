@@ -7,7 +7,7 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1_DRAW_TEXT_OPTIONS_CLIP,
 };
 use windows::Win32::Graphics::DirectWrite::{
-    IDWriteFactory, IDWriteTextFormat, DWRITE_WORD_WRAPPING_NO_WRAP,
+    IDWriteFactory, IDWriteTextFormat, DWRITE_HIT_TEST_METRICS, DWRITE_WORD_WRAPPING_NO_WRAP,
 };
 
 use crate::file_tree::{FileTreeDraw, FileTreeEntryKind, FileTreeRowDraw};
@@ -23,6 +23,8 @@ struct FileTreeRowPaint<'a> {
     muted: &'a ID2D1SolidColorBrush,
     folder: &'a ID2D1SolidColorBrush,
     selected: &'a ID2D1SolidColorBrush,
+    background: &'a ID2D1SolidColorBrush,
+    separator: &'a ID2D1SolidColorBrush,
 }
 
 /// Paint the file tree over the current back buffer without presenting.
@@ -73,10 +75,70 @@ pub(crate) fn paint_file_tree(
             muted: &muted_brush,
             folder: &folder_brush,
             selected: &selected_brush,
+            background: &bg_brush,
+            separator: &separator_brush,
         };
         paint_rows(&row_paint, draw)?;
+        paint_drag_feedback(
+            ctx,
+            factory,
+            draw,
+            text_format,
+            &fg_brush,
+            &selected_brush,
+            &separator_brush,
+        )?;
     }
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn paint_drag_feedback(
+    ctx: &ID2D1DeviceContext,
+    factory: &IDWriteFactory,
+    draw: &FileTreeDraw,
+    text_format: &IDWriteTextFormat,
+    foreground: &ID2D1SolidColorBrush,
+    fill: &ID2D1SolidColorBrush,
+    border: &ID2D1SolidColorBrush,
+) -> Result<(), Error> {
+    let Some(drag) = draw.drag.as_ref() else {
+        return Ok(());
+    };
+    if let Some(top) = drag.drop_target_top_dip {
+        let target = D2D_RECT_F {
+            left: draw.rect.0 + 1.0,
+            top,
+            right: draw.rect.0 + draw.rect.2 - 1.0,
+            bottom: top + draw.row_height_dip,
+        };
+        ctx.FillRectangle(&target, fill);
+        ctx.DrawRectangle(&target, border, 1.0, None);
+    }
+    let ghost_width = 180.0_f32.min((draw.rect.2 - 8.0).max(60.0));
+    let left = (drag.cursor.0 + 12.0).clamp(4.0, (draw.rect.2 - ghost_width - 4.0).max(4.0));
+    let top = (drag.cursor.1 + 12.0).clamp(4.0, (draw.rect.3 - draw.row_height_dip - 4.0).max(4.0));
+    let ghost = D2D_RECT_F {
+        left,
+        top,
+        right: left + ghost_width,
+        bottom: top + draw.row_height_dip,
+    };
+    ctx.FillRectangle(&ghost, fill);
+    ctx.DrawRectangle(&ghost, border, 1.0, None);
+    draw_text(
+        ctx,
+        factory,
+        text_format,
+        &drag.label,
+        D2D_RECT_F {
+            left: ghost.left + 6.0,
+            top: ghost.top,
+            right: ghost.right - 6.0,
+            bottom: ghost.bottom,
+        },
+        foreground,
+    )
 }
 
 fn brush(target: &ID2D1RenderTarget, color: Rgba) -> Result<ID2D1SolidColorBrush, Error> {
@@ -173,11 +235,48 @@ unsafe fn paint_row_texts(
             right: x + w - 8.0,
             bottom: row_top + draw.row_height_dip,
         };
-        let brush = match row.kind {
+        let default_brush = match row.kind {
             FileTreeEntryKind::Directory => row_paint.folder,
             FileTreeEntryKind::File => row_paint.fg,
             FileTreeEntryKind::Notice => row_paint.muted,
         };
+        let override_brush = row
+            .color_override
+            .map(|color| brush(&row_paint.ctx.cast()?, color))
+            .transpose()?;
+        let brush = override_brush.as_ref().unwrap_or(default_brush);
+        if let Some(inline_edit) = row.inline_edit.as_ref() {
+            let prefix = match row.kind {
+                FileTreeEntryKind::Directory if row.expanded => "v ",
+                FileTreeEntryKind::Directory => "> ",
+                FileTreeEntryKind::File | FileTreeEntryKind::Notice => "  ",
+            };
+            draw_text(
+                row_paint.ctx,
+                row_paint.factory,
+                row_paint.text_format,
+                prefix,
+                D2D_RECT_F {
+                    left: text_rect.left,
+                    top: text_rect.top,
+                    right: text_rect.left + 16.0,
+                    bottom: text_rect.bottom,
+                },
+                brush,
+            )?;
+            paint_inline_edit(
+                row_paint,
+                inline_edit,
+                D2D_RECT_F {
+                    left: text_rect.left + 15.0,
+                    top: text_rect.top + 1.0,
+                    right: text_rect.right,
+                    bottom: text_rect.bottom - 1.0,
+                },
+                brush,
+            )?;
+            continue;
+        }
         draw_text(
             row_paint.ctx,
             row_paint.factory,
@@ -188,6 +287,100 @@ unsafe fn paint_row_texts(
         )?;
     }
     Ok(())
+}
+
+unsafe fn paint_inline_edit(
+    row_paint: &FileTreeRowPaint<'_>,
+    edit: &crate::file_tree::FileTreeInlineEditDraw,
+    rect: D2D_RECT_F,
+    text_brush: &ID2D1SolidColorBrush,
+) -> Result<(), Error> {
+    row_paint.ctx.FillRectangle(&rect, row_paint.background);
+    row_paint
+        .ctx
+        .DrawRectangle(&rect, row_paint.separator, 1.0, None);
+    let inner = D2D_RECT_F {
+        left: rect.left + 3.0,
+        top: rect.top,
+        right: rect.right - 3.0,
+        bottom: rect.bottom,
+    };
+    let wide: Vec<u16> = edit.text.encode_utf16().collect();
+    let layout = row_paint.factory.CreateTextLayout(
+        &wide,
+        row_paint.text_format,
+        (inner.right - inner.left).max(1.0),
+        (inner.bottom - inner.top).max(1.0),
+    )?;
+    layout.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
+    if let Some((start, end)) = edit.selection_range {
+        let left = text_offset(&layout, &edit.text, start);
+        let right = text_offset(&layout, &edit.text, end);
+        if right > left {
+            row_paint.ctx.FillRectangle(
+                &D2D_RECT_F {
+                    left: inner.left + left,
+                    top: inner.top,
+                    right: inner.left + right,
+                    bottom: inner.bottom,
+                },
+                row_paint.selected,
+            );
+        }
+    }
+    row_paint
+        .ctx
+        .PushAxisAlignedClip(&inner, D2D1_ANTIALIAS_MODE_ALIASED);
+    row_paint.ctx.DrawTextLayout(
+        D2D_POINT_2F {
+            x: inner.left,
+            y: inner.top,
+        },
+        &layout,
+        text_brush,
+        D2D1_DRAW_TEXT_OPTIONS_CLIP,
+    );
+    let caret_x = inner.left + text_offset(&layout, &edit.text, edit.caret_byte);
+    row_paint.ctx.FillRectangle(
+        &D2D_RECT_F {
+            left: caret_x,
+            top: inner.top + 2.0,
+            right: caret_x + 1.5,
+            bottom: inner.bottom - 2.0,
+        },
+        text_brush,
+    );
+    row_paint.ctx.PopAxisAlignedClip();
+    Ok(())
+}
+
+unsafe fn text_offset(
+    layout: &windows::Win32::Graphics::DirectWrite::IDWriteTextLayout,
+    text: &str,
+    byte: usize,
+) -> f32 {
+    let utf16_index = text[..previous_char_boundary(text, byte.min(text.len()))]
+        .encode_utf16()
+        .count();
+    let mut x = 0.0;
+    let mut y = 0.0;
+    let mut metrics = DWRITE_HIT_TEST_METRICS::default();
+    let _ = layout.HitTestTextPosition(
+        u32::try_from(utf16_index).unwrap_or(u32::MAX),
+        false,
+        &mut x,
+        &mut y,
+        &mut metrics,
+    );
+    x
+}
+
+fn previous_char_boundary(text: &str, byte: usize) -> usize {
+    let mut boundary = byte;
+    while boundary > 0 && !text.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    boundary
 }
 
 fn row_text(row: &FileTreeRowDraw) -> String {

@@ -155,18 +155,21 @@ impl Window {
             self.dpi_scale(),
         )
         .with_tab_width(self.view_options.tab_width);
-        if next_state != self.font_state {
-            self.cache.invalidate_other_font_states(next_state);
+        if next_state != self.surface.render.font_state {
+            self.surface
+                .render
+                .cache
+                .invalidate_other_font_states(next_state);
         }
         self.prose_font_family = family;
-        self.text_format = None;
+        self.surface.render.text_format = None;
         invalidate_hwnd(self.hwnd);
     }
 
     pub(crate) fn toggle_ligatures_impl(&mut self) -> Result<(), crate::Error> {
         self.view_options.ligatures = !self.view_options.ligatures;
         self.persist_toggle_or_log("editor", "ligatures", self.view_options.ligatures);
-        self.text_format = None; // Re-create with updated typography flag.
+        self.surface.render.text_format = None; // Re-create with updated typography flag.
         invalidate_hwnd(self.hwnd);
         Ok(())
     }
@@ -175,7 +178,7 @@ impl Window {
         let base = self
             .font_size_dip_override
             .unwrap_or(super::window::FONT_SIZE_DIP);
-        base * self.view.font_size_scale
+        base * self.surface.view.font_size_scale
     }
 
     /// Per-frame row stride in DIPs: the zoom-scaled font size times the
@@ -207,7 +210,7 @@ impl Window {
     pub(crate) fn overscroll_bottom_dip(&self) -> f32 {
         compute_overscroll_bottom_dip(
             self.view_options.scroll_past_end,
-            self.view.viewport_height_dip,
+            self.surface.view.viewport_height_dip,
             self.effective_line_height(),
         )
     }
@@ -215,7 +218,7 @@ impl Window {
 
 /// Pure overscroll-allowance computation shared by the focused-view helper
 /// and the spectator-pane path (which works against a borrowed pane rather
-/// than `self.view`). Returns `viewport_height - line_height` (clamped to
+/// than `self.surface.view`). Returns `viewport_height - line_height` (clamped to
 /// `0`) when scroll-past-end is enabled, else `0`.
 #[must_use]
 pub(crate) fn compute_overscroll_bottom_dip(

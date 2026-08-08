@@ -144,9 +144,28 @@ closed_history (
   payload_json  TEXT NOT NULL                        -- pane-tree blob; same shape as windows.pane_tree_json
 )
 -- bounded to STACK_CAP = 32 entries via DELETE-on-push inside the persist-thread message
+
+known_vaults (
+  root_path       TEXT PRIMARY KEY COLLATE NOCASE,
+  display_name    TEXT NOT NULL,
+  pinned          INTEGER NOT NULL DEFAULT 0,
+  last_opened_ms  INTEGER NOT NULL
+)
 ```
 
-Schema `CURRENT_VERSION = 6` (v6 added `buffers.file_content_hash`).
+Schema `CURRENT_VERSION = 8` (v6 added `buffers.file_content_hash`; v7 added the machine-local `known_vaults` launcher registry; v8 removed the discontinued `metrics_daily` table and its rows).
+
+## Continuity Web host store
+
+The cross-platform Electron shell does not open this SQLite schema. Its main
+process owns two rotating `document-{0,1}.json` slots plus bounded `.next`
+candidates under the Electron user-data directory. Each full snapshot carries
+`storageVersion`, `durableSequence`, renderer source sequence, engine revision,
+canonical text, selections, read-only state, optional file-association
+metadata, timestamp, and a SHA-256 integrity field. A change is acknowledged
+only after the temporary generation is synced and renamed. Recovery selects
+the highest integrity-valid durable sequence and banners discarded candidates.
+See [`features/cross-platform-desktop.md`](features/cross-platform-desktop.md).
 
 The `fts_buffers` virtual table named in the original spec is **removed** (decisions §K, spec delta §L#17). Cross-buffer FTS5 search has been dropped; `Ctrl+O` opens a native file dialog instead.
 
@@ -200,6 +219,7 @@ Bump the codec integer (never reuse) when changing the compression scheme. Recov
 - **Schema migration partial** ⇒ migrations are idempotent — re-running completes them. WAL keeps the previous good state.
 
 ## References
-- `.docs/development/spec.md` §4 (persistence schema + protocols).
+- `.docs/development/archive/spec.md` §4 (historical persistence schema and
+  protocol rationale).
 - `crates/persist/src/schema.rs` for the live schema and migrations.
 - `.docs/design/features/persistence.md` for write/recovery protocols.

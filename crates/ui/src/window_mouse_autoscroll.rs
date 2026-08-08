@@ -9,7 +9,7 @@ use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, KillTimer, SetTimer};
 
-use crate::mouse::{Autoscroll, AutoscrollDirection};
+use crate::editor_surface::pointer::{Autoscroll, AutoscrollDirection};
 use crate::pane_layout::Rect;
 use crate::window::Window;
 use crate::window_mouse_hover::wall_clock_ms;
@@ -49,13 +49,14 @@ impl AutoscrollStopReason {
 
 impl Window {
     pub(crate) fn begin_selection_drag(&mut self, x: i32, y: i32) {
+        self.surface.pointer.word_drag_origin = None;
         let body = self.focused_body_rect();
         if !body.contains(x as f32, y as f32) {
-            self.mouse_state.selection_drag_pane = None;
+            self.surface.pointer.selection_drag_pane = None;
             self.stop_mouse_drag_autoscroll(AutoscrollStopReason::EdgeExit);
             return;
         }
-        self.mouse_state.selection_drag_pane = Some(self.tree.focused);
+        self.surface.pointer.selection_drag_pane = Some(self.tree.focused);
         self.stop_mouse_drag_autoscroll(AutoscrollStopReason::EdgeExit);
         if self.hwnd.0 as isize != 0 {
             unsafe {
@@ -116,12 +117,12 @@ impl Window {
         if had_selection_drag {
             self.mouse_state.dragging = false;
         }
-        self.mouse_state.multi_select_drag = false;
+        self.surface.pointer.multi_select_drag = false;
         // Losing capture (Alt+Tab, system pop-up, etc.) mid-drag must
         // tear down the tab drag — otherwise the source tab stays
         // faded and the next mouse click runs into a stale drop
         // affordance. Treated as a cancel: no commit.
-        self.mouse_state.minimap_dragging = false;
+        self.surface.pointer.minimap_dragging = false;
         let _ = self.cancel_tab_drag();
     }
 
@@ -132,7 +133,7 @@ impl Window {
     }
 
     fn tick_mouse_drag_autoscroll(&mut self, hwnd: HWND) -> bool {
-        let Some(state) = self.mouse_state.autoscroll else {
+        let Some(state) = self.surface.pointer.autoscroll else {
             return false;
         };
         if !self.is_mouse_drag_autoscroll_eligible() {
@@ -154,9 +155,9 @@ impl Window {
         } else {
             request.lines_per_tick
         };
-        let before_scroll_y_dip = self.view.scroll_y_dip;
+        let before_scroll_y_dip = self.surface.view.scroll_y_dip;
         let _ = self.view_scroll_lines_impl(lines_to_advance);
-        let after_scroll_y_dip = self.view.scroll_y_dip;
+        let after_scroll_y_dip = self.surface.view.scroll_y_dip;
         let scroll_delta_dip = after_scroll_y_dip - before_scroll_y_dip;
         let lines_advanced = (scroll_delta_dip / self.effective_line_height()).round() as i32;
 
@@ -179,7 +180,8 @@ impl Window {
     }
 
     fn finish_selection_drag(&mut self, reason: AutoscrollStopReason) -> bool {
-        let had_selection_drag = self.mouse_state.selection_drag_pane.take().is_some();
+        let had_selection_drag = self.surface.pointer.selection_drag_pane.take().is_some();
+        self.surface.pointer.word_drag_origin = None;
         self.stop_mouse_drag_autoscroll(reason);
         if had_selection_drag && self.hwnd.0 as isize != 0 {
             unsafe {
@@ -191,11 +193,11 @@ impl Window {
 
     fn is_mouse_drag_autoscroll_eligible(&self) -> bool {
         self.mouse_state.dragging
-            && self.mouse_state.selection_drag_pane == Some(self.tree.focused)
+            && self.surface.pointer.selection_drag_pane == Some(self.tree.focused)
             && self.mouse_state.splitter_drag.is_none()
             && self.mouse_state.tab_drag.is_none()
-            && self.mouse_state.scrollbar_drag.is_none()
-            && !self.mouse_state.minimap_dragging
+            && self.surface.pointer.scrollbar_drag.is_none()
+            && !self.surface.pointer.minimap_dragging
             && self.time_machine_drag.is_none()
     }
 
@@ -220,14 +222,14 @@ impl Window {
 
     fn apply_mouse_drag_autoscroll_state(&mut self, x: i32, y: i32, request: AutoscrollRequest) {
         let now_ms = wall_clock_ms();
-        if let Some(state) = self.mouse_state.autoscroll.as_mut() {
+        if let Some(state) = self.surface.pointer.autoscroll.as_mut() {
             state.last_cursor_x = x;
             state.last_cursor_y = y;
             state.direction = request.direction;
             state.distance_dip = request.distance_dip;
             return;
         }
-        self.mouse_state.autoscroll = Some(Autoscroll {
+        self.surface.pointer.autoscroll = Some(Autoscroll {
             last_cursor_x: x,
             last_cursor_y: y,
             direction: request.direction,
@@ -255,14 +257,14 @@ impl Window {
     }
 
     fn update_autoscroll_cursor(&mut self, x: i32, y: i32) {
-        if let Some(state) = self.mouse_state.autoscroll.as_mut() {
+        if let Some(state) = self.surface.pointer.autoscroll.as_mut() {
             state.last_cursor_x = x;
             state.last_cursor_y = y;
         }
     }
 
     fn stop_mouse_drag_autoscroll(&mut self, reason: AutoscrollStopReason) {
-        let Some(state) = self.mouse_state.autoscroll.take() else {
+        let Some(state) = self.surface.pointer.autoscroll.take() else {
             return;
         };
         if self.hwnd.0 as isize != 0 {
@@ -282,7 +284,8 @@ impl Window {
     }
 
     fn elapsed_mouse_drag_autoscroll_ms(&self) -> u32 {
-        self.mouse_state
+        self.surface
+            .pointer
             .autoscroll
             .map(|state| elapsed_ms_since(state.started_ms, wall_clock_ms()))
             .unwrap_or(0)

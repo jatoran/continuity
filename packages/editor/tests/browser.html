@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Continuity browser contract</title>
+    <style>body { margin: 0; } continuity-editor { width: 720px; height: 420px; }</style>
+  </head>
+  <body data-result="running">
+    <button id="before">before</button>
+    <main id="mount"></main>
+    <button id="after">after</button>
+    <script id="result" type="application/json">{}</script>
+    <script>
+      const reportEarlyFailure = (value) => {
+        document.querySelector("#result").textContent = JSON.stringify({ error: String(value) });
+        document.body.dataset.result = "fail";
+      };
+      addEventListener("error", (event) => reportEarlyFailure(event.error?.stack || event.message));
+      addEventListener("unhandledrejection", (event) => reportEarlyFailure(event.reason?.stack || event.reason));
+    </script>
+    <script src="/node_modules/react/umd/react.development.js"></script>
+    <script src="/node_modules/react-dom/umd/react-dom.development.js"></script>
+    <script type="importmap">
+      {"imports":{"react":"/react-browser-runtime.mjs"}}
+    </script>
+    <script type="module" src="./browser-suite.mjs"></script>
+  </body>
+</html>

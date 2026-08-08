@@ -79,7 +79,8 @@ CycloneDX SBOM. npm and PyPI use trusted publishing. crates.io uses
 before its trusted publisher can be attached.
 
 The workflow is copied to the public staging repository by `scripts/sync-public.ps1`.
-The sync omits private test and benchmark sources and also removes their explicit Cargo target declarations so the staged public workspace remains parseable.
+The sync omits private desktop test and benchmark sources and removes their explicit Cargo target declarations so the staged public workspace remains parseable.
+It retains the WASM parity test, package browser harness, and Electron example required to validate the exact public npm artifact.
 Trusted publishers must name that public repository, the exact `sdk-release.yml` filename, and their matching environment.
 
 ## Installation contract

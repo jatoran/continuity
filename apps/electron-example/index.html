@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'">
+    <title>Continuity Electron host</title>
+    <style>
+      :root { color-scheme: dark; background: #111318; color: #f1f3f8; font: 16px/1.5 system-ui, sans-serif; }
+      body { margin: 0; }
+      main { box-sizing: border-box; margin: 0 auto; max-width: 72rem; min-height: 100vh; padding: 1.5rem; }
+      .controls { display: flex; flex-wrap: wrap; gap: .75rem; margin-block: 1rem; }
+      button { padding: .5rem .8rem; }
+      #editor-host { min-height: 30rem; }
+      continuity-editor { height: 30rem; }
+      output { display: block; min-height: 1.5rem; margin-top: .75rem; color: #b9d4ff; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Continuity Electron accessibility check</h1>
+      <p>
+        Use Narrator to verify that the editor is announced as “Electron
+        markdown document,” keyboard navigation and edits are spoken, status
+        changes are announced, Tab indents, Shift+Tab outdents, Escape then
+        Tab leaves the editor, and destroying the editor leaves no focusable
+        ghost.
+      </p>
+      <div class="controls" aria-label="Editor test controls">
+        <button id="focus" type="button">Focus editor</button>
+        <button id="readonly" type="button">Toggle read-only</button>
+        <button id="teardown" type="button">Destroy editor</button>
+      </div>
+      <div id="editor-host"></div>
+      <output id="status" role="status" aria-live="polite">Loading editor…</output>
+    </main>
+    <script type="module" src="./renderer.mjs"></script>
+  </body>
+</html>

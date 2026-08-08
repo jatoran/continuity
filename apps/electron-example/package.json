@@ -1,0 +1,17 @@
+{
+  "name": "continuity-electron-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke"
+  },
+  "dependencies": {
+    "@continuity-editor/editor": "file:../../packages/editor"
+  },
+  "devDependencies": {
+    "electron": "43.1.1"
+  }
+}

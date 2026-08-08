@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Continuity Web Component manual accessibility check</title>
+    <style>
+      body { margin: 2rem auto; max-width: 70rem; padding: 0 1rem; font: 16px/1.5 system-ui, sans-serif; }
+      continuity-editor { height: 30rem; margin-block: 1rem; }
+      .controls { display: flex; flex-wrap: wrap; gap: .75rem; }
+      button { padding: .5rem .8rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Continuity manual accessibility check</h1>
+      <p>Use Tab to enter the editor. Inside the editable document, Tab indents and Shift+Tab outdents. Press Escape, then Tab or Shift+Tab, to leave. Type or paste enough lines to cross the bottom and top viewport edges; the caret and text must remain visible without manual scrolling. Confirm the screen reader announces a multiline edit field named “Continuity manual test document,” reads text and selections, describes the focus-escape gesture, and announces read-only state after toggling it.</p>
+      <div class="controls" aria-label="Editor test controls">
+        <button id="focus" type="button">Focus editor</button>
+        <button id="readonly" type="button">Toggle read-only</button>
+        <button id="theme" type="button">Toggle theme</button>
+      </div>
+      <continuity-editor aria-label="Continuity manual test document"></continuity-editor>
+      <p id="status" role="status" aria-live="polite">Loading editor…</p>
+    </main>
+    <script type="module" src="./manual.mjs"></script>
+  </body>
+</html>

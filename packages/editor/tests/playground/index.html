@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="dark light">
+    <title>Continuity mobile playground</title>
+    <style>
+      :root { --bg: #0d0f14; --fg: #e7e9ee; --muted: #8d96a8; --line: #2b303b; --accent: #7aa2f7; }
+      * { box-sizing: border-box; }
+      /* Height tracks the *visual* viewport, set from JS: the soft keyboard
+         shrinks the visual viewport without changing the layout viewport, so a
+         100%-height page puts its bottom rows underneath the keyboard. */
+      html, body { height: var(--app-height, 100%); margin: 0; overflow: hidden; }
+      body {
+        display: flex; flex-direction: column;
+        background: var(--bg); color: var(--fg);
+        font: 14px/1.4 system-ui, -apple-system, sans-serif;
+        -webkit-text-size-adjust: 100%;
+      }
+      header { flex: 0 0 auto; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+      .row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+      .row + .row { margin-top: 5px; }
+      button, select {
+        min-height: 38px; padding: 0 10px;
+        background: #171a21; color: var(--fg);
+        border: 1px solid var(--line); border-radius: 6px;
+        font: 600 13px/1 system-ui, sans-serif;
+      }
+      button.on { border-color: var(--accent); color: var(--accent); }
+      .build { font-weight: 700; }
+      .build[data-build="fixed"] { color: #7ee787; }
+      .build[data-build="baseline"] { color: #ff7b72; }
+      main { flex: 1 1 auto; min-height: 0; padding: 6px; }
+      continuity-editor { width: 100%; height: 100%; }
+      footer {
+        flex: 0 0 auto; padding: 5px 8px; border-top: 1px solid var(--line);
+        color: var(--muted); font: 11px/1.35 ui-monospace, Consolas, monospace;
+        white-space: pre-wrap; max-height: 12vh; overflow: auto;
+      }
+      .bad { color: #ff7b72; font-weight: 700; }
+      .good { color: #7ee787; }
+      /* Manual-copy fallback: plain HTTP is not a secure context, so
+         navigator.clipboard is undefined on the LAN/Tailscale URL. */
+      #fallback {
+        position: fixed; inset: 0; z-index: 99; display: none;
+        flex-direction: column; background: var(--bg); padding: 8px; gap: 8px;
+      }
+      #fallback.open { display: flex; }
+      #fallback textarea {
+        flex: 1 1 auto; width: 100%; background: #0a0c10; color: var(--fg);
+        border: 1px solid var(--line); border-radius: 6px; padding: 8px;
+        font: 11px/1.35 ui-monospace, Consolas, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="row">
+        <span>build:</span>
+        <span class="build" id="build">…</span>
+        <span id="buildstamp" style="color:var(--muted);font:11px ui-monospace,monospace">__BUILD__</span>
+        <button id="swap" type="button">swap build</button>
+        <button id="diag" type="button" class="on">diag</button>
+        <button id="trace" type="button">trace</button>
+        <button id="copy" type="button">copy trace</button>
+        <button id="clear" type="button">clear</button>
+      </div>
+      <div class="row">
+        <select id="corpus" aria-label="Test document">
+          <option value="mixed">mixed markdown</option>
+          <option value="longHeadings">long headings (scroll bug)</option>
+          <option value="folded">folded inline (tap accuracy)</option>
+          <option value="lists">wrapped lists</option>
+          <option value="bigPaste">big paste (600 lines)</option>
+          <option value="empty">empty</option>
+        </select>
+        <button id="theme" type="button">theme</button>
+        <button id="bottom" type="button">jump to end</button>
+      </div>
+    </header>
+    <main><div id="mount" style="height:100%"></div></main>
+    <footer id="readout">booting…</footer>
+    <div id="fallback">
+      <div class="row">
+        <strong>Select all &amp; copy, then close</strong>
+        <button id="fallback-close" type="button">close</button>
+      </div>
+      <textarea id="fallback-text" readonly></textarea>
+    </div>
+    <script type="module" src="./app.mjs?v=__BUILD__"></script>
+  </body>
+</html>

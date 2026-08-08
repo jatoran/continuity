@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "continuity-editor"
-version = "0.2.22"
+version = "0.2.23"
 description = "Headless synchronous Continuity editor engine"
 readme = "README.md"
 requires-python = ">=3.10"

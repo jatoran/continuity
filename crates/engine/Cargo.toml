@@ -1,6 +1,6 @@
 [package]
 name = "continuity-engine"
-version = "0.2.22"
+version = "0.2.23"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -24,7 +24,3 @@ thiserror = { workspace = true }
 [dev-dependencies]
 continuity-test-fixtures = { workspace = true }
 criterion = { workspace = true }
-
-[[bench]]
-name = "editing"
-harness = false

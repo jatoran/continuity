@@ -78,9 +78,9 @@ CycloneDX SBOM. npm and PyPI use trusted publishing. crates.io uses
 `rust-lang/crates-io-auth-action`; crates.io requires a manual first release
 before its trusted publisher can be attached.
 
-The workflow is copied to the public staging repository by
-`scripts/sync-public.ps1`. Trusted publishers must name that public repository,
-the exact `sdk-release.yml` filename, and their matching environment.
+The workflow is copied to the public staging repository by `scripts/sync-public.ps1`.
+The sync omits private test and benchmark sources and also removes their explicit Cargo target declarations so the staged public workspace remains parseable.
+Trusted publishers must name that public repository, the exact `sdk-release.yml` filename, and their matching environment.
 
 ## Installation contract
 

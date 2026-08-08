@@ -1,6 +1,6 @@
 [package]
 name             = "continuity-buffer"
-version          = "0.2.22"
+version          = "0.2.23"
 edition.workspace      = true
 rust-version.workspace = true
 license.workspace      = true
@@ -31,7 +31,3 @@ getrandom = { workspace = true, features = ["wasm_js"] }
 continuity-test-support = { workspace = true, default-features = false }
 criterion               = { workspace = true }
 proptest                = { workspace = true }
-
-[[bench]]
-name    = "edit"
-harness = false

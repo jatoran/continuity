@@ -39,9 +39,9 @@ homepage     = "https://github.com/jatoran/continuity"
 
 [workspace.dependencies]
 # Internal crates
-continuity-text         = { path = "crates/text", version = "0.2.32" }
-continuity-buffer       = { path = "crates/buffer", version = "0.2.32" }
-continuity-engine       = { path = "crates/engine", version = "0.2.32" }
+continuity-text         = { path = "crates/text", version = "0.2.33" }
+continuity-buffer       = { path = "crates/buffer", version = "0.2.33" }
+continuity-engine       = { path = "crates/engine", version = "0.2.33" }
 continuity-wasm         = { path = "crates/wasm" }
 continuity-host         = { path = "crates/host" }
 continuity-core         = { path = "crates/core" }

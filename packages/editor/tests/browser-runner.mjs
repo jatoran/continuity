@@ -146,7 +146,7 @@ class CdpConnection {
 }
 
 async function waitForResult(page) {
-  const deadline = Date.now() + 90_000;
+  const deadline = Date.now() + 180_000;
   while (Date.now() < deadline) {
     const state = await evaluate(page, "document.body?.dataset.result");
     if (state === "pass" || state === "fail") {

@@ -175,7 +175,7 @@ function assertCentered(check, shadow, scroller, label) {
 function assertEdgeClearance(check, shadow, scroller, label) {
   const target = primaryTargetBounds(shadow);
   const viewport = scroller.getBoundingClientRect();
-  const clearance = target ? target.bottom - target.top : 0;
+  const clearance = target?.rowHeight ?? 0;
   check(
     target
       && target.top >= viewport.top + clearance - 1
@@ -194,6 +194,7 @@ function primaryTargetBounds(shadow) {
   return {
     top: Math.min(...rects.map((rect) => rect.top)),
     bottom: Math.max(...rects.map((rect) => rect.bottom)),
+    rowHeight: Math.max(...rects.map((rect) => rect.height)),
   };
 }
 

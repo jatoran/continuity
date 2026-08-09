@@ -1,6 +1,6 @@
 [package]
 name = "continuity-engine-c"
-version = "0.2.27"
+version = "0.2.28"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -15,5 +15,5 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 continuity-buffer = { workspace = true }
-continuity-engine-core = { package = "continuity-engine", path = "../engine", version = "0.2.27" }
+continuity-engine-core = { package = "continuity-engine", path = "../engine", version = "0.2.28" }
 continuity-text = { workspace = true }

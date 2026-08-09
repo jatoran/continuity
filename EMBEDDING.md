@@ -9,7 +9,7 @@ design documents remain authoritative for detailed APIs.
 | Release train | Current version | Canonical source |
 |---|---:|---|
 | Native Windows desktop | `0.4.2` | `crates/app/Cargo.toml` |
-| Embeddable SDK family | `0.2.30` | `sdk/release.toml` |
+| Embeddable SDK family | `0.2.31` | `sdk/release.toml` |
 
 The release trains are independent. All artifacts in one SDK release use the
 same SDK version. Registry publication is not active yet; commands in this
@@ -124,7 +124,7 @@ Then use the Web Component directly or a framework adapter. The full browser,
 controlled-value, React, deployment, shortcut, theming, and headless examples
 live in [`packages/editor/README.md`](packages/editor/README.md).
 
-SDK `0.2.30` fixes host-driven reveal navigation without changing the public API.
+SDK `0.2.31` fixes host-driven reveal navigation without changing the public API.
 `revealRange(range, { align })` now waits for the Markdown projection, measures the actual rendered caret or range, and scrolls whichever element owns the viewport.
 `nearest` keeps a fitting target fully visible with rendered-row clearance; `center` centers it as closely as scroll bounds permit.
 The same projected navigation primitive backs `setSelections(..., { reveal: true })`.

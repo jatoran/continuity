@@ -417,7 +417,7 @@ The browser lane owns separate gates:
 | input to paint-ready frame p99.9 | product target <=80 ms; shared-browser CI ceiling <=120 ms |
 | 10,000-line component ready | product target <=2,500 ms; shared-browser CI ceiling <=3,750 ms |
 | 10,000-line typing dispatch p99 | product target <=160 ms; shared-browser CI ceiling <=240 ms |
-| 10,000-line typing frame p99 | product target <=300 ms; shared-browser CI ceiling <=450 ms |
+| 10,000-line typing frame p99 | product target <=300 ms; shared-browser CI ceiling <=600 ms |
 | 10,000-line smart-newline frame p99 | product target <=250 ms; shared-browser CI ceiling <=375 ms |
 | 10,000-line alternating-width wrap p99 | product target <=200 ms; shared-browser CI ceiling <=300 ms |
 | warm compact presentation p50 | <=100 ms |

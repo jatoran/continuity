@@ -238,9 +238,10 @@ async function auditPointerAndKeyboard(page) {
     throw new Error(`wrapped visual caret does not match projected glyph: ${JSON.stringify(visualCaret)}`);
   }
   const arrowCaret = await assertArrowCaretRepaint(page, evaluate);
+  const multiClickBounds = await projectedPointerBounds(page, evaluate);
   const multiClickSelections = await assertProjectedMultiClickSelections(page, evaluate, {
-    x: bounds.targetX,
-    y: bounds.targetY,
+    x: multiClickBounds.targetX,
+    y: multiClickBounds.targetY,
   });
 
   const wrappedSelection = await assertWrappedSelectionInteractions(page, evaluate);

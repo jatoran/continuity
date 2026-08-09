@@ -1,6 +1,6 @@
 [package]
 name             = "continuity-buffer"
-version          = "0.2.31"
+version          = "0.2.32"
 edition.workspace      = true
 rust-version.workspace = true
 license.workspace      = true

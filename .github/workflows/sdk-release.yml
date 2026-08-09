@@ -128,7 +128,7 @@ jobs:
           path: sdk-bundle
       - run: cargo xtask sdk-release-verify sdk-bundle
       - name: Publish exact tarball to the preview channel
-        run: npm publish sdk-bundle/*.tgz --access public --tag next
+        run: npm publish "sdk-bundle/continuity-editor-${GITHUB_REF_NAME#sdk-v}.tgz" --access public --tag next
 
   publish-crates:
     name: publish Cargo closure

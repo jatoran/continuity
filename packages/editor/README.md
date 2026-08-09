@@ -587,17 +587,14 @@ the editor mounted need no scroll bookkeeping); hosts that unmount per tab
 use `getScrollState()` / `restoreScrollState()`.
 
 The textarea owns the scrollable extent, but the projection is what the reader
-sees, and the same divergence that breaks platform hit-testing also makes the
-projection taller than the textarea's own content: a long heading wraps into
-more projected rows than raw source rows. Left alone the surplus is
-unreachable — the frame clips with `overflow: hidden` and the projection is
-only translated by `-scrollTop`, so the document's tail stays below the fold no
-matter how far the user scrolls. The extent is reconciled after every render:
-bottom padding lengthens the textarea's scrollable content while keeping the
-projection tracking the text 1:1, capped so it cannot inflate the textarea's
-own border box, and any surplus beyond that cap rides on the projection
-transform as an offset that ramps from zero at the top to the full residual at
-the scroll floor.
+sees, and the same divergence that breaks platform hit-testing can make the
+projection taller or shorter than the textarea's own content. Left alone, a
+taller projection leaves its tail unreachable and a shorter projection leaves
+blank overscroll at the textarea floor. The extent is reconciled after every
+render: bottom padding absorbs a taller projection where possible, and the
+remaining signed range difference rides on the projection transform as an
+offset that ramps from zero at the top to the full residual at the scroll
+floor.
 
 ## Headless engine use
 

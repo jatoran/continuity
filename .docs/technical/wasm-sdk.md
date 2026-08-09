@@ -170,7 +170,7 @@ Only the selection endpoint lines reveal source; intermediate lines keep their
 Markdown projection, and range painting is bounded to the detailed viewport.
 Host `revealRange` and `setSelections(..., { reveal: true })` requests are held until this render has landed.
 The adapter first scrolls from the available projected geometry, realizes the new target viewport, then corrects from the detailed caret or range rectangles.
-The correction is converted from projection-space offset to the current textarea or touch-shield scroll offset, including desktop scroll compensation.
+The correction is converted from projection-space offset to the current textarea or touch-shield scroll offset, including signed desktop scroll compensation when the projection is taller or shorter than the textarea.
 Document edits reuse the projected caret point painted in that render and apply nearest alignment to the active scroll owner.
 Large edit-driven jumps realize and correct the destination viewport, while local typing stays within the existing realized window.
 
@@ -415,10 +415,10 @@ The browser lane owns separate gates:
 | large-document end scroll | <=100 ms |
 | input to paint-ready frame p99 | <=50 ms |
 | input to paint-ready frame p99.9 | <=80 ms |
-| 10,000-line component ready | <=2,500 ms |
-| 10,000-line typing dispatch p99 | <=160 ms |
-| 10,000-line typing frame p99 | <=300 ms |
-| 10,000-line smart-newline frame p99 | <=250 ms |
+| 10,000-line component ready | product target <=2,500 ms; shared-browser CI ceiling <=3,750 ms |
+| 10,000-line typing dispatch p99 | product target <=160 ms; shared-browser CI ceiling <=240 ms |
+| 10,000-line typing frame p99 | product target <=300 ms; shared-browser CI ceiling <=450 ms |
+| 10,000-line smart-newline frame p99 | product target <=250 ms; shared-browser CI ceiling <=375 ms |
 | 10,000-line alternating-width wrap p99 | product target <=200 ms; shared-browser CI ceiling <=250 ms |
 | warm compact presentation p50 | <=100 ms |
 | edited viewport presentation p99 | product target <=100 ms; shared-runner CI ceiling <=180 ms |

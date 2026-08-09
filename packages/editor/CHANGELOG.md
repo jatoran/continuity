@@ -6,7 +6,7 @@ Release notes for `0.2.16` and earlier live in
 [`EMBEDDING.md`](https://github.com/jatoran/continuity/blob/main/EMBEDDING.md),
 which remains the cross-surface router.
 
-## 0.2.26
+## 0.2.27
 
 ### Fixed
 
@@ -18,7 +18,7 @@ which remains the cross-surface router.
   Text, revision, and undo history are unchanged.
 
 - **Desktop projection realization now uses compensated projection scroll coordinates.**
-  When rendered Markdown is taller than the textarea, the detailed viewport and the painted transform now agree at the document tail.
+  When rendered Markdown is taller or shorter than the textarea, the detailed viewport and the painted transform now agree at the document tail without unreachable content or blank overscroll.
   This keeps late wrapped-line targets measurable after programmatic jumps.
 
 - **Typing now keeps the rendered caret inside the viewport.**

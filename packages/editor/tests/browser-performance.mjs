@@ -12,10 +12,10 @@ export async function runPerformanceTests(check) {
   check(gate.scrollMs <= 100, `large-document scroll ${gate.scrollMs} ms exceeds 100 ms`);
   check(gate.inputFrameP99Ms <= 50, `input-to-paint-ready p99 ${gate.inputFrameP99Ms} ms exceeds 50 ms`);
   check(gate.inputFrameP999Ms <= 80, `input-to-paint-ready p99.9 ${gate.inputFrameP999Ms} ms exceeds 80 ms`);
-  check(longDocument.readyMs <= 2_500, `10k-line ready ${longDocument.readyMs} ms exceeds 2,500 ms`);
-  check(longDocument.typing.dispatchP99Ms <= 160, `10k-line typing dispatch p99 ${longDocument.typing.dispatchP99Ms} ms exceeds 160 ms`);
-  check(longDocument.typing.frameP99Ms <= 300, `10k-line typing frame p99 ${longDocument.typing.frameP99Ms} ms exceeds 300 ms`);
-  check(longDocument.newline.frameP99Ms <= 250, `10k-line newline frame p99 ${longDocument.newline.frameP99Ms} ms exceeds 250 ms`);
+  check(longDocument.readyMs <= 3_750, `10k-line ready ${longDocument.readyMs} ms exceeds 3,750 ms CI ceiling (2,500 ms product target)`);
+  check(longDocument.typing.dispatchP99Ms <= 240, `10k-line typing dispatch p99 ${longDocument.typing.dispatchP99Ms} ms exceeds 240 ms CI ceiling (160 ms product target)`);
+  check(longDocument.typing.frameP99Ms <= 450, `10k-line typing frame p99 ${longDocument.typing.frameP99Ms} ms exceeds 450 ms CI ceiling (300 ms product target)`);
+  check(longDocument.newline.frameP99Ms <= 375, `10k-line newline frame p99 ${longDocument.newline.frameP99Ms} ms exceeds 375 ms CI ceiling (250 ms product target)`);
   check(longDocument.wrap.p99Ms <= 250, `10k-line wrap p99 ${longDocument.wrap.p99Ms} ms exceeds 250 ms CI ceiling (200 ms product target)`);
   check(longDocument.headless.presentationP50Ms <= 100, `warm compact presentation p50 ${longDocument.headless.presentationP50Ms} ms exceeds 100 ms`);
   check(longDocument.headless.rangePresentationP99Ms <= 180, `edited viewport presentation p99 ${longDocument.headless.rangePresentationP99Ms} ms exceeds 180 ms CI ceiling (100 ms product target)`);

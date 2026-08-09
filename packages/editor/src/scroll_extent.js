@@ -7,7 +7,7 @@
 // once the textarea hits its own maximum the projection tail stays below the
 // fold forever.
 //
-// Two levers close the gap, in order of preference:
+// Two levers keep the scroll ranges aligned, in order of preference:
 //
 //  1. Bottom padding on the textarea, which lengthens its scrollable content
 //     and keeps the projection tracking the text 1:1. This is bounded: the
@@ -15,8 +15,10 @@
 //     than the frame inflates the element's own border box, growing
 //     `clientHeight` and cancelling the extra extent it just bought.
 //  2. A proportional offset applied to the projection transform for whatever
-//     surplus padding cannot absorb. It ramps from zero at the top to the full
-//     residual at the scroll floor, so the tail is always reachable.
+//     range difference padding cannot absorb. It ramps from zero at the top to
+//     the signed residual at the scroll floor, so a projection that is either
+//     taller or shorter than the textarea reaches its own tail without blank
+//     overscroll.
 
 const EXTENT_EPSILON = 1;
 // `getComputedStyle` and the extent arithmetic sit on the render path, so the
@@ -63,7 +65,7 @@ export function synchronizeScrollExtent(input, projection) {
   const maximumPadding = Math.max(0, visibleHeight - basePadding * 2);
   const padding = Math.min(deficit, maximumPadding);
   if (Math.abs(padding - applied) > EXTENT_EPSILON) writeAppliedPadding(input, padding, basePadding);
-  const residual = Math.max(0, deficit - padding);
+  const residual = projectionHeight - intrinsicHeight - padding;
   writeResidual(input, residual);
   return residual;
 }
@@ -87,7 +89,9 @@ export function projectionScrollOffset(input) {
 export function scrollTopForProjectionOffset(input, requestedOffset) {
   const range = Math.max(0, input.scrollHeight - input.clientHeight);
   if (range === 0) return 0;
-  const scale = 1 + readResidual(input) / range;
+  const projectionRange = range + readResidual(input);
+  if (projectionRange <= 0) return 0;
+  const scale = projectionRange / range;
   return Math.min(range, Math.max(0, requestedOffset / scale));
 }
 

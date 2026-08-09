@@ -160,12 +160,22 @@ export async function runBrowserNiceties(ContinuityEditorElement, check) {
     const rect = line.getBoundingClientRect();
     return rect.bottom > inputRect.top && rect.top < inputRect.bottom;
   });
-  check(input.scrollTop > 0 && projection.scrollHeight >= input.scrollTop + input.clientHeight,
+  const inputRange = input.scrollHeight - input.clientHeight;
+  const residual = Number.parseFloat(input.dataset.scrollExtentResidual ?? "0");
+  const scrollRatio = inputRange > 0
+    ? Math.min(1, Math.max(0, input.scrollTop / inputRange))
+    : 0;
+  const projectionOffset = input.scrollTop
+    + residual * scrollRatio;
+  check(input.scrollTop > 0
+      && projection.scrollHeight + 1 >= projectionOffset + input.clientHeight,
     `large paste keeps projection geometry over the revealed caret viewport: ${JSON.stringify({
       inputScrollTop: input.scrollTop,
       inputClientHeight: input.clientHeight,
       inputScrollHeight: input.scrollHeight,
       projectionScrollHeight: projection.scrollHeight,
+      projectionOffset,
+      residual,
       selectionStart: input.selectionStart,
       selectionEnd: input.selectionEnd,
     })}`); assertions += 1;

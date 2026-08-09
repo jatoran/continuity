@@ -7,6 +7,7 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 
 use crate::sdk_release_manifest::ReleaseConfig;
 
@@ -94,6 +95,7 @@ pub(crate) fn write(root: &Path, output: &Path, config: &ReleaseConfig) -> Resul
 
     let document = json!({
         "bomFormat": "CycloneDX",
+        "serialNumber": compute_serial_number(&config.sdk.repository, &config.sdk.version),
         "specVersion": "1.5",
         "version": 1,
         "metadata": {
@@ -111,6 +113,36 @@ pub(crate) fn write(root: &Path, output: &Path, config: &ReleaseConfig) -> Resul
     });
     fs::write(output, serde_json::to_vec_pretty(&document)?)
         .with_context(|| format!("write SDK SBOM {}", output.display()))
+}
+
+fn compute_serial_number(repository: &str, version: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(repository.as_bytes());
+    digest.update([0]);
+    digest.update(version.as_bytes());
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest.finalize()[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x80;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    format!(
+        "urn:uuid:{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15]
+    )
 }
 
 fn cargo_metadata(root: &Path) -> Result<Value> {
@@ -145,4 +177,27 @@ fn cargo_component(package: &Value) -> Value {
 
 pub(crate) fn output_path(directory: &Path, version: &str) -> PathBuf {
     directory.join(format!("continuity-sdk-{version}.cdx.json"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compute_serial_number;
+
+    #[test]
+    fn serial_number_is_stable_rfc_9562_uuid_v8() {
+        let first = compute_serial_number("https://github.com/jatoran/continuity", "0.2.34");
+        let second = compute_serial_number("https://github.com/jatoran/continuity", "0.2.34");
+        let uuid = first
+            .strip_prefix("urn:uuid:")
+            .expect("invariant: CycloneDX serial number has UUID URN prefix");
+
+        assert_eq!(first, second);
+        assert_eq!(uuid.len(), 36);
+        assert_eq!(uuid.as_bytes()[14], b'8');
+        assert!(matches!(uuid.as_bytes()[19], b'8' | b'9' | b'a' | b'b'));
+        assert_ne!(
+            first,
+            compute_serial_number("https://github.com/jatoran/continuity", "0.2.35")
+        );
+    }
 }

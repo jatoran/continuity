@@ -74,7 +74,8 @@ protected publish destinations:
 | `sdk-release` | exact bundle → GitHub SDK release |
 
 The tagged stage obtains GitHub OIDC attestations for build provenance and the
-CycloneDX SBOM. npm and PyPI use trusted publishing. crates.io uses
+CycloneDX SBOM, whose deterministic UUIDv8 serial number is derived from the repository and SDK version.
+npm and PyPI use trusted publishing. crates.io uses
 `rust-lang/crates-io-auth-action`; crates.io requires a manual first release
 before its trusted publisher can be attached.
 

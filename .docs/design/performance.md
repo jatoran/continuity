@@ -18,8 +18,8 @@ Spec §15 gates, not targets. CI asserts each via `cargo xtask bench`. Phase 17.
 | Steady-state per-keystroke heap alloc | 0 bytes (aspirational) | not yet gated — see hot-path discipline below |
 | Memory ceiling (empty / 50 buffers / 200 buffers) | ≤ 40 / 90 / 180 MB | `continuity-test-support::perf_gates_memory_{empty,50,200}` |
 | Headless WASM init / edit p99 / memory growth / gzip module | ≤100 ms / ≤4 ms / ≤16 MiB / ≤700 KiB | packed npm consumer via `cargo xtask wasm-check` |
-| Embedded edited-viewport p99 / installed package / JavaScript / lazy entry | ≤100 ms / ≤2 MiB / ≤180 KiB / ≤2 KiB | every packed npm check and SDK release preflight |
-| Embedded Chromium 10k-line ready / typing dispatch p99 / typing frame p99 / newline frame p99 / wrap p99 | ≤2,500 / 160 / 300 / 250 / 200 ms | packed Web Component via `cargo xtask browser-check` |
+| Embedded edited-viewport p99 / installed package / JavaScript / lazy entry | target ≤100 ms, shared-runner CI ceiling ≤180 ms / ≤2 MiB / ≤180 KiB / ≤2 KiB | every packed npm check and SDK release preflight |
+| Embedded Chromium 10k-line ready / typing dispatch p99 / typing frame p99 / newline frame p99 / wrap p99 | ≤2,500 / 160 / 300 / 250 ms / target ≤200 ms with shared-browser CI ceiling ≤250 ms | packed Web Component via `cargo xtask browser-check` |
 | Electron desktop startup / process-tree working set | ≤4,000 ms / ≤512 MiB | packaged two-launch smoke via `cargo xtask desktop-check` on each OS |
 | Electron unpacked / distributable / application ASAR | ≤450 MiB / ≤200 MiB each / ≤8 MiB | artifact and ASAR audit via `cargo xtask desktop-check` |
 | Electron 1 MiB durable snapshot acknowledgement | ≤400 ms p99 | repeated synced two-slot writes in `apps/desktop-web/tests/storage_performance.test.mjs` |

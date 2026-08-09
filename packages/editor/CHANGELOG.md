@@ -6,7 +6,7 @@ Release notes for `0.2.16` and earlier live in
 [`EMBEDDING.md`](https://github.com/jatoran/continuity/blob/main/EMBEDDING.md),
 which remains the cross-surface router.
 
-## 0.2.25
+## 0.2.26
 
 ### Fixed
 

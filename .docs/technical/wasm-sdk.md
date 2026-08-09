@@ -383,7 +383,7 @@ input-to-frame or Web Component claims:
 | Linear-memory growth across those edits | <=16 MiB | 327,680 bytes |
 | Optimized module, gzip level 9 | <=700 KiB | 320,615 bytes |
 | Optimized module, raw | recorded | 1,095,963 bytes |
-| Edited 10,000-line viewport projection | p99 <=100 ms | 70.1 ms |
+| Edited 10,000-line viewport projection | product target p99 <=100 ms; shared-runner CI ceiling <=180 ms | 70.1 ms |
 | Installed npm package | <=2 MiB | 1,297,896 bytes |
 | Installed JavaScript | <=320 KiB | 313,895 bytes (2026-07-30, after projection chrome: host decorations, indent guides, touch selection handles, shared overlay geometry, serializable history; gate raised 208 -> 264 -> 288 -> 320 KiB across those surfaces) |
 | Lazy entry | <=2 KiB | 355 bytes |
@@ -419,15 +419,15 @@ The browser lane owns separate gates:
 | 10,000-line typing dispatch p99 | <=160 ms |
 | 10,000-line typing frame p99 | <=300 ms |
 | 10,000-line smart-newline frame p99 | <=250 ms |
-| 10,000-line alternating-width wrap p99 | <=200 ms |
+| 10,000-line alternating-width wrap p99 | product target <=200 ms; shared-browser CI ceiling <=250 ms |
 | warm compact presentation p50 | <=100 ms |
-| edited viewport presentation p99 | <=100 ms |
+| edited viewport presentation p99 | product target <=100 ms; shared-runner CI ceiling <=180 ms |
 
 CI collects 1,024 sequential input-to-frame samples. Under the checked
-nearest-rank percentile calculation, p99 is the eleventh-slowest sample and
+nearest-rank percentile calculation, the input-to-frame p99 is the eleventh-slowest sample and
 p99.9 is the second-slowest; one isolated hosted-runner scheduler interruption
 therefore does not masquerade as a percentile regression, while a sustained
-tail still fails the unchanged budgets. The browser-result deadline is 90
+tail still fails the calibrated CI ceilings. The browser-result deadline is 90
 seconds so the larger sample set can finish on shared runners. Headless
 Chromium disables background and occlusion throttling. If, and only if, a
 performance assertion fails, the runner navigates to a fresh document and

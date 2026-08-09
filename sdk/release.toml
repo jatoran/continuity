@@ -1,5 +1,5 @@
 [sdk]
-version = "0.2.29"
+version = "0.2.30"
 channel = "preview"
 msrv = "1.89"
 tag-prefix = "sdk-v"

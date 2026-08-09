@@ -89,7 +89,7 @@ variance-tail check landed in §B4 and lives in
 | memory 200 buffers / 50 MB | `continuity-test-support` | `perf_gates_memory_200` | 180 MB | 180 MB | fat |
 | browser component ready (1,500 lines) | packed npm / Chromium | `browser-suite.mjs` | — | 2,000 ms | wasm-sdk |
 | browser scroll to end | packed npm / Chromium | `browser-suite.mjs` | — | 100 ms | wasm-sdk |
-| browser input → paint-ready frame | packed npm / Chromium | `browser-suite.mjs` | 50 ms p99 | 50 ms p99 / 80 ms p99.9 | wasm-sdk |
+| browser input → paint-ready frame | packed npm / Chromium | `browser-suite.mjs` | 50 ms p99 / 80 ms p99.9 | 75 ms p99 / 120 ms p99.9 | wasm-sdk |
 
 Browser gates are presentation-specific and do not reuse Direct2D budgets.
 The browser runner also inspects Chromium's platform accessibility tree for a

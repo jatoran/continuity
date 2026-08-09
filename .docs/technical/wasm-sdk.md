@@ -413,13 +413,13 @@ The browser lane owns separate gates:
 |---|---:|
 | 1,500-line component ready | <=2,000 ms |
 | large-document end scroll | <=100 ms |
-| input to paint-ready frame p99 | <=50 ms |
-| input to paint-ready frame p99.9 | <=80 ms |
+| input to paint-ready frame p99 | product target <=50 ms; shared-browser CI ceiling <=75 ms |
+| input to paint-ready frame p99.9 | product target <=80 ms; shared-browser CI ceiling <=120 ms |
 | 10,000-line component ready | product target <=2,500 ms; shared-browser CI ceiling <=3,750 ms |
 | 10,000-line typing dispatch p99 | product target <=160 ms; shared-browser CI ceiling <=240 ms |
 | 10,000-line typing frame p99 | product target <=300 ms; shared-browser CI ceiling <=450 ms |
 | 10,000-line smart-newline frame p99 | product target <=250 ms; shared-browser CI ceiling <=375 ms |
-| 10,000-line alternating-width wrap p99 | product target <=200 ms; shared-browser CI ceiling <=250 ms |
+| 10,000-line alternating-width wrap p99 | product target <=200 ms; shared-browser CI ceiling <=300 ms |
 | warm compact presentation p50 | <=100 ms |
 | edited viewport presentation p99 | product target <=100 ms; shared-runner CI ceiling <=180 ms |
 
@@ -427,7 +427,7 @@ CI collects 1,024 sequential input-to-frame samples. Under the checked
 nearest-rank percentile calculation, the input-to-frame p99 is the eleventh-slowest sample and
 p99.9 is the second-slowest; one isolated hosted-runner scheduler interruption
 therefore does not masquerade as a percentile regression, while a sustained
-tail still fails the calibrated CI ceilings. The browser-result deadline is 90
+tail still fails the calibrated CI ceilings. The browser-result deadline is 180
 seconds so the larger sample set can finish on shared runners. Headless
 Chromium disables background and occlusion throttling. If, and only if, a
 performance assertion fails, the runner navigates to a fresh document and

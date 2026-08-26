@@ -14,10 +14,23 @@ use crate::error::Error;
 type Result<T> = std::result::Result<T, Error>;
 
 /// Startup paths passed on the command line after option parsing.
+#[derive(Clone, Default)]
 pub(crate) struct StartupPaths {
     pub(crate) files: Vec<PathBuf>,
     pub(crate) folders: Vec<PathBuf>,
     pub(crate) vaults: Vec<PathBuf>,
+}
+
+impl StartupPaths {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.files.is_empty() && self.folders.is_empty() && self.vaults.is_empty()
+    }
+
+    pub(crate) fn append(&mut self, mut other: Self) {
+        self.files.append(&mut other.files);
+        self.folders.append(&mut other.folders);
+        self.vaults.append(&mut other.vaults);
+    }
 }
 
 /// Filesystem roots the app should use for this process.
@@ -169,6 +182,24 @@ mod tests {
 
         assert_eq!(opts.startup_paths.files.len(), 2);
         assert!(opts.runtime_paths.backups_dir.is_none());
+    }
+
+    #[test]
+    fn startup_paths_append_preserves_every_path_kind() {
+        let mut paths = StartupPaths {
+            files: vec![PathBuf::from("one.md")],
+            folders: vec![PathBuf::from("notes")],
+            vaults: Vec::new(),
+        };
+        paths.append(StartupPaths {
+            files: vec![PathBuf::from("two.md")],
+            folders: Vec::new(),
+            vaults: vec![PathBuf::from("vault")],
+        });
+
+        assert_eq!(paths.files.len(), 2);
+        assert_eq!(paths.folders, vec![PathBuf::from("notes")]);
+        assert_eq!(paths.vaults, vec![PathBuf::from("vault")]);
     }
 
     #[test]

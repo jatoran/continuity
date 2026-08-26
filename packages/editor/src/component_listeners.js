@@ -16,7 +16,7 @@ import { observeTouchPointer } from "./scroll_surface.js";
  * bound callbacks; `hooks` the small closures over its private state.
  */
 export function installEditorListeners(dom, handlers, hooks, options) {
-  const { affordances, frame, input, shield } = dom;
+  const { affordances, frame, input, shield, softKeyboard } = dom;
   for (const [type, handler] of Object.entries({
     beforeinput: handlers.onBeforeInput,
     input: handlers.onInput,
@@ -61,5 +61,22 @@ export function installEditorListeners(dom, handlers, hooks, options) {
   const active = { ...options, passive: false };
   shield.addEventListener("touchmove", handlers.onTouchMove, active);
   input.addEventListener("touchmove", handlers.onTouchMove, active);
+  installSoftKeyboardListeners(input, softKeyboard, options);
   observeTouchPointer(handlers.onTouchPointerChange);
+}
+
+/**
+ * Feed the keyboard gate the two events that say anything about the IME.
+ *
+ * They go straight to the gate rather than through the element's handler bag
+ * because neither is editor state: a blur means the keyboard is gone whatever
+ * the editor was doing, and the visual viewport is a window-wide fact the
+ * element has no other reason to hold. `visualViewport` is the only signal
+ * Android gives for a keyboard that appears and disappears without touching
+ * focus, which is exactly the case the gate exists to tell apart.
+ */
+function installSoftKeyboardListeners(input, softKeyboard, options) {
+  if (!softKeyboard) return;
+  input.addEventListener("blur", () => softKeyboard.noteBlur(), options);
+  softKeyboard.viewport?.addEventListener("resize", () => softKeyboard.observeViewport(), options);
 }

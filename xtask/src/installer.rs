@@ -125,4 +125,11 @@ mod tests {
         let err = compute_msi_product_version("1.2.3-beta").unwrap_err();
         assert!(err.to_string().contains("not numeric"));
     }
+
+    #[test]
+    fn every_open_verb_uses_player_multi_select_model() {
+        let source = include_str!("../../installer/continuity.wxs");
+        let declaration = "Name=\"MultiSelectModel\" Type=\"string\" Value=\"Player\"";
+        assert_eq!(source.matches(declaration).count(), 3);
+    }
 }

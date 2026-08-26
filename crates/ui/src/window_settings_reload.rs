@@ -86,9 +86,17 @@ impl Window {
                     content,
                     file,
                     disposition,
+                    target_pane,
                     notices,
                 } => {
-                    self.open_file_buffer_tab(buffer_id, content, file, disposition, notices);
+                    self.open_file_buffer_tab(
+                        buffer_id,
+                        content,
+                        file,
+                        disposition,
+                        target_pane,
+                        notices,
+                    );
                 }
             }
             dirty = true;

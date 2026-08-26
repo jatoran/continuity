@@ -1,6 +1,22 @@
 import { isMarkdownCheckboxAt, projectionPositionAtPoint } from "./projection.js";
 import { applySelectionToInput, selectionFromInput } from "./coordinates.js";
 import { inputSelectionKey } from "./input_sync.js";
+import { orderedRange, positionOrder } from "./overlay_rects.js";
+
+/**
+ * Whether a projected position lies inside a non-collapsed selection.
+ *
+ * Inclusive at both edges: a finger aimed at the first or last glyph of a
+ * highlight is aimed at the highlight, and treating the boundary either way
+ * costs at most one tap. A collapsed selection is never "inside" anything —
+ * there is no highlight to land in.
+ */
+export function isPositionWithinSelection(selection, position) {
+  if (!selection || !position) return false;
+  const { start, end } = orderedRange(selection.anchor, selection.head);
+  if (positionOrder(start, end) === 0) return false;
+  return positionOrder(start, position) <= 0 && positionOrder(position, end) <= 0;
+}
 
 /** Focus and capture one trusted mouse/pen pointer for projection-owned dragging. */
 export function applyPrimaryPointerCapture(input, event, surface = input) {

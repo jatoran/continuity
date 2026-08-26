@@ -60,7 +60,15 @@ store. A later launch forwards its document path through Electron's
 file watchers, update state, and the durable slots for an application data
 root.
 
-**Single instance per data dir.** The process holds a named mutex keyed by the database path (`win::single_instance::SingleInstanceMutex`). A second launch is *not* a second process running the full session — it forwards its command-line file/folder paths to the running instance over a message-only `WM_COPYDATA` hub (`win::single_instance::InstanceHub`, spawned only by the mutex-holding primary) and exits. A bare relaunch enumerates visible same-process windows in z-order and activates the first one that `IVirtualDesktopManager::IsWindowOnCurrentVirtualDesktop` accepts; when none exists (or the COM query is unavailable), it sends a non-restored blank `RegistryEvent::Spawn`, so Win32 creates the HWND on the invoking desktop instead of switching desktops. Only when no live instance is reachable does the launcher run standalone. `--new-instance` (and the `CONTINUITY_E2E_INSERT` test hook) bypass the handoff. Claim/forward logic: `app::single_instance::claim_or_forward`; forwarded **files** route through `RegistryEvent::OpenFileBuffer` (same path as in-process opens — dedup, reveal-existing-tab-or-spawn, and reconcile against current disk bytes; see [file-io](features/file-io.md) §Reconciliation), forwarded **folders** through `RegistryEvent::Spawn`, and a bare relaunch through current-desktop activate-or-spawn.
+**Single instance per data dir.**
+The process holds a named mutex keyed by the database path (`win::single_instance::SingleInstanceMutex`).
+A second launch is not a second process running the full session; it forwards its command-line file/folder paths to the running instance over a message-only `WM_COPYDATA` hub (`win::single_instance::InstanceHub`, spawned only by the mutex-holding primary) and exits.
+The app-owned `continuity-open-batch` thread collects file handoffs after a 120 ms quiet window with a 350 ms maximum, then sends one `RegistryEvent::OpenFileBatch` so one Explorer selection becomes one new window with one tab per canonical file.
+The registry main thread remains the owner of window spawning and the file-buffer home map, while each new window's UI thread owns tab adoption and reconciliation.
+A bare relaunch enumerates visible same-process windows in z-order and activates the first one that `IVirtualDesktopManager::IsWindowOnCurrentVirtualDesktop` accepts; when none exists or the COM query is unavailable, it sends a non-restored blank `RegistryEvent::Spawn` so Win32 creates the HWND on the invoking desktop instead of switching desktops.
+Only when no live instance is reachable does the launcher run standalone.
+`--new-instance` and the `CONTINUITY_E2E_INSERT` test hook bypass the handoff.
+Forwarded folders route through `RegistryEvent::Spawn`, and a bare relaunch uses current-desktop activate-or-spawn.
 
 ## Thread map
 

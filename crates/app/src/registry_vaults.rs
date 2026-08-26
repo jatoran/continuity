@@ -82,7 +82,7 @@ pub(crate) fn handle_open_vault(
             open_tutorial_on_init: false,
             startup_open_buffer_ids: Vec::new(),
             startup_folder_roots: vec![root],
-            reconcile_on_init: None,
+            startup_reconciles: Vec::new(),
         }))
         .map_err(|_| Error::RegistryClosed)
 }

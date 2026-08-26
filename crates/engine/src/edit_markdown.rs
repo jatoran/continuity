@@ -10,6 +10,7 @@
 use continuity_buffer::Buffer;
 use continuity_text::{Position, Selection, SelectionKind};
 
+use crate::edit_block_scope::finalize_block_toggle_specs;
 use crate::edit_planning::{advance_position, finalize_specs, line_content_end, EditSpec};
 use crate::selection_edit::SelectionEditPlan;
 use crate::EmphasisKind;
@@ -137,11 +138,7 @@ pub(crate) fn plan_markdown_toggle_numbered(
             )?);
         }
     }
-    Ok(finalize_specs(
-        specs,
-        selections_before.clone(),
-        selections_before,
-    ))
+    finalize_block_toggle_specs(rope, specs, selections_before.clone(), selections_before)
 }
 
 /// Split an optional leading list marker (`- `, `* `, `+ `, `N. `, `N) `)
@@ -200,11 +197,7 @@ pub(crate) fn plan_markdown_toggle_checkbox(
         };
         specs.push(EditSpec::replace(rope, start, end, replacement)?);
     }
-    Ok(finalize_specs(
-        specs,
-        selections_before.clone(),
-        selections_before,
-    ))
+    finalize_block_toggle_specs(rope, specs, selections_before.clone(), selections_before)
 }
 
 /// Toggle a full `- [ ] ` task bullet on each covered line. Bound to
@@ -284,7 +277,7 @@ pub(crate) fn plan_markdown_toggle_task(
             )
         })
         .collect();
-    Ok(finalize_specs(specs, selections_before, selections_after))
+    finalize_block_toggle_specs(rope, specs, selections_before, selections_after)
 }
 
 struct TaskLineTransform {
@@ -342,11 +335,7 @@ pub(crate) fn plan_markdown_cycle_list_marker(
             specs.push(EditSpec::replace(rope, start, end, replacement)?);
         }
     }
-    Ok(finalize_specs(
-        specs,
-        selections_before.clone(),
-        selections_before,
-    ))
+    finalize_block_toggle_specs(rope, specs, selections_before.clone(), selections_before)
 }
 
 pub(crate) fn plan_markdown_wrap_in_blockquote(
@@ -487,11 +476,7 @@ fn toggle_line_prefix(
         };
         specs.push(EditSpec::replace(rope, start, end, replacement)?);
     }
-    Ok(finalize_specs(
-        specs,
-        selections_before.clone(),
-        selections_before,
-    ))
+    finalize_block_toggle_specs(rope, specs, selections_before.clone(), selections_before)
 }
 
 fn insert_around(

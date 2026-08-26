@@ -233,7 +233,7 @@ impl Win32Harness {
                         open_tutorial_on_init: false,
                         startup_open_buffer_ids: Vec::new(),
                         startup_folder_roots: Vec::new(),
-                        reconcile_on_init: None,
+                        startup_reconciles: Vec::new(),
                     },
                 )
                 .expect("Window::new on harness worker");
@@ -314,7 +314,7 @@ impl Win32Harness {
                         open_tutorial_on_init: false,
                         startup_open_buffer_ids: Vec::new(),
                         startup_folder_roots: Vec::new(),
-                        reconcile_on_init: None,
+                        startup_reconciles: Vec::new(),
                     },
                 )
                 .expect("Window::new on secondary harness worker");

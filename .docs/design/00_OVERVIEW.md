@@ -79,6 +79,7 @@
 
 ### Active plans (`.docs/development/`)
 - [Embeddable + cross-platform roadmap](../development/embeddable_cross_platform_roadmap.md)
+- [Native Linux and macOS roadmap](../development/native_linux_macos_roadmap.md) - GTK/Pango and AppKit/Core Text ports using the native Rust engine and SQLite durability path.
 - [Code-file syntax highlighting](../development/code_file_syntax_highlighting_plan.md) — native desktop first; embedded, Web, and Electron deferred.
 - [Release operations activation](../development/release_operations.md)
 - [Embeddable Windows editor control](features/embeddable-windows-control.md)

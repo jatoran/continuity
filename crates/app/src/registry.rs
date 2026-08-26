@@ -1,26 +1,9 @@
-//! Multi-window registry (Phase 14, evolved by Phase 16.5).
+//! Multi-window registry.
 //!
 //! Each top-level [`Window`] runs on its own UI thread. The registry owns
 //! the channel through which threads request new windows and announce
 //! their exit. The main thread sits in the registry loop until the live
 //! count returns to zero.
-//!
-//! ## Phase 16.5 evolution
-//!
-//! - [`RegistryEvent::Closed`] now carries the closing window's id. Every
-//!   graceful close — including the final window — archives the window to
-//!   the closed-history stack and tombstones its row. Intentional quits
-//!   therefore leave the next launch clean; only a crash (which never
-//!   reaches this handler) leaves rows behind to auto-restore.
-//! - The [`continuity_config::SettingsWatcher`] is owned here, not in the
-//!   first window. The registry's main loop multiplexes its receiver
-//!   alongside [`RegistryEvent`]s and fans
-//!   [`continuity_ui::WindowControl::ConfigChanged`] out to every live
-//!   window through that window's dedicated control channel.
-//! - Settings changes that affect non-window owners (backup cadence,
-//!   persistence mode) are routed through *typed* owner methods —
-//!   [`BackupScheduler::set_config`] and [`PersistClient::set_synchronous`]
-//!   — not through shared mutable config.
 //!
 //! Single-writer rule: every [`Window`] is constructed and used only
 //! inside its dedicated thread (HWND owner), and persistence callbacks are
@@ -99,7 +82,15 @@ pub(crate) enum RegistryEvent {
         recovery_notices: Vec<String>,
         disposition: continuity_ui::window_config::FileOpenDisposition,
         source_window_id: Option<WindowId>,
+        target_pane: Option<continuity_ui::pane_tree::PaneId>,
         vault_root: Option<PathBuf>,
+    },
+    /// One external activation containing multiple files. The registry
+    /// resolves every path to its canonical buffer, then creates exactly
+    /// one top-level window with the remaining buffers as tabs.
+    OpenFileBatch {
+        files: Vec<crate::registry_open_file::OpenFileBatchEntry>,
+        explicit_origin: Option<(i32, i32)>,
     },
 }
 
@@ -139,17 +130,12 @@ pub(crate) struct SpawnRequest {
     /// `false` (idempotent).
     pub open_tutorial_on_init: bool,
     /// Extra buffers to adopt as tabs during window construction.
-    /// Runtime and startup file opens normally use separate
-    /// [`SpawnRequest`]s so each file lands in its own top-level window.
     pub startup_open_buffer_ids: Vec<BufferId>,
     /// Folder roots supplied on the process command line.
     pub startup_folder_roots: Vec<PathBuf>,
-    /// Freshly-read disk bytes for `initial_buffer_id` when this spawn is
-    /// (re)opening a file that already had a buffer. The constructed
-    /// window reconciles the initial buffer against these bytes (clean →
-    /// silent reload, dirty → conflict banner). `None` for ordinary
-    /// spawns. See [`continuity_ui::PendingReconcile`].
-    pub reconcile_on_init: Option<continuity_ui::PendingReconcile>,
+    /// Freshly-read disk bytes for file buffers seeded into this window.
+    /// The window reconciles every entry after adopting grouped tabs.
+    pub startup_reconciles: Vec<continuity_ui::PendingReconcile>,
 }
 
 /// Shared, clone-able registry context handed to each window thread.
@@ -265,6 +251,7 @@ pub fn run(
                     recovery_notices,
                     disposition,
                     source_window_id,
+                    target_pane,
                     vault_root,
                 }) => {
                     crate::registry_open_file::handle_open_file_buffer(
@@ -278,8 +265,17 @@ pub fn run(
                             recovery_notices,
                             disposition,
                             source_window_id,
+                            target_pane,
                             vault_root,
                         },
+                    )?;
+                }
+                Ok(RegistryEvent::OpenFileBatch { files, explicit_origin }) => {
+                    crate::registry_open_file::handle_open_file_batch(
+                        &ctx,
+                        &mut state,
+                        files,
+                        explicit_origin,
                     )?;
                 }
                 Ok(RegistryEvent::Closed { window_id }) => {
@@ -470,7 +466,7 @@ fn run_window(
             open_tutorial_on_init: req.open_tutorial_on_init,
             startup_open_buffer_ids: req.startup_open_buffer_ids,
             startup_folder_roots: req.startup_folder_roots,
-            reconcile_on_init: req.reconcile_on_init,
+            startup_reconciles: req.startup_reconciles,
         },
     )?;
     let _ = ctx.tx.send(RegistryEvent::WindowReady {

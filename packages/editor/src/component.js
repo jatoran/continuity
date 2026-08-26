@@ -42,7 +42,6 @@ import {
   beginComposition, commitComposition, endComposition, renderComposingPresentation,
 } from "./component_composition.js";
 import { isTouchScrolling } from "./scroll_surface.js";
-import { raiseSoftKeyboard } from "./soft_keyboard.js";
 const HTMLElementBase = globalThis.HTMLElement ?? class {};
 const EVENT_VERSION = 1;
 /** Framework-neutral browser editor backed by the shared synchronous engine. */
@@ -162,23 +161,19 @@ export class ContinuityEditorElement extends HTMLElementBase {
     }
   }
   disconnectedCallback() {
-    queueMicrotask(() => {
-      if (!this.isConnected) {
-        this.destroy();
-      }
-    });
+    queueMicrotask(() => { if (!this.isConnected) this.destroy(); });
   }
   attributeChangedCallback(name) {
     this.#applyAttributes();
-    if (name === "syntax" || name === "indent-guides") {
-      this.#renderScheduler?.schedule(performance.now());
-    }
+    if (name === "syntax" || name === "indent-guides") this.#renderScheduler?.schedule(performance.now());
   }
   /** Return a complete immutable engine snapshot. */
   snapshot() {
     return { ...this.#requireEditor().snapshot(), isReadOnly: this.readOnly };
   }
   get composing() { return this.#isComposing; }
+  /** Fold any open IME composition into the engine now; false if none was open. */
+  commitComposition() { return this.#editor ? this.#commitComposition() : false; }
   /** Replace the complete document only when the host revision is current. */
   replaceValue(value, expectedRevision, timestampMs = Date.now()) {
     const normalized = normalizeNewlines(String(value));
@@ -198,7 +193,7 @@ export class ContinuityEditorElement extends HTMLElementBase {
    * code can lift, so a host with another clipboard route hands the text here.
    */
   insertText(text) {
-    raiseSoftKeyboard(this.#input);
+    this.#surface?.softKeyboard.raiseForTyping();
     return this.#applyOperation("insert", String(text));
   }
   /** Execute one storage-neutral editor command synchronously. */
@@ -252,6 +247,10 @@ export class ContinuityEditorElement extends HTMLElementBase {
   destroy() {
     if (this.#isDestroyed) return;
     this.#isDestroyed = true;
+    // Fold any open composition first: the run lives only in the textarea, so
+    // teardown without it discards text no host saw. Via the public method for
+    // its `#editor` guard — destroy can precede the shadow tree.
+    this.commitComposition();
     this.#pendingPointerSelection = null;
     this.#nativeSelectionWatcher?.destroy();
     if (this.#projection) clearProjectionCompositionLine(this.#projection);
@@ -323,6 +322,7 @@ export class ContinuityEditorElement extends HTMLElementBase {
     this.#surface = {
       input: dom.input, projection: dom.projection, affordances: dom.affordances,
       carets: dom.carets, frame: dom.frame, shield: dom.shield, shieldSpacer: dom.shieldSpacer,
+      softKeyboard: dom.softKeyboard,
       onSelectionPainted: () => this.#overlays?.update(),
     };
     this.#inputSynchronizer.configure(this.#surface);
@@ -531,6 +531,10 @@ export class ContinuityEditorElement extends HTMLElementBase {
     }
   }
 
+  // Reads the engine directly rather than through `snapshot()`: the liveness
+  // this needs is `#editor`, which the guard above proves, and the teardown
+  // commit runs with `#isDestroyed` already set so its change can still reach
+  // hosts. `snapshot()`'s destroyed check is for callers outside this class.
   #commitChange(change, startedAt, source, syncChange = change) {
     if (!this.#editor) return;
     this.#syncInputFromEngine(source !== "hostReplacement", syncChange);
@@ -540,7 +544,7 @@ export class ContinuityEditorElement extends HTMLElementBase {
         source,
         commitOrigin: source === "hostReplacement" ? "host" : "user",
         change,
-        snapshot: this.snapshot(),
+        snapshot: { ...this.#editor.snapshot(), isReadOnly: this.readOnly },
       });
     }
     this.#scheduleRender(startedAt);
@@ -552,9 +556,7 @@ export class ContinuityEditorElement extends HTMLElementBase {
     this.#inputSynchronizer.onScroll(snapshot);
   }
 
-  #scheduleRender(startedAt) {
-    this.#renderScheduler?.schedule(startedAt);
-  }
+  #scheduleRender(startedAt) { this.#renderScheduler?.schedule(startedAt); }
 
   #renderFast() {
     const rendered = renderFastPresentation({
@@ -584,9 +586,7 @@ export class ContinuityEditorElement extends HTMLElementBase {
   #clipboardHooks;
 
   #applyAttributes() {
-    applyEditorAttributes(
-      this, this.#input, this.#keyboardHelp, keyboardHelpText, this.#projection,
-    );
+    applyEditorAttributes(this, this.#input, this.#keyboardHelp, keyboardHelpText, this.#projection);
     this.#commandRail?.update();
   }
 
@@ -594,7 +594,5 @@ export class ContinuityEditorElement extends HTMLElementBase {
 
   #emitError(error) { this.#emitters.emitError(error); }
 
-  #requireEditor() {
-    return requireLiveEditor(this.#editor, this.#isDestroyed);
-  }
+  #requireEditor() { return requireLiveEditor(this.#editor, this.#isDestroyed); }
 }

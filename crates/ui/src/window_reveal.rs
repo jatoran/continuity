@@ -28,8 +28,14 @@ impl Window {
         content: String,
         file: FileAssociation,
         disposition: crate::window_config::FileOpenDisposition,
+        target_pane: Option<PaneId>,
         notices: Vec<String>,
     ) {
+        if let Some(pane) = target_pane.filter(|pane| self.tree.groups.contains_key(pane)) {
+            if self.tree.focused != pane {
+                self.switch_focus(pane);
+            }
+        }
         if let Some((pane, tab)) = self.find_tab_for_buffer(buffer_id) {
             self.activate_existing_tab(pane, tab);
         } else if self.editor.snapshot(buffer_id).is_some() {

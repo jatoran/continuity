@@ -61,7 +61,7 @@ pub(crate) fn build_registry(ctx: &RegistryCtx) -> Registry {
             open_tutorial_on_init: false,
             startup_open_buffer_ids: Vec::new(),
             startup_folder_roots: Vec::new(),
-            reconcile_on_init: None,
+            startup_reconciles: Vec::new(),
         }));
         Ok(())
     };
@@ -82,7 +82,7 @@ pub(crate) fn build_registry(ctx: &RegistryCtx) -> Registry {
             open_tutorial_on_init: false,
             startup_open_buffer_ids: Vec::new(),
             startup_folder_roots: Vec::new(),
-            reconcile_on_init: None,
+            startup_reconciles: Vec::new(),
         }));
         Ok(())
     };

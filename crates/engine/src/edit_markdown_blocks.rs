@@ -9,6 +9,7 @@
 use continuity_buffer::Buffer;
 use continuity_text::{Position, Selection};
 
+use crate::edit_block_scope::finalize_block_toggle_specs;
 use crate::edit_markdown::{
     enclosing_heading_line, heading_level, line_text, lines_in, next_heading_level,
     previous_section_start, section_end_line, strip_heading_prefix,
@@ -89,11 +90,10 @@ where
             specs.push(EditSpec::replace(rope, start, end, replacement)?);
         }
     }
-    Ok(finalize_specs(
-        specs,
-        selections_before.clone(),
-        selections_before,
-    ))
+    // Demoting a heading to level 0 turns it into plain paragraph text,
+    // which then swallows the line below it. Route through the block-scope
+    // guard so that line keeps its own block.
+    finalize_block_toggle_specs(rope, specs, selections_before.clone(), selections_before)
 }
 
 fn rewrite_section_heading<F>(buffer: &Buffer, f: F) -> Result<Option<SelectionEditPlan>, Error>

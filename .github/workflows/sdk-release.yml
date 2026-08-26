@@ -202,6 +202,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           name: continuity-sdk-bundle
@@ -210,7 +213,30 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          channel="$(jq -r '.channel' sdk-bundle/release-manifest.json)"
+          # A preview SDK must not claim the repository's "Latest" badge; that
+          # belongs to the native desktop application. Gate on the staged
+          # manifest so the flag follows `sdk/release.toml`'s channel.
+          prerelease=""
+          case "$channel" in
+            preview) prerelease="--prerelease" ;;
+            stable) ;;
+            *) echo "unexpected SDK channel: $channel" >&2; exit 1 ;;
+          esac
+          # Both trains tag into one repository, so `--generate-notes` alone
+          # picks whichever tag is chronologically previous — which is often a
+          # desktop `v*` tag, producing a meaningless cross-train diff. Anchor
+          # the range to the previous `sdk-v*` tag instead.
+          previous="$(git tag --list 'sdk-v*' --sort=-creatordate \
+            | grep -v "^${GITHUB_REF_NAME}$" | head -n 1)"
+          notes_range=""
+          if [ -n "$previous" ]; then
+            notes_range="--notes-start-tag $previous"
+          fi
           gh release create "$GITHUB_REF_NAME" sdk-bundle/* \
             --verify-tag \
             --generate-notes \
-            --title "Continuity SDK $GITHUB_REF_NAME"
+            --title "Continuity SDK $GITHUB_REF_NAME" \
+            ${notes_range} \
+            ${prerelease}

@@ -326,7 +326,10 @@ impl Window {
         if let Some(pane) = target {
             self.switch_focus(pane);
         }
-        if let Err(err) = self.file_open_paths_impl(file_paths) {
+        if let Err(err) = self.file_open_paths_with_disposition(
+            file_paths,
+            crate::window_config::FileOpenDisposition::NewTab,
+        ) {
             self.file_banner = Some(FileBanner::new(err.to_string()));
         }
     }

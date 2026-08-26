@@ -311,6 +311,10 @@ fn run_clean_consumer(workspace: &Path, tarball: &Path) -> Result<()> {
         &consumer.join("selection-actions-placement.test.mjs"),
     )?;
     copy_file(
+        &workspace.join("packages/editor/tests/soft-keyboard-policy.test.mjs"),
+        &consumer.join("soft-keyboard-policy.test.mjs"),
+    )?;
+    copy_file(
         &workspace.join("crates/test_fixtures/fixtures/wasm_engine_parity.json"),
         &consumer.join("wasm_engine_parity.json"),
     )?;
@@ -357,6 +361,7 @@ fn run_browser_consumer(workspace: &Path, tarball: &Path) -> Result<()> {
         "browser-rail-extensions.mjs",
         "browser-composition.mjs",
         "browser-composition-pointer.mjs",
+        "browser-composition-teardown.mjs",
         "browser-touch-pointer.mjs",
         "browser-touch-helpers.mjs",
         "browser-touch-selection.mjs",

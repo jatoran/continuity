@@ -8,16 +8,22 @@ The markdown surface is my own flavor of WYSIWYG. The source stays plain markdow
 
 It is built in Rust as a small Win32 app with DirectWrite/Direct2D rendering, rope-backed text, explicit worker threads, bounded caches, and SQLite WAL persistence. WYSIWYG adds performance pressure, so I benchmark and optimize the projection/rendering path to keep large notes responsive.
 
-## Status
+## Two things live in this repository
 
-Continuity is early, Windows-only software. It is usable enough to package, but it is still changing quickly.
+Continuity ships as two independent products built on one shared Rust editor engine.
 
-The native end-user application is Windows-only. Preview SDK surfaces also
-support headless Rust, C, Python, and WASM use plus a Chromium/Electron Web
-Component. See [EMBEDDING.md](EMBEDDING.md) for current coordinates, supported
-targets, local artifacts, and integration contracts.
+| | What it is | Platform | Releases |
+|---|---|---|---|
+| **Continuity for Windows** | The native Win32 notes application. The end-user product. | Windows 10/11 | `v*` tags - [latest](https://github.com/jatoran/continuity/releases?q=tag%3Av&expanded=true) |
+| **Continuity SDK** | An embeddable editor for your own app: Web Component + WASM, Rust, C, Python, and a native Win32 child control. | Browser, Electron, Windows, Linux, macOS | `sdk-v*` tags (preview) |
 
-## Features
+They version separately and release separately, because they change at different rates and answer to different consumers. The desktop app is the one to download if you just want a notes editor. The SDK is the one to reach for if you want Continuity's editing behavior inside something you are building.
+
+Both are early software and still changing quickly.
+
+## Continuity for Windows
+
+### Features
 
 - Native Win32 editor for Windows 10 and Windows 11.
 - Plain text and markdown source stays canonical.
@@ -27,21 +33,22 @@ targets, local artifacts, and integration contracts.
 - Every keystroke is durable to a local SQLite WAL database.
 - Saving is export. The database is the truth.
 - Multi-pane, multi-tab, multi-window session restore.
+- Vaults: point Continuity at a folder and it autosaves every note in it, remembers the open tabs, and reconciles changes made outside the app.
 - Portable mode that keeps settings, themes, keymap, notes, and backups beside the executable.
 - Installed mode with Start Menu shortcut, optional desktop shortcut, uninstall support, and Windows Default Apps registration for markdown/text files.
 - Configurable themes, keymap, settings, fonts, wrapping, and view behavior.
 - Fast large-buffer projection and soft-wrap work aimed at keeping writing responsive.
 
-## Performance notes
+### Performance notes
 
 - Text input: `WM_CHAR` p99 around 2-4 ms in recent release traces.
 - Edit application: p99 around 4 ms for normal typing/edit paths.
 - Large-buffer row counts: roughly 10k-line soft-wrapped buffers cold-walk in about 50-55 ms in recent local traces.
 - Rendering: viewport-first projection keeps large notes visible and editable while the full document index catches up.
 
-## Downloads
+### Downloads
 
-GitHub Releases are the normal way to get builds.
+GitHub Releases are the normal way to get builds. Desktop releases are tagged `v<version>`.
 
 - `continuity-<version>-setup.msi`: recommended for normal use. Installs under Program Files and supports in-place upgrades.
 - `continuity-<version>-portable.zip`: no-install build. Extract the folder and run `continuity.exe`; app data stays in that folder.
@@ -49,6 +56,46 @@ GitHub Releases are the normal way to get builds.
 - `SHA256SUMS.txt`: hashes for release assets.
 
 Unsigned builds may trigger Windows SmartScreen until release signing is in place.
+
+## Continuity SDK
+
+The same editor engine, without the Windows application around it. One synchronous Rust core owns text, selections, undo, revisions, and markdown projection; each surface is a thin adapter over it. Embedding is storage-neutral: the SDK creates no database, no files, and no background workers, and your application stays in charge of persistence.
+
+| Host | Use | Visual |
+|---|---|---|
+| Browser, Electron, or webview | `<continuity-editor>` Web Component | Yes |
+| React, Svelte, Vue, Preact, vanilla | Framework adapters over the same WASM engine | Yes |
+| JavaScript without UI | `Editor` facade | No |
+| Rust | `continuity_engine::Engine` | No |
+| Native Win32 Rust host | `continuity_ui::EditorControl` child HWND | Yes |
+| Python | `continuity_editor.Editor` | No |
+| C / C++ / any FFI host | `continuity_engine` C ABI | No |
+
+```html
+<script type="module">
+  import { initialize } from "@continuity-editor/editor";
+  import wasmUrl from "@continuity-editor/editor/wasm?url";
+
+  await initialize({ wasm: wasmUrl });
+</script>
+
+<continuity-editor value="# Hello\n\nStart typing."></continuity-editor>
+```
+
+### Getting SDK artifacts
+
+**Registry publication is not active yet.** `npm install @continuity-editor/editor`, `cargo add continuity-engine`, and `pip install continuity-editor` do not resolve today. Every published SDK artifact is attached to its GitHub Release instead:
+
+```powershell
+gh release download sdk-v0.2.34 --repo jatoran/continuity --dir continuity-sdk
+npm install ./continuity-sdk/continuity-editor-0.2.34.tgz
+```
+
+Each SDK release carries the npm tarball, the `continuity-text` / `continuity-buffer` / `continuity-engine` crates, a Windows C archive (DLL plus header), a Python wheel, a CycloneDX SBOM, `release-manifest.json`, and `SHA256SUMS.txt`, all covered by GitHub build provenance attestation.
+
+SDK releases are marked as prereleases while the channel is `preview`, so the repository's "Latest" release stays pointed at the desktop application.
+
+Full integration contracts, per-surface APIs, supported targets, and version history: [EMBEDDING.md](EMBEDDING.md). Browser and framework examples: [`packages/editor/README.md`](packages/editor/README.md).
 
 ## Build
 
@@ -64,7 +111,7 @@ Build the app:
 cargo build --release -p continuity-app
 ```
 
-Build local release artifacts:
+Build local desktop release artifacts:
 
 ```powershell
 cargo xtask release --skip-sign
@@ -77,6 +124,12 @@ dotnet tool install --global wix --add-source https://api.nuget.org/v3/index.jso
 wix eula accept wix7
 wix extension add --global WixToolset.UI.wixext/7.0.0
 cargo xtask installer
+```
+
+Build and validate the SDK's browser artifact (requires the `wasm32-unknown-unknown` target and Node 22):
+
+```powershell
+cargo xtask browser-check
 ```
 
 ## License

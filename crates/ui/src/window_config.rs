@@ -78,6 +78,9 @@ pub struct OpenFileWindowRequest {
     pub disposition: FileOpenDisposition,
     /// Stable source window used for same-window opens.
     pub source_window_id: Option<continuity_buffer::WindowId>,
+    /// Pane that originated the request. Same-window opens retain this
+    /// target even when file reading completes after focus has moved.
+    pub target_pane: Option<crate::pane_tree::PaneId>,
     /// Active vault root inherited by a new top-level window.
     pub vault_root: Option<PathBuf>,
 }
@@ -148,25 +151,21 @@ pub struct WindowCommands {
     /// `SpawnRequest` of the first launch (presence of the
     /// `tutorial_seen` sentinel disables it on every subsequent run).
     pub open_tutorial_on_init: bool,
-    /// Extra buffers to adopt into the focused pane after session
-    /// restore. File opens normally arrive as separate windows; this is
-    /// retained for callers that intentionally seed tabs.
+    /// Extra buffers to adopt into the focused pane after session restore or
+    /// as part of one grouped external-file activation.
     pub startup_open_buffer_ids: Vec<BufferId>,
     /// Folder roots supplied at process startup.
     pub startup_folder_roots: Vec<PathBuf>,
-    /// Freshly-read disk bytes for the window's initial buffer, supplied
-    /// when the registry spawns a window to (re)open a file that already
-    /// had a buffer. [`crate::Window::new`] reconciles the initial buffer
-    /// against these bytes after construction so a reopen of an
-    /// externally-changed file shows current content (or banners on a
-    /// dirty conflict). `None` for ordinary spawns.
-    pub reconcile_on_init: Option<PendingReconcile>,
+    /// Freshly-read disk bytes for file buffers seeded into this window.
+    /// [`crate::Window::new`] reconciles every entry after adopting startup
+    /// tabs so grouped external opens preserve conflict handling.
+    pub startup_reconciles: Vec<PendingReconcile>,
 }
 
-/// Freshly-read disk bytes carried into a spawned window so it can
-/// reconcile its initial (reopened) file buffer against the current
-/// on-disk content. See [`WindowCommands::reconcile_on_init`].
+/// Freshly-read disk bytes carried into a spawned window for reconciliation.
 pub struct PendingReconcile {
+    /// Canonical shared buffer to reconcile.
+    pub buffer_id: BufferId,
     /// Current decoded disk content.
     pub content: String,
     /// Current filesystem association (mtime + raw/content hashes).

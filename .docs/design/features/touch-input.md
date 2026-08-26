@@ -72,6 +72,11 @@ All three work on a plain div, which is why the shield exists.
 - Touch `pointerdown` never focuses, captures, or prevents default. A resolved
   tap commits its projected caret before synchronously focusing the textarea;
   travel, cancellation, and long-press ownership suppress the tap path.
+- Keyboard visibility is tracked, never inferred from DOM focus. Focus answers
+  neither direction: the back gesture hides the IME without blurring, and a host
+  `focus()` can leave a field focused with no IME at all.
+- A selection gesture changes keyboard visibility in neither direction. It holds
+  a keyboard that is down there, and leaves a keyboard that is up alone.
 - The engine remains the single writer of document state; clipboard fallbacks
   route their text back through an engine operation.
 
@@ -144,6 +149,14 @@ open or closed. Returning early instead let the textarea insert a raw newline,
 which dropped the marker on every split and left the tail reading as a lazy
 continuation of the item above.
 
+Teardown is a path that ends a composition, so it commits like every other one.
+Until the run commits it exists solely in the textarea and no `continuity-change`
+has been emitted for it, so `destroy()` — and therefore `disconnectedCallback` —
+folds it in before releasing the engine. Skipping that lost the last word typed
+on every mid-sentence unmount, precisely because the composition is permanent
+rather than exceptional. `commitComposition()` exposes the same fold to hosts
+that want to checkpoint without tearing down.
+
 `beforeinput` is the discriminating point, not `keydown`. A soft-keyboard Enter
 inside a composition reports `Unidentified` / keyCode 229, so `keydown` cannot
 name it; an IME candidate-commit Enter does report `key: "Enter"` but raises no
@@ -175,6 +188,75 @@ newline. `keydown` keeps ownership of the non-composing case, including
   collapse the textarea selection before the action reads it.
 - `preventDefault()` on `pointerdown` is mouse-only — on touch it suppresses the
   synthesized `click`.
+
+## Soft keyboard
+
+Keyboard visibility on Android is not a function of DOM focus.
+The system back gesture hides the IME without blurring, so the textarea is still the active element afterwards, and Chrome re-raises the keyboard for any touch that resolves against a focused editable — including a long-press that only meant to select.
+Refusing to focus on the touch path is necessary and not sufficient, because focus never moves.
+`inputmode="none"` is the half that is sufficient: Chrome will not raise the IME for a focused field in that state however the touch resolved.
+(`virtualkeyboardpolicy` is the attribute built for this and does not apply — it is `contenteditable`-only, and this surface is a `<textarea>`.)
+
+**The attribute is not symmetric, and that is the whole design.**
+Applied to a field focused *with the IME showing*, `inputmode="none"` does not refuse a future raise — it dismisses the keyboard that is already there.
+A gate that fires reflexively on every selection gesture therefore fixes the reader's case by breaking the writer's.
+So the gate consults tracked state and closes only where there is no keyboard to lose.
+
+Two inputs, and only two:
+
+- **Typing intent** — the editor resolved a gesture as "type here" and asked for
+  the IME. A request, not an observation, so it moves the state only on a
+  platform that has already proven it reports.
+- **Visual-viewport occlusion** — the visual viewport loses height while the
+  layout viewport does not. The one signal Android gives for the IME, and the
+  observation that corrects the request in both directions: a raise that never
+  arrived, and a dismissal that blurred nothing.
+
+With no evidence either way the answer is **down**. That is the conservative
+side rather than a guess: answering "down" costs at most a keyboard the reader
+taps once more to raise, while answering "up" wrongly takes away the one they
+are typing on.
+
+State transitions:
+
+| Event | Effect |
+|---|---|
+| Construction | gate closed; current viewport height seeded as the baseline |
+| Resolved tap, `insertText()`, paste action | gate opened, typing intent recorded |
+| Viewport loses ≥ 120px | keyboard **raised** (and the platform is now known to report) |
+| Viewport returns from raised | keyboard **down**, gate re-armed immediately |
+| `blur` | keyboard **down**, gate re-armed |
+| Long-press claim, adjust-handle grab | gate closed **only while down** |
+
+The 120px floor discriminates an IME from a collapsing URL bar (~56px) and from
+pinch-zoom. The baseline is the tallest height ever seen, because there is no
+absolute "unoccluded" height for a window — the editor may mount while a
+keyboard is already up.
+
+### The raise-only tap
+
+A selection made with the keyboard down has no usable next step. Typing over it
+needs the keyboard; so does every button on the action bar. The only gesture
+that raises one is a tap, and a tap collapsed the selection on the way — there
+was no order of operations that worked.
+
+So while the keyboard is down, the first resolved touch tap *inside* the
+highlight buys the keyboard and nothing else: the range, the painted highlight,
+and the whole action bar survive it. The engine's range is re-applied to the
+textarea afterwards, because raising re-enters focus and a blur/focus pair is
+not obliged to hand a textarea's selection back.
+
+The grant is deliberately narrow, and each bound is load-bearing:
+
+- **Coarse pointers only.** A mouse click inside a selection places a caret, as
+  it always has.
+- **Inside the highlight only.** A tap outside is an ordinary tap: caret, then
+  keyboard.
+- **While the keyboard is down only.** With one up the tap has nothing to raise
+  and is simply a tap.
+- **Once per selection.** The tap after it means what a tap normally means, or a
+  reader could never tap their way out of a selection they no longer want. A
+  fresh selection gesture restores the grant.
 
 ## Selection adjust handles
 
@@ -302,6 +384,11 @@ device results remain a release acceptance record rather than a CI assertion.
 - composing line-break routing: `packages/editor/src/native_input.js`
 - adjust handles: `packages/editor/src/selection_handles.js`
 - overlay chrome assembly: `packages/editor/src/component_overlays.js`
+- keyboard gate (the `inputmode` attribute and focus re-entry):
+  `packages/editor/src/soft_keyboard.js`
+- tracked keyboard state, pure and independently testable:
+  `packages/editor/src/soft_keyboard_policy.js`
+- blur and visual-viewport wiring: `packages/editor/src/component_listeners.js`
 - clipboard chain: `packages/editor/src/clipboard_bridge.js`
 - platform-selection adoption guard: `packages/editor/src/native_selection.js`
 - shield/bar/rail CSS: `packages/editor/src/styles.js`
@@ -317,6 +404,12 @@ device results remain a release acceptance record rather than a CI assertion.
   `packages/editor/tests/browser-list-newline.mjs`
 - action bar placement math:
   `packages/editor/tests/selection-actions-placement.test.mjs`
+- keyboard gate contract, both directions (coarse pass and fine pass):
+  `packages/editor/tests/browser-soft-keyboard.mjs`
+- keyboard state transitions, asserted without a browser:
+  `packages/editor/tests/soft-keyboard-policy.test.mjs`
+- composition survival across teardown and unmount:
+  `packages/editor/tests/browser-composition-teardown.mjs`
 - device harness: `packages/editor/tests/playground/`
 
 ## Relates to

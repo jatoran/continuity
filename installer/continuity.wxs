@@ -91,6 +91,7 @@
           <RegistryValue Root="HKLM" Key="Software\Classes\.mdown\OpenWithProgids" Name="Continuity.Markdown" Type="string" Value="" />
           <RegistryValue Root="HKLM" Key="Software\Classes\Continuity.Markdown" Type="string" Value="Continuity Markdown Document" />
           <RegistryValue Root="HKLM" Key="Software\Classes\Continuity.Markdown\DefaultIcon" Type="string" Value="[#ContinuityExeFile],0" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Continuity.Markdown\shell\open" Name="MultiSelectModel" Type="string" Value="Player" />
           <RegistryValue Root="HKLM" Key="Software\Classes\Continuity.Markdown\shell\open\command" Type="string" Value="&quot;[#ContinuityExeFile]&quot; &quot;%1&quot;" />
         </Component>
 
@@ -98,11 +99,13 @@
           <RegistryValue Root="HKLM" Key="Software\Classes\.txt\OpenWithProgids" Name="Continuity.Text" Type="string" Value="" KeyPath="yes" />
           <RegistryValue Root="HKLM" Key="Software\Classes\Continuity.Text" Type="string" Value="Text Document" />
           <RegistryValue Root="HKLM" Key="Software\Classes\Continuity.Text\DefaultIcon" Type="string" Value="[#ContinuityExeFile],0" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Continuity.Text\shell\open" Name="MultiSelectModel" Type="string" Value="Player" />
           <RegistryValue Root="HKLM" Key="Software\Classes\Continuity.Text\shell\open\command" Type="string" Value="&quot;[#ContinuityExeFile]&quot; &quot;%1&quot;" />
         </Component>
 
         <Component Id="OpenWithApplication" Guid="{28EE095D-50C9-402A-BCC2-56E60BC7E10E}">
           <RegistryValue Root="HKLM" Key="Software\Classes\Applications\continuity.exe" Name="FriendlyAppName" Type="string" Value="Continuity" KeyPath="yes" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Applications\continuity.exe\shell\open" Name="MultiSelectModel" Type="string" Value="Player" />
           <RegistryValue Root="HKLM" Key="Software\Classes\Applications\continuity.exe\shell\open\command" Type="string" Value="&quot;[#ContinuityExeFile]&quot; &quot;%1&quot;" />
           <RegistryValue Root="HKLM" Key="Software\Classes\Applications\continuity.exe\SupportedTypes" Name=".md" Type="string" Value="" />
           <RegistryValue Root="HKLM" Key="Software\Classes\Applications\continuity.exe\SupportedTypes" Name=".markdown" Type="string" Value="" />

@@ -18,6 +18,13 @@ use crate::registry::{spawn_window_thread, LiveState, RegistryCtx, SpawnRequest}
 use crate::registry_file_buffers::resolve_open_file_buffer;
 use crate::registry_window_control::try_send_window_control;
 
+/// One freshly-read file inside an external activation batch.
+pub(crate) struct OpenFileBatchEntry {
+    pub content: String,
+    pub file: FileAssociation,
+    pub recovery_notices: Vec<String>,
+}
+
 /// Inputs for [`handle_open_file_buffer`], grouped so the resolve/reveal/
 /// spawn flow takes one payload instead of a long positional list.
 pub(crate) struct OpenFileBufferArgs {
@@ -34,6 +41,7 @@ pub(crate) struct OpenFileBufferArgs {
     pub recovery_notices: Vec<String>,
     pub disposition: FileOpenDisposition,
     pub source_window_id: Option<continuity_buffer::WindowId>,
+    pub target_pane: Option<continuity_ui::pane_tree::PaneId>,
     pub vault_root: Option<std::path::PathBuf>,
 }
 
@@ -82,6 +90,7 @@ pub(crate) fn handle_open_file_buffer(
         recovery_notices,
         disposition,
         source_window_id,
+        target_pane,
         vault_root,
     } = args;
     let buffer_id =
@@ -96,6 +105,7 @@ pub(crate) fn handle_open_file_buffer(
                     content: content.clone(),
                     file: file.clone(),
                     disposition,
+                    target_pane,
                     notices: recovery_notices.clone(),
                 },
             ) {
@@ -142,6 +152,59 @@ pub(crate) fn handle_open_file_buffer(
     )
 }
 
+/// Resolve one external activation and open all unique files as tabs in one
+/// new top-level window.
+pub(crate) fn handle_open_file_batch(
+    ctx: &RegistryCtx,
+    state: &mut LiveState,
+    files: Vec<OpenFileBatchEntry>,
+    explicit_origin: Option<(i32, i32)>,
+) -> Result<(), Error> {
+    let mut seen = std::collections::HashSet::new();
+    let mut reconciles = Vec::new();
+    let mut recovery_notices = Vec::new();
+    for entry in files {
+        let buffer_id = resolve_open_file_buffer(
+            &ctx.editor,
+            &ctx.file_buffer_index,
+            &entry.content,
+            entry.file.clone(),
+        );
+        recovery_notices.extend(entry.recovery_notices);
+        if seen.insert(buffer_id) {
+            reconciles.push(continuity_ui::PendingReconcile {
+                buffer_id,
+                content: entry.content,
+                file: entry.file,
+            });
+        }
+    }
+    let Some(initial_buffer_id) = reconciles.first().map(|entry| entry.buffer_id) else {
+        return Ok(());
+    };
+    let startup_open_buffer_ids = reconciles
+        .iter()
+        .skip(1)
+        .map(|entry| entry.buffer_id)
+        .collect();
+    spawn_window_thread(
+        ctx,
+        state,
+        SpawnRequest {
+            initial_buffer_id,
+            restored: None,
+            activate_on_restore: false,
+            explicit_origin,
+            cascade_from: None,
+            recovery_notices,
+            open_tutorial_on_init: false,
+            startup_open_buffer_ids,
+            startup_folder_roots: Vec::new(),
+            startup_reconciles: reconciles,
+        },
+    )
+}
+
 /// Build the [`SpawnRequest`] for a freshly-opened file buffer, carrying
 /// the disk bytes so the new window reconciles its initial buffer.
 fn open_file_spawn_request(
@@ -163,6 +226,10 @@ fn open_file_spawn_request(
         open_tutorial_on_init: false,
         startup_open_buffer_ids: Vec::new(),
         startup_folder_roots: vault_root.into_iter().collect(),
-        reconcile_on_init: Some(continuity_ui::PendingReconcile { content, file }),
+        startup_reconciles: vec![continuity_ui::PendingReconcile {
+            buffer_id,
+            content,
+            file,
+        }],
     }
 }

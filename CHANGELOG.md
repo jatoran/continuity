@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.8
+
+- Opening multiple selected documents from Explorer now creates one new Continuity window with every selected document in its own tab.
+- Dropping a document onto an open Continuity window now adds it as a tab in the pane under the drop point instead of opening another window.
+
 ## 0.4.7
 
 - In a folder or vault, middle-clicking a file in the sidebar now opens it in a

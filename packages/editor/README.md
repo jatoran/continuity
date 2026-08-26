@@ -178,14 +178,26 @@ composition is still active is hit-tested against the live composing line and
 replayed against the fresh snapshot only after `compositionend` reconciles, so
 the caret lands on the tapped character rather than a stale-mapped byte — the
 fix carries no Android/Gboard/user-agent branch. The `composing`
-property reports whether a composition is currently active. The semantic
+property reports whether a composition is currently active.
+
+A composing run is withheld from the engine on purpose, so until it commits the
+text lives only in the internal textarea and no `continuity-change` has been
+emitted for it. Every path that ends a composition folds it in, and teardown is
+one of them: `destroy()` commits first and emits the change, so unmounting
+mid-composition cannot lose the run. That matters most where it is least
+exotic — Android keyboards hold one composition open across ordinary typing, so
+the uncommitted run is routinely the last word typed. `commitComposition()`
+does the same on demand and returns whether there was anything to fold, for
+checkpointing before a manual save or a navigation; teardown does not need it.
+
+The semantic
 textarea also disables `autocorrect` alongside `autocomplete` and
 `autocapitalize` to reduce mobile composition churn. It never creates a
 database or writes files: hosts decide whether changes are ephemeral or are
 persisted after each ordered `continuity-change` event.
 
 Public element APIs include `value`, `initialRevision`, `readOnly`,
-`spellcheck`, `syntax`, `indentGuides`, `composing`, the `command-rail`,
+`spellcheck`, `syntax`, `indentGuides`, `composing`, `commitComposition()`, the `command-rail`,
 `rail-storage-key`, and `indent-guides` attributes, shortcut configuration,
 `snapshot()`, `replaceValue()`, `executeCommand()`, `setSelections()`,
 `revealRange()`, `setDecorations()`, `clearDecorations()`, `exportHistory()`,
@@ -322,7 +334,10 @@ bullet, task, bold, italic, inline code, heading cycle, and more — without
 dismissing the virtual keyboard. The checkmark action creates a full
 Markdown task (`- [ ] `); its rail id stays `checkbox` so saved arrangements
 survive. The bullet and task actions keep the caret over the same character
-when toggling a marker on or off. `move-line-up` / `move-line-down` move every
+when toggling a marker on or off. A block toggle is scoped to the lines it
+rewrites: where a marker would otherwise pull the untouched line below it into
+the new block as CommonMark lazy continuation text, the toggle splits the
+paragraph with a blank line in the same edit and the same undo group. `move-line-up` / `move-line-down` move every
 source line the selection covers as one block (one undo group, ordered-list
 markers renumbered), and `caret-up` / `caret-down` walk one *visible* row, so a
 caret inside a soft-wrapped line moves within that line the way the platform
@@ -456,6 +471,41 @@ cross the anchor and keep going instead of collapsing under the finger. Handles
 are coarse-pointer chrome; a mouse keeps the drag it already has. Style them
 with `part="selection-handle selection-handle-start"` /
 `part="selection-handle selection-handle-end"`.
+
+### The soft keyboard
+
+Keyboard visibility on Android is not a function of DOM focus. The system back
+gesture hides the IME without blurring, so the textarea is still focused
+afterwards and Chrome re-raises the keyboard for any touch resolving against it
+— including a long-press that only meant to select. Focus never moves, so no
+focus policy can reach it. The editor holds the textarea at `inputmode="none"`
+on a coarse pointer, the one state Chrome will not raise the IME from, and lifts
+it where a touch has resolved as typing: a completed tap, `insertText()`, or the
+built-in paste action.
+
+That attribute is not symmetric, which is why the gate is not a reflex. Applied
+to a field focused *with the IME showing*, `inputmode="none"` dismisses the
+keyboard rather than refusing a future one, so a selection gesture that always
+applied it closed the keyboard a writer was typing on. The editor now tracks
+keyboard state explicitly — typing intent, plus visual-viewport occlusion, which
+is the signal Android actually gives for the IME — and a selection gesture
+closes the gate only while the keyboard is down. With no evidence either way it
+answers "down", the conservative side, so a dismissed keyboard still cannot be
+re-raised by a long-press, a selection drag, or an adjust-handle grab.
+
+A selection made with the keyboard down needs the keyboard for every next step —
+typing over it, and every button on the action bar — and the only gesture that
+raises one used to collapse it on the way. So the first resolved touch tap
+*inside* the highlight raises the keyboard and changes nothing else: the range,
+the highlight, and the whole bar survive. The next tap places a caret as normal,
+and a tap outside the selection always did and still does.
+
+Two notes for hosts. Desktop is untouched: all of this applies under
+`pointer: coarse` only, a mouse click inside a selection still collapses it, and
+`inputmode` means nothing to a physical keyboard. And `inputmode="none"` is
+readable off the textarea as "this editor raises no keyboard right now", which
+is a direct answer where focus alone is not one. `focus()` remains a pure focus
+move and does not lift the gate; reach the keyboard through a tap or an insert.
 
 ## Indent guides
 

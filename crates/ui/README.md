@@ -65,6 +65,9 @@ drag-drop branch (`Window::import_dropped_images`,
 WIC + D2D render path are pending sub-tasks — see
 `.docs/design/features/image-paste.md`.
 
+`Window::on_drop_files` sends non-image drops through `NewTab` routing.
+The drop-target `PaneId` survives the file-I/O reply and app-registry control path so each opened file is adopted into the pane under the drop point.
+
 F3 / F4 markdown extensions ship the data layer, rope-mutation handlers,
 and renderer overlays for both source-line and soft-wrap paint paths.
 `window_markdown_inline.rs` carries the four `ViewContext` impls

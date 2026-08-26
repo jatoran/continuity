@@ -9,28 +9,49 @@
 //! exists. `--new-instance` or the e2e insert hook bypass the handoff.
 //!
 //! Thread ownership: [`claim_or_forward`] runs on the main thread before
-//! any worker spawns. The hub callback runs on the hub's message-pump
-//! thread and only touches thread-safe handles (`EditorHandle`, the
-//! registry `Sender`, the file-buffer index mutex).
+//! any worker spawns. The hub callback only sends parsed paths to the bounded
+//! handoff channel. The batching thread owns collection timing and synchronous
+//! file reads, then sends typed events to the registry main thread.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use continuity_core::EditorHandle;
 use continuity_win::{
     activate_first_visible_window_of_current_process_on_current_desktop, send_to_instance_hub,
     InstanceHub, SingleInstanceMutex,
 };
-use crossbeam_channel::Sender;
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 
 use crate::registry::{RegistryEvent, SpawnRequest};
+use crate::registry_open_file::OpenFileBatchEntry;
 use crate::runtime_paths::StartupPaths;
 use crate::startup_file_window_origin;
 
 const FORWARD_TIMEOUT_MS: u32 = 3_000;
 const FORWARD_RETRY_ATTEMPTS: u32 = 10;
 const FORWARD_RETRY_DELAY: Duration = Duration::from_millis(100);
+const BATCH_QUIET_WINDOW: Duration = Duration::from_millis(120);
+const BATCH_MAX_WINDOW: Duration = Duration::from_millis(350);
+
+/// Owns the hidden handoff HWND and the external-open batching thread.
+pub(crate) struct InstanceHandoff {
+    hub: Option<InstanceHub>,
+    input_tx: Option<Sender<StartupPaths>>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl Drop for InstanceHandoff {
+    fn drop(&mut self) {
+        drop(self.hub.take());
+        drop(self.input_tx.take());
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
 
 /// Outcome of the startup instance check.
 pub(crate) enum InstanceClaim {
@@ -74,34 +95,79 @@ pub(crate) fn claim_or_forward(db: &Path, startup: &StartupPaths) -> InstanceCla
     }
 }
 
-/// Spawn the receiving hub in the primary instance. Forwarded file paths
-/// route through the same [`RegistryEvent::OpenFileBuffer`] flow as
-/// in-process opens, so an already-open file focuses its existing window
-/// tab and reconciles against the current disk bytes (clean → silent
-/// reload, dirty → conflict banner) rather than spawning a stale duplicate;
-/// a bare-launch forward activates a window on the current virtual desktop,
-/// or requests a blank window there when none exists.
+/// Spawn the receiving hub in the primary instance. File launches arriving
+/// within one shell activation window are collected into one registry batch,
+/// including the primary process's first path.
 pub(crate) fn spawn_instance_hub(
     db: &Path,
     editor: Arc<EditorHandle>,
     tx: Sender<RegistryEvent>,
-) -> Option<InstanceHub> {
+    startup_paths: StartupPaths,
+) -> Option<InstanceHandoff> {
     let key = instance_key(db);
+    let (input_tx, input_rx) = crossbeam_channel::bounded(256);
+    let worker = std::thread::Builder::new()
+        .name("continuity-open-batch".into())
+        .spawn(move || run_handoff_batcher(input_rx, &editor, &tx))
+        .ok()?;
+    let callback_tx = input_tx.clone();
     let on_payload = Box::new(move |payload: &str| {
-        handle_forwarded_payload(payload, &editor, &tx);
+        if callback_tx.send(parse_forward_payload(payload)).is_err() {
+            eprintln!("continuity: external-open batcher stopped before handoff delivery");
+        }
     });
-    match InstanceHub::spawn(&hub_class_name(&key), on_payload) {
+    let hub = match InstanceHub::spawn(&hub_class_name(&key), on_payload) {
         Ok(hub) => Some(hub),
         Err(e) => {
             eprintln!("continuity: instance hub failed to start: {e}");
             None
         }
+    };
+    if !startup_paths.is_empty() {
+        let _ = input_tx.send(startup_paths);
+    }
+    Some(InstanceHandoff {
+        hub,
+        input_tx: Some(input_tx),
+        worker: Some(worker),
+    })
+}
+
+fn run_handoff_batcher(
+    input_rx: Receiver<StartupPaths>,
+    editor: &Arc<EditorHandle>,
+    tx: &Sender<RegistryEvent>,
+) {
+    while let Ok(mut batch) = input_rx.recv() {
+        let started = Instant::now();
+        let mut disconnected = false;
+        loop {
+            let remaining = BATCH_MAX_WINDOW.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                break;
+            }
+            match input_rx.recv_timeout(BATCH_QUIET_WINDOW.min(remaining)) {
+                Ok(next) => batch.append(next),
+                Err(RecvTimeoutError::Timeout) => break,
+                Err(RecvTimeoutError::Disconnected) => {
+                    disconnected = true;
+                    break;
+                }
+            }
+        }
+        handle_forwarded_paths(batch, editor, tx);
+        if disconnected {
+            break;
+        }
     }
 }
 
-fn handle_forwarded_payload(payload: &str, editor: &Arc<EditorHandle>, tx: &Sender<RegistryEvent>) {
-    let (files, folders, vaults) = parse_forward_payload(payload);
-    if files.is_empty() && folders.is_empty() && vaults.is_empty() {
+fn handle_forwarded_paths(
+    paths: StartupPaths,
+    editor: &Arc<EditorHandle>,
+    tx: &Sender<RegistryEvent>,
+) {
+    if paths.is_empty() {
         if activate_first_visible_window_of_current_process_on_current_desktop() {
             return;
         }
@@ -116,48 +182,74 @@ fn handle_forwarded_payload(payload: &str, editor: &Arc<EditorHandle>, tx: &Send
             open_tutorial_on_init: false,
             startup_open_buffer_ids: Vec::new(),
             startup_folder_roots: Vec::new(),
-            reconcile_on_init: None,
+            startup_reconciles: Vec::new(),
         }));
         return;
     }
-    for root in vaults {
+    for root in paths.vaults {
         let _ = tx.send(RegistryEvent::Vault(
             crate::registry_vaults::VaultRegistryEvent::Open(root),
         ));
     }
-    let mut opened = 0usize;
-    for path in files {
-        // Route through the same OpenFileBuffer path as in-process opens so
-        // the registry dedups the buffer, reveals the existing tab (or
-        // spawns), and reconciles against the freshly-read disk bytes.
-        if let Some(event) = forwarded_file_open_event(&path, opened) {
-            let _ = tx.send(event);
-            opened += 1;
+    let requested_files = !paths.files.is_empty();
+    let mut files = Vec::new();
+    let mut failed_notices = Vec::new();
+    for path in &paths.files {
+        match read_forwarded_file(path) {
+            Ok(entry) => files.push(entry),
+            Err(message) => failed_notices.push(message),
         }
     }
-    if !folders.is_empty() {
+    if let Some(first) = files.first_mut() {
+        first.recovery_notices.append(&mut failed_notices);
+    }
+    let has_open_files = !files.is_empty();
+    if has_open_files {
+        eprintln!(
+            "continuity: opening {} external files in one window",
+            files.len()
+        );
+        let _ = tx.send(RegistryEvent::OpenFileBatch {
+            files,
+            explicit_origin: startup_file_window_origin(0),
+        });
+    }
+    if !paths.folders.is_empty() {
         let buffer_id = editor.open_buffer("");
         let _ = tx.send(RegistryEvent::Spawn(SpawnRequest {
             initial_buffer_id: buffer_id,
             restored: None,
             activate_on_restore: false,
-            explicit_origin: startup_file_window_origin(opened),
+            explicit_origin: startup_file_window_origin(usize::from(has_open_files)),
             cascade_from: None,
             recovery_notices: Vec::new(),
             open_tutorial_on_init: false,
             startup_open_buffer_ids: Vec::new(),
-            startup_folder_roots: folders,
-            reconcile_on_init: None,
+            startup_folder_roots: paths.folders,
+            startup_reconciles: Vec::new(),
+        }));
+    } else if requested_files && !has_open_files {
+        let buffer_id = editor.open_buffer("");
+        let _ = tx.send(RegistryEvent::Spawn(SpawnRequest {
+            initial_buffer_id: buffer_id,
+            restored: None,
+            activate_on_restore: false,
+            explicit_origin: startup_file_window_origin(0),
+            cascade_from: None,
+            recovery_notices: failed_notices,
+            open_tutorial_on_init: false,
+            startup_open_buffer_ids: Vec::new(),
+            startup_folder_roots: Vec::new(),
+            startup_reconciles: Vec::new(),
         }));
     }
 }
 
-/// Read a forwarded file path and build the [`RegistryEvent::OpenFileBuffer`]
-/// the registry uses to dedup / reveal / spawn and reconcile it. Reading on
+/// Read one forwarded file for a grouped registry activation. Reading on
 /// the hub thread (rather than enqueueing to the file-I/O worker) keeps the
-/// cross-process handoff self-contained — no window owns the request — while
+/// cross-process handoff self-contained because no window owns the request, while
 /// still handing the registry fresh disk bytes for reconciliation.
-fn forwarded_file_open_event(path: &Path, ordinal: usize) -> Option<RegistryEvent> {
+fn read_forwarded_file(path: &Path) -> Result<OpenFileBatchEntry, String> {
     match continuity_ui::file_io::read_startup_file(path) {
         Ok(opened) => {
             let mut recovery_notices = Vec::new();
@@ -167,23 +259,16 @@ fn forwarded_file_open_event(path: &Path, ordinal: usize) -> Option<RegistryEven
                     opened.file.path.display()
                 ));
             }
-            Some(RegistryEvent::OpenFileBuffer {
+            Ok(OpenFileBatchEntry {
                 content: opened.content,
                 file: opened.file,
-                explicit_origin: startup_file_window_origin(ordinal),
-                cascade_from: None,
                 recovery_notices,
-                disposition: continuity_ui::window_config::FileOpenDisposition::NewWindow,
-                source_window_id: None,
-                vault_root: None,
             })
         }
         Err(e) => {
-            eprintln!(
-                "continuity: forwarded open failed for {}: {e}",
-                path.display()
-            );
-            None
+            let message = format!("Open failed for {}: {e}", path.display());
+            eprintln!("continuity: forwarded {message}");
+            Err(message)
         }
     }
 }
@@ -223,9 +308,9 @@ fn absolute_lossy(path: &Path) -> String {
         .into_owned()
 }
 
-fn parse_forward_payload(payload: &str) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
+fn parse_forward_payload(payload: &str) -> StartupPaths {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
-        return (Vec::new(), Vec::new(), Vec::new());
+        return StartupPaths::default();
     };
     let collect = |key: &str| -> Vec<PathBuf> {
         value
@@ -240,7 +325,11 @@ fn parse_forward_payload(payload: &str) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<Path
             })
             .unwrap_or_default()
     };
-    (collect("files"), collect("folders"), collect("vaults"))
+    StartupPaths {
+        files: collect("files"),
+        folders: collect("folders"),
+        vaults: collect("vaults"),
+    }
 }
 
 #[cfg(test)]
@@ -255,22 +344,19 @@ mod tests {
             vaults: vec![PathBuf::from("work")],
         };
         let payload = forward_payload_json(&startup);
-        let (files, folders, vaults) = parse_forward_payload(&payload);
-        assert_eq!(files.len(), 1);
-        assert_eq!(folders.len(), 1);
-        assert!(files[0].is_absolute());
-        assert!(folders[0].is_absolute());
-        assert_eq!(vaults.len(), 1);
-        assert!(vaults[0].is_absolute());
-        assert!(files[0].ends_with("a.md"));
+        let parsed = parse_forward_payload(&payload);
+        assert_eq!(parsed.files.len(), 1);
+        assert_eq!(parsed.folders.len(), 1);
+        assert!(parsed.files[0].is_absolute());
+        assert!(parsed.folders[0].is_absolute());
+        assert_eq!(parsed.vaults.len(), 1);
+        assert!(parsed.vaults[0].is_absolute());
+        assert!(parsed.files[0].ends_with("a.md"));
     }
 
     #[test]
     fn malformed_payload_parses_to_empty() {
-        let (files, folders, vaults) = parse_forward_payload("not json");
-        assert!(files.is_empty());
-        assert!(folders.is_empty());
-        assert!(vaults.is_empty());
+        assert!(parse_forward_payload("not json").is_empty());
     }
 
     #[test]
@@ -283,26 +369,14 @@ mod tests {
     }
 
     #[test]
-    fn forwarded_open_builds_open_file_buffer_event_with_disk_bytes() {
+    fn forwarded_open_builds_batch_entry_with_disk_bytes() {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("forwarded.md");
         std::fs::write(&path, "current disk content").expect("write file");
-        let event = forwarded_file_open_event(&path, 0).expect("event for readable file");
-        match event {
-            RegistryEvent::OpenFileBuffer {
-                content,
-                file,
-                recovery_notices,
-                ..
-            } => {
-                // Fresh disk bytes flow to the registry, which dedups +
-                // reveals/spawns + reconciles — not a stale reused buffer.
-                assert_eq!(content, "current disk content");
-                assert_eq!(file.path, path);
-                assert!(recovery_notices.is_empty());
-            }
-            _ => panic!("expected OpenFileBuffer event"),
-        }
+        let entry = read_forwarded_file(&path).expect("entry for readable file");
+        assert_eq!(entry.content, "current disk content");
+        assert_eq!(entry.file.path, path);
+        assert!(entry.recovery_notices.is_empty());
     }
 
     #[test]
@@ -311,22 +385,15 @@ mod tests {
         let path = dir.path().join("latin1.txt");
         // 0xE9 alone is invalid UTF-8 → lossy decode + encoding notice.
         std::fs::write(&path, [b'h', b'i', 0xE9]).expect("write file");
-        let event = forwarded_file_open_event(&path, 0).expect("event for readable file");
-        match event {
-            RegistryEvent::OpenFileBuffer {
-                recovery_notices, ..
-            } => {
-                assert_eq!(recovery_notices.len(), 1);
-                assert!(recovery_notices[0].contains("saving will write UTF-8"));
-            }
-            _ => panic!("expected OpenFileBuffer event"),
-        }
+        let entry = read_forwarded_file(&path).expect("entry for readable file");
+        assert_eq!(entry.recovery_notices.len(), 1);
+        assert!(entry.recovery_notices[0].contains("saving will write UTF-8"));
     }
 
     #[test]
     fn forwarded_open_missing_file_yields_no_event() {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("absent.md");
-        assert!(forwarded_file_open_event(&path, 0).is_none());
+        assert!(read_forwarded_file(&path).is_err());
     }
 }

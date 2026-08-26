@@ -6,6 +6,7 @@
 
 mod change;
 mod delta_history;
+mod edit_block_scope;
 mod edit_indent_shift;
 pub mod edit_indent_subtree;
 mod edit_inline;

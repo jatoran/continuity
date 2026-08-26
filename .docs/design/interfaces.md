@@ -318,7 +318,11 @@ struct FileAssociation {
 
 UI threads poll their own `FileIoEvent` receiver on a `WM_TIMER` (250 ms cadence). File-I/O thread `notify`s file changes; UI presents a banner (`window_file::FileBanner`).
 
-Startup file paths (`continuity.exe <path>`) do not enter the `FileIoRequest` queue. `app::main` reads file paths synchronously via `ui::file_io::read_startup_file`, asks core to create `OpenFileBuffer` buffers, and passes the resulting ids through the first `SpawnRequest.startup_open_buffer_ids`. Startup folder paths pass through `SpawnRequest.startup_folder_roots`; `ui::Window` opens the first folder in the file-tree pane after placement replay. Existing restored file-associated paths are canonicalized and deduped before import.
+Startup file paths (`continuity.exe <path>`) do not enter the `FileIoRequest` queue.
+The app-owned handoff batcher combines the primary path and forwarded sibling launches from one Explorer activation, then emits one `RegistryEvent::OpenFileBatch` after a bounded quiet window.
+The registry resolves canonical buffers and creates one `SpawnRequest` whose `initial_buffer_id` and `startup_open_buffer_ids` form the new window's tabs.
+`SpawnRequest.startup_reconciles` carries the fresh bytes and association for every grouped file.
+Startup folder paths pass through `SpawnRequest.startup_folder_roots`; `ui::Window` opens the first folder in the file-tree pane after placement replay.
 
 ## Constraints + trade-offs
 - **Reply-channel discipline** ⇒ every cross-thread call is observable in `cargo test` ⇒ verbose `Result<…, Error>` plumbing.

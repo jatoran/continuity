@@ -56,6 +56,8 @@ pub enum WindowControl {
         file: FileAssociation,
         /// Preview or permanent-tab semantics.
         disposition: crate::window_config::FileOpenDisposition,
+        /// Stable destination pane captured when the open was requested.
+        target_pane: Option<crate::pane_tree::PaneId>,
         /// Notices raised by the file decoder.
         notices: Vec<String>,
     },

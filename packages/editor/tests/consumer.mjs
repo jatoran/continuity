@@ -176,7 +176,13 @@ async function measureBudgets(initializationMs, wasmBytes) {
   // `inputmode` state machine that is enough has to be documented where it is
   // read. 0.2.20 shipped 267 bytes under the old ceiling, so this restores a
   // working margin rather than only clearing the change.
-  assert.ok(packageSizes.javascriptBytes <= 336 * 1024, `package JavaScript ${packageSizes.javascriptBytes} > 336 KiB`);
+  // Raised 336 -> 352 KiB on 2026-08-10 for the keyboard state behind that gate:
+  // `inputmode="none"` is not symmetric — on a field focused with the IME up it
+  // dismisses the keyboard rather than refusing a future one — so the gate now
+  // consults a tracked policy (typing intent plus visual-viewport occlusion)
+  // instead of firing reflexively, and that policy is a module whose whole value
+  // is the reasoning written next to each transition. Unminified source ships.
+  assert.ok(packageSizes.javascriptBytes <= 352 * 1024, `package JavaScript ${packageSizes.javascriptBytes} > 352 KiB`);
   assert.ok(packageSizes.lazyEntryBytes <= 2 * 1024, `lazy entry ${packageSizes.lazyEntryBytes} > 2 KiB`);
   assert.ok(packageSizes.installedBytes <= 2 * 1024 * 1024, `installed package ${packageSizes.installedBytes} > 2 MiB`);
   return metrics;

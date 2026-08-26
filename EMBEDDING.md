@@ -8,12 +8,42 @@ design documents remain authoritative for detailed APIs.
 
 | Release train | Current version | Canonical source |
 |---|---:|---|
-| Native Windows desktop | `0.4.2` | `crates/app/Cargo.toml` |
-| Embeddable SDK family | `0.2.34` | `sdk/release.toml` |
+| Native Windows desktop | `0.4.8` | `crates/app/Cargo.toml` |
+| Embeddable SDK family | `0.2.36` | `sdk/release.toml` |
 
-The release trains are independent. All artifacts in one SDK release use the
-same SDK version. Registry publication is not active yet; commands in this
-guide consume locally built artifacts unless explicitly marked otherwise.
+The release trains are independent and are published as two tag series in the
+same repository: `v<version>` for the desktop application and `sdk-v<version>`
+for the SDK. A desktop release never bumps the SDK version and an SDK release
+never bumps the desktop version. All artifacts in one SDK release use the same
+SDK version. `cargo xtask docs-check` fails when this table disagrees with
+either canonical source.
+
+The SDK channel is `preview`, so every SDK GitHub Release is marked as a
+prerelease and the desktop application keeps the repository's "Latest" badge.
+
+### Where SDK artifacts come from today
+
+Registry publication is **not active yet**: `npm install
+@continuity-editor/editor`, `cargo add continuity-engine`, and
+`pip install continuity-editor` do not resolve. Until the registries are
+activated, every published SDK artifact is attached to its GitHub Release, and
+the commands in this guide consume locally built artifacts unless explicitly
+marked otherwise.
+
+To consume a published SDK release without building it:
+
+```powershell
+gh release download sdk-v0.2.34 --repo jatoran/continuity --dir sdk-v0.2.34
+```
+
+Each release carries the npm tarball, the three `.crate` files, the Windows C
+archive, the Python wheel, a CycloneDX SBOM, `release-manifest.json`, and
+`SHA256SUMS.txt`, all covered by GitHub build provenance attestation. Verify a
+download against its manifest before use:
+
+```powershell
+cargo xtask sdk-release-verify sdk-v0.2.34
+```
 
 ## Vocabulary
 
@@ -123,6 +153,28 @@ await initialize({ wasm: wasmUrl });
 Then use the Web Component directly or a framework adapter. The full browser,
 controlled-value, React, deployment, shortcut, theming, and headless examples
 live in [`packages/editor/README.md`](packages/editor/README.md).
+
+SDK `0.2.36` fixes Markdown block toggles absorbing the line below them, and changes no public API.
+Every block toggle - bullet, numbered, task, blockquote, and the heading rewrite - was a line-prefix rewrite blind to its neighbours, so marking one line pulled the next one into the new block as CommonMark lazy continuation text, and stripping a marker dropped the newly-plain line into the block above it.
+A toggle is now scoped to the lines it rewrites: where a rewrite would otherwise pull an untouched neighbour into the toggled block, the toggle inserts a blank-line separator in the same edit and the same undo group.
+The resolution is a paragraph split rather than a continuation indent, because indenting the following lines under the new item makes the absorption explicit instead of preventing it.
+Separators are inserted and never auto-removed, so toggle-on/toggle-off is byte-identical wherever no separator was needed and otherwise byte-identical with the separator retained.
+Hosts that drive these commands (`editor.toggle_bullet_at_line_start` and the rest of the family) need no change; the edit still arrives as one `continuity-change`.
+
+SDK `0.2.35` fixes Android soft-keyboard and touch-selection behaviour, and changes no public API.
+`0.2.21` held the internal textarea at `inputmode="none"` during a selection gesture so a touch selection could not raise the keyboard.
+That attribute is not symmetric: on a field focused with the IME showing it does not refuse a future raise, it takes the keyboard away, so long-pressing a word or grabbing an adjust handle mid-sentence closed the keyboard being typed on.
+The editor now tracks keyboard state explicitly - typing intent, plus visual-viewport occlusion, which is the signal Android actually gives for the IME - and closes the gate only where no keyboard is up to lose.
+With no evidence either way it answers "down", so `0.2.21` is preserved exactly: a keyboard dismissed with the system back gesture still cannot be re-raised by a long-press, a selection drag, or a handle grab, and an observed dismissal now re-arms the gate immediately.
+Separately, while the keyboard is down, the first resolved touch tap *inside* an existing selection now raises the keyboard and leaves the selection, its highlight, and the whole selection action bar intact; the next tap collapses or repositions as normal, and a tap outside the selection behaves exactly as before.
+Two notes for hosts.
+Desktop is untouched - all of this is gated on `pointer: coarse`, and a mouse click inside a selection still collapses it.
+And `inputmode="none"` remains readable and remains the honest signal: a host that manages the soft keyboard itself can treat it as "this editor raises no keyboard right now" rather than inferring it from focus.
+
+The same release stops teardown from discarding an open IME composition, and adds one method.
+A composing run is withheld from the engine deliberately, so until it commits the text lives only in the internal textarea and no `continuity-change` has been emitted for it; `destroy()` did not fold it in, so a host persisting on the change stream lost it - and since Android keyboards hold a composition open across ordinary typing, that was routinely the last word typed, lost on every mid-sentence unmount.
+`destroy()` now commits first and emits the change (`source: "compositionCommit"`), and `disconnectedCallback` reaches the same path.
+New `commitComposition(): boolean` folds an open composition on demand and returns whether there was one, for checkpointing before a manual save or a navigation; teardown no longer needs it, and reading `[part=input]`.value out of the shadow root is no longer the only route.
 
 SDK `0.2.34` fixes host-driven reveal navigation without changing the public API.
 `revealRange(range, { align })` now waits for the Markdown projection, measures the actual rendered caret or range, and scrolls whichever element owns the viewport.

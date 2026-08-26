@@ -1,9 +1,9 @@
 //! Routing for successful file-open reads.
 //!
-//! Runtime file opens belong in fresh top-level windows. The UI thread
-//! owns only the source HWND and asks the app registry to choose/reuse the
-//! file buffer and spawn the window. Test harnesses without a registry
-//! keep the local-tab fallback.
+//! Runtime file placement follows [`FileOpenDisposition`]. The UI thread
+//! owns the source HWND and target pane, while the app registry resolves the
+//! canonical buffer and routes it to a tab or new window. Test harnesses
+//! without a registry keep the local adoption fallback.
 
 use continuity_buffer::FileAssociation;
 use continuity_command::ViewContext;
@@ -29,6 +29,7 @@ impl Window {
                 recovery_notices: Vec::new(),
                 disposition,
                 source_window_id: self.persistence.as_ref().map(|state| state.window_id),
+                target_pane,
                 vault_root: self.vault.root().map(std::path::Path::to_path_buf),
             });
             return;

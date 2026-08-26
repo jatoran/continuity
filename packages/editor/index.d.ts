@@ -313,6 +313,21 @@ export class ContinuityEditorElement extends HTMLElement {
   indentGuides: "on" | "off";
   /** Whether a browser IME composition is active; host writes defer until it ends. */
   readonly composing: boolean;
+  /**
+   * Fold an open IME composition into the engine now, emitting the resulting
+   * `continuity-change`. Returns false when no composition was open.
+   *
+   * A composing run lives only in the internal textarea until it commits: it is
+   * withheld from the engine deliberately, so no change has been emitted for it
+   * and a host persisting on the change stream has not seen it. Android
+   * keyboards hold a composition open across ordinary typing, so on a phone the
+   * uncommitted run is routinely the last word typed.
+   *
+   * `destroy()` (and therefore unmounting) calls this itself, so a host that
+   * tears the editor down does not need to. Call it explicitly to checkpoint
+   * mid-typing — before a manual save, or before navigating away.
+   */
+  commitComposition(): boolean;
   snapshot(): Snapshot;
   /** Returns null when deferred because an IME composition is active. */
   replaceValue(value: string, expectedRevision: number, timestampMs?: number): Change | null;

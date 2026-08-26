@@ -4,7 +4,9 @@ Open, save, save-as, drag-drop import, bounded directory listing, external-chang
 
 ## What it is
 - A dedicated thread that handles interactive file reads, writes, shallow folder listings, vault discovery/mutation, drag-drop, and external-change watching. Never on the UI thread, ever. UI talks to it via `FileIoClient` (`Sender<FileIoRequest>`). Routed file-open completions post an immediate drain tick to the requesting HWND; the ordinary 100 ms timer remains a lost-wake and maintenance fallback. File-watching uses `notify` so external edits and vault-config reloads show up without blocking input.
-- Process-startup paths (`continuity.exe <path>`, Windows "Open with") are partitioned before any window thread spawns. Files are read synchronously and installed into the first restored window as file-associated tabs; folders are forwarded as file-tree roots. This avoids multi-window `FileIoEvent` receiver races and keeps session restore intact.
+- Process-startup paths (`continuity.exe <path>`, Windows "Open with") are partitioned before any window thread spawns.
+  Files from one external activation are read synchronously, resolved to canonical buffers, and installed as tabs in one new window.
+  Folders remain file-tree roots.
 
 ## Key concepts
 - **`FileIoClient`** — clonable `Sender` into the file-I/O thread.
@@ -25,7 +27,8 @@ Open, save, save-as, drag-drop import, bounded directory listing, external-chang
 5. UI forwards it to the registry as `RegistryEvent::OpenFileBuffer`. Preview replaces the source window's focused tab, NewTab inserts there, and NewWindow spawns a top-level window. Registry control delivery also wakes the destination HWND immediately; its 250 ms poll remains fallback-only for this path. The registry still resolves the path to one shared buffer/edit log and reconciles against disk (see [Reconciliation](#reconciliation)). Without a registry, tests use the local adoption path.
 6. For a new buffer, core creates it at the adopted revision with the `FileAssociation` attached; persistence writes an initial snapshot — not an edit.
 
-Drag-drop: `WM_DROPFILES` path. `DragQueryFileW` enumerates dropped paths; image paths route to image import first, files go through the same `OpenFiles` flow, and the first folder opens the file-tree pane.
+Drag-drop uses `WM_DROPFILES`.
+`DragQueryFileW` enumerates dropped paths; image paths route to image import first, non-image files use `NewTab` and retain the pane under the drop point through asynchronous file and registry routing, and the first folder opens the file-tree pane.
 
 ### Folder open / file tree
 1. UI dispatches `file.open_folder` or receives a folder via startup argv, `file.open`, or drag-drop.
@@ -41,17 +44,19 @@ See [File tree](file-tree.md) for directory caps, artifact skip list, row caps, 
 ### Startup / Open With
 1. `app::main` parses `std::env::args_os().skip(1)` as startup paths after the e2e hook, partitioning existing directories from files.
 2. `main_initial_requests::build_initial_requests` still builds the normal restored-window `SpawnRequest` list first.
-3. `attach_startup_open_files` dedupes argv paths against file-associated buffers already present in the restored pane-tree JSON.
-4. For each non-duplicate path, `ui::file_io::read_startup_file` reuses the normal decode/fingerprint primitive synchronously on the app thread.
-5. App calls `EditorHandle::open_file_buffer(content, file)` so core owns the new file-associated `Buffer` before window threads start.
-6. The first `SpawnRequest` carries `startup_open_buffer_ids`; `Window::new` calls `adopt_startup_open_buffers` after placement replay, adding each id as a tab in the focused pane and saving the updated window state.
+3. When the process owns the single-instance claim, its initial files and forwarded sibling launches enter the app-owned handoff batcher.
+4. The batcher waits for a 120 ms quiet window, capped at 350 ms total, so Explorer's separate legacy-verb launches for one selection become one `RegistryEvent::OpenFileBatch`.
+5. For each readable path, `ui::file_io::read_startup_file` reuses the normal decode/fingerprint primitive and the registry resolves the canonical buffer.
+6. One `SpawnRequest` carries the first buffer as `initial_buffer_id`, the rest as `startup_open_buffer_ids`, and fresh disk state for every file in `startup_reconciles`.
+7. `Window::new` adopts all buffers as tabs in its focused pane, then reconciles each one against the bytes read for the activation.
+8. `--new-instance` and standalone fallback launches use the same grouped `SpawnRequest` directly without the handoff delay.
 
 Rules:
-- Startup opens are additive: restored windows/tabs stay intact; argv files open only in the first restored/new window.
+- Startup opens are additive: restored windows and tabs stay intact, and each external file activation opens one additional window containing all selected files as tabs.
 - Startup folders are additive: the first restored/new window opens the first folder in the file-tree pane.
 - Duplicate paths are skipped when the same canonical file path is already restored or appears earlier in the same argv list.
 - Startup paths suppress first-launch tutorial auto-open so the requested file stays active.
-- Full Windows ProgID/default-app registration and single-instance handoff are release-engineering work; current behavior handles only the launched process's argv.
+- MSI ProgID and `Applications\continuity.exe` open verbs declare `MultiSelectModel=Player`; the single-instance handoff still accepts the per-file process launches produced by the legacy `%1` command.
 
 ### Save
 1. UI dispatches `file.save` → `Window::file_save_impl`.

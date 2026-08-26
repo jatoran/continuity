@@ -50,6 +50,16 @@ export function renderComposingPresentation(ctx) {
 /**
  * Fold the live composing run into the engine. Returns false when there was no
  * composition to commit, which is how `compositionend` knows to stop.
+ *
+ * Until this runs the composed text exists only in the textarea: `beforeinput`
+ * withholds it from the engine and `input` paints a preview, so nothing has
+ * been committed and no `continuity-change` has been emitted for it. That makes
+ * this the only thing standing between a composing run and a host that persists
+ * on the change stream — and because Android keyboards hold a composition open
+ * across ordinary typing, the run is routinely the last word the user typed
+ * rather than an exotic multi-keystroke sequence. Every path that ends a
+ * composition, including teardown, has to come through here or that text is
+ * silently discarded.
  */
 export function commitComposition(ctx) {
   if (!ctx.isComposing() || !ctx.editor()) return false;

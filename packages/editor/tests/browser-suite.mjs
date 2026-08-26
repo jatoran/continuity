@@ -16,6 +16,7 @@ import { runSoftKeyboardGateTests } from "./browser-soft-keyboard.mjs";
 import { runCoarsePointerPass } from "./browser-coarse-pass.mjs";
 import { runProjectionChromeTests } from "./browser-projection-chrome.mjs";
 import { runCompositionPointerTests } from "./browser-composition-pointer.mjs";
+import { runCompositionTeardownTests } from "./browser-composition-teardown.mjs";
 import { runViewportPersistenceTests } from "./browser-viewport-persistence.mjs";
 import { runCompositionTests } from "./browser-composition.mjs";
 import { runMobileImeTests } from "./browser-mobile-ime.mjs";
@@ -133,6 +134,7 @@ async function runContractTests() {
   assertions += await runSoftKeyboardGateTests(ContinuityEditorElement, check);
   assertions += await runProjectionChromeTests(ContinuityEditorElement, check);
   assertions += await runCompositionPointerTests(ContinuityEditorElement, check);
+  assertions += await runCompositionTeardownTests(ContinuityEditorElement, check);
   assertions += await runListNewlineTests(ContinuityEditorElement, check);
   assertions += await runViewportLineTests(ContinuityEditorElement, check);
   assertions += await runViewportPersistenceTests(ContinuityEditorElement, check);

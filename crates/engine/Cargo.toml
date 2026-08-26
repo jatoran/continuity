@@ -1,6 +1,6 @@
-[package]
+﻿[package]
 name = "continuity-engine"
-version = "0.2.34"
+version = "0.2.36"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

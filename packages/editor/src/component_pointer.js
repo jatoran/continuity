@@ -2,14 +2,15 @@ import {
   applyPrimaryPointerCapture,
   applyProjectedPointerSelection,
   handleUnmodifiedPointerClick,
+  isPositionWithinSelection,
 } from "./pointer_gesture.js";
-import { applySoftKeyboardGate, raiseSoftKeyboard } from "./soft_keyboard.js";
 import { revealCodeAffordanceAt } from "./code_affordances.js";
 import { findMarkdownLink } from "./projection.js";
 import { addPointerCaret, addVerticalCaret, verticalCaretSelections } from "./multi_selection.js";
 import { renderSelectionOverlays } from "./selection_overlays.js";
-import { selectionFromInput } from "./coordinates.js";
+import { applySelectionToInput, selectionFromInput } from "./coordinates.js";
 import { inputSelectionKey } from "./input_sync.js";
+import { isTouchScrolling } from "./scroll_surface.js";
 
 // Pointer and projected-selection application for the editor element. These
 // operate on a `ctx` bag the element builds once (stable DOM refs plus small
@@ -86,8 +87,10 @@ function applyLongPressSelection(ctx, point) {
   // This gesture is selection, not typing. Close the keyboard gate now, while
   // the finger is still down: the platform may synthesize a trailing tap when it
   // lifts, and a tap against the still-focused textarea is all Chrome needs to
-  // raise the IME over the words being selected.
-  applySoftKeyboardGate(ctx.input);
+  // raise the IME over the words being selected. With a keyboard already up the
+  // gate stays open instead — closing it there would dismiss the keyboard the
+  // writer is using rather than refuse one nobody asked for.
+  ctx.softKeyboard.holdForSelection();
   commitProjectedSelection(ctx, { anchor: position, head: position });
   ctx.executeCommand("editor.select_word");
   ctx.sync();
@@ -207,7 +210,7 @@ export async function runSelectionAction(ctx, action, capturedText) {
     // The tap moved focus to the button; the insert has to go to the editor.
     // Paste is typing intent expressed through a button rather than a tap, so it
     // lifts the keyboard gate for the same reason a resolved tap does.
-    raiseSoftKeyboard(ctx.input);
+    ctx.softKeyboard.raiseForTyping();
     ctx.insertText(text);
     return;
   }
@@ -335,6 +338,7 @@ export function completeProjectedPointerClick(ctx, event) {
     // which on Android is indefinitely.
     ctx.commitComposition();
   }
+  if (applyKeyboardRaisingTap(ctx, gesture)) return;
   if (!gesture.selection) {
     // The projection could not be hit-tested (a tap past the last glyph, on
     // chrome, or on a line with no realized geometry). Doing nothing here left
@@ -350,10 +354,12 @@ export function completeProjectedPointerClick(ctx, event) {
   //
   // A resolved touch tap is the only gesture that means "type here", which makes
   // it the only place the soft-keyboard gate opens. Every other touch — the
-  // long-press, the drag that extends it, a handle grab — leaves it closed, so a
-  // reader selecting text on a phone keeps the screen they were reading.
+  // long-press, the drag that extends it, a handle grab — leaves the keyboard
+  // exactly as it found it, so a reader selecting text on a phone keeps the
+  // screen they were reading and a writer selecting mid-sentence keeps the
+  // keyboard they were typing on.
   if (gesture.pointerType === "touch" && gesture.isTap) {
-    raiseSoftKeyboard(ctx.input);
+    ctx.softKeyboard.raiseForTyping();
   }
   if (handleUnmodifiedPointerClick(
     event, gesture, ctx.editor(), ctx.input,
@@ -376,6 +382,48 @@ export function completeProjectedPointerClick(ctx, event) {
     renderSelectionOverlays(ctx.carets, ctx.projection, ctx.editor().snapshot());
     ctx.schedule();
   }
+}
+
+/**
+ * Spend a tap on raising the keyboard rather than on moving the caret.
+ *
+ * A phone reader who selects a word with the keyboard down has one selection
+ * and no keyboard. Every route to acting on that selection — typing over it,
+ * and every button on the selection bar — needs the keyboard, and the only
+ * gesture that raises one is a tap, which until now also collapsed the very
+ * selection it was raised for. There was no order of operations that worked:
+ * tap first and the selection is gone, act first and there is nothing to act
+ * with. So the first tap *inside* the selection buys the keyboard and nothing
+ * else — the range, the highlight, and the bar all survive it.
+ *
+ * It is deliberately narrow. Only a resolved touch tap on a coarse pointer,
+ * only inside the highlight the reader can see (a tap outside is an ordinary
+ * tap that places a caret and raises the keyboard as it always did), only while
+ * the keyboard is down, and only once per selection — the tap after it means
+ * what a tap normally means, or a reader could never tap their way out of a
+ * selection they no longer want.
+ */
+function applyKeyboardRaisingTap(ctx, gesture) {
+  // Coarse-only, like the gate itself: on a fine pointer there is no keyboard
+  // to raise and a synthetic touch event must not change what a click does.
+  if (!isTouchScrolling()) return false;
+  if (gesture.pointerType !== "touch" || !gesture.isTap || !gesture.selection) return false;
+  const editor = ctx.editor();
+  const selection = editor?.snapshot().selections[0];
+  if (!selection || !isPositionWithinSelection(selection, gesture.selection.head)) return false;
+  if (!ctx.softKeyboard.claimSelectionPreservation(inputSelectionKey(ctx.input))) return false;
+  ctx.softKeyboard.raiseForTyping();
+  // Raising re-enters focus, and a blur/focus pair is not obliged to hand a
+  // textarea's selection back. Write the engine's own range in again so the tap
+  // that bought the keyboard cannot have cost the selection it was aimed at.
+  const snapshot = editor.snapshot();
+  applySelectionToInput(snapshot.text, selection, ctx.input);
+  ctx.setSelectionKey(inputSelectionKey(ctx.input));
+  // Nothing moved, so nothing downstream may treat this as a caret placement.
+  ctx.setCollapse(false);
+  renderSelectionOverlays(ctx.carets, ctx.projection, snapshot);
+  ctx.updateSelectionActions?.();
+  return true;
 }
 
 /** Add or remove a vertical (column) caret above/below the primary caret. */

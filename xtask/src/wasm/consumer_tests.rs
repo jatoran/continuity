@@ -37,6 +37,11 @@ pub(super) fn run_node_contracts(consumer: &Path) -> Result<()> {
         consumer,
         "selection-actions-placement.test.mjs",
         "packed touch selection action bar placement contract",
+    )?;
+    run_contract(
+        consumer,
+        "soft-keyboard-policy.test.mjs",
+        "packed soft-keyboard state transition contract",
     )
 }
 

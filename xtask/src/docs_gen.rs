@@ -18,6 +18,7 @@ mod markdown_paths;
 mod messages;
 mod modules;
 mod persist_schema;
+mod release_versions;
 mod repo_map;
 mod rust_source;
 mod selection_edits;
@@ -41,6 +42,7 @@ pub fn run_write() -> Result<()> {
     validate_generated_line_cap(&docs)?;
     write_generated_docs(&workspace, &docs)?;
     markdown_paths::validate(&workspace)?;
+    release_versions::validate(&workspace)?;
     println!(
         "xtask docs: wrote {} generated doc file(s) to {}",
         docs.len(),
@@ -64,6 +66,7 @@ pub fn check() -> Result<()> {
     validate_generated_line_cap(&docs)?;
     check_on_disk(&workspace, &docs)?;
     markdown_paths::validate(&workspace)?;
+    release_versions::validate(&workspace)?;
     Ok(())
 }
 

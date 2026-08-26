@@ -52,7 +52,15 @@ Test before adding a modal: is this interruption *reversible*? If yes, it's a ba
 ## Launch + sessions
 
 - **Launch behavior**: restore last session (all windows, panes, tabs, virtual desktops).
-- **Single instance per data dir**: a second `continuity.exe` launch does **not** replay the persisted session (which would duplicate every open window). It forwards its command-line file/folder paths to the running instance over `WM_COPYDATA` and exits; a bare launch activates the top-most Continuity window on the current virtual desktop, or creates a fresh blank window there when none exists. Virtual-desktop detection failure also creates locally rather than risking a desktop switch. Bypass with `--new-instance` (the e2e insert hook bypasses too). Keyed per database path so portable + installed instances coexist. See `architecture.md` § Process model.
+- **Single instance per data dir**: a second `continuity.exe` launch does not replay the persisted session.
+  It forwards its command-line paths to the running instance and exits.
+  File launches within a 120 ms quiet window, capped at 350 ms, open as tabs in one new window.
+  A bare launch activates the top-most Continuity window on the current virtual desktop, or creates a fresh blank window there when none exists.
+  Virtual-desktop detection failure also creates locally rather than risking a desktop switch.
+  Bypass with `--new-instance`; the e2e insert hook also bypasses.
+  The claim is keyed per database path so portable and installed instances coexist.
+  See `architecture.md` Process model.
+- **Dropped files**: dropping non-image files onto a window inserts tabs in the pane under the drop point.
 - **Restore without focus theft**: at launch only the most-recently-seen restored window takes the foreground; the rest show with `SW_SHOWNOACTIVATE`. A window restored onto a non-active virtual desktop never activates (activating it there would switch the user's desktop). Runtime-spawned windows (new window, tear-off, file open) and `Ctrl+Shift+T` reopen still activate.
 - **No empty panes** (D4).
 - Heavy multi-window + virtual-desktop user → `request_state_save` wiring (A8) is critical.

@@ -1,4 +1,4 @@
-import { applySoftKeyboardGate } from "./soft_keyboard.js";
+import { createSoftKeyboardGate } from "./soft_keyboard.js";
 
 /** Build the semantic input, visual projection, and non-semantic overlay layers. */
 export function buildEditorDom(host, styles) {
@@ -30,8 +30,11 @@ export function buildEditorDom(host, styles) {
   // Closed until a touch resolves as typing. On a phone the textarea stays
   // focused after the keyboard is dismissed with the back gesture, and a focused
   // editable is all Chrome needs to raise the IME again for the next touch —
-  // including a long-press that only meant to select.
-  applySoftKeyboardGate(input);
+  // including a long-press that only meant to select. The gate that owns the
+  // attribute from here on also owns the keyboard state behind it, so a later
+  // selection gesture can tell "hold the keyboard down" apart from "take the
+  // keyboard away".
+  const softKeyboard = createSoftKeyboardGate(input);
   // Touch surface. A finger resting on the textarea gets the platform's own
   // long-press selection, hit-tested against a layout that cannot match the
   // projection — and no CSS or event can refuse it on an editable element. So
@@ -48,7 +51,9 @@ export function buildEditorDom(host, styles) {
   keyboardHelp.id = "continuity-keyboard-help";
   keyboardHelp.className = "keyboard-help";
   shadow.append(style, frame, keyboardHelp);
-  return { affordances, carets, frame, input, keyboardHelp, projection, shield, shieldSpacer };
+  return {
+    affordances, carets, frame, input, keyboardHelp, projection, shield, shieldSpacer, softKeyboard,
+  };
 }
 
 /** Synchronize host attributes into the semantic textarea and the projection. */

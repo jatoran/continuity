@@ -52,9 +52,7 @@ use continuity_win::{set_per_monitor_dpi_v2, ComGuard};
 
 use main_initial_requests::{build_initial_requests, mark_clean_exit};
 use registry::{make_channel, run, RegistryCtx, RegistryRuntime, SpawnRequest};
-use registry_file_buffers::{
-    build_file_buffer_index, file_buffer_for_path, register_file_buffer, FileBufferIndex,
-};
+use registry_file_buffers::{build_file_buffer_index, resolve_open_file_buffer, FileBufferIndex};
 use runtime_paths::StartupOptions;
 use single_instance::{claim_or_forward, spawn_instance_hub, InstanceClaim};
 
@@ -155,26 +153,38 @@ fn main() -> Result<()> {
     let (tx, rx) = make_channel();
     let mut initial_requests = build_initial_requests(&persist.client(), &editor, &db)?;
     let file_buffer_index = build_file_buffer_index(&initial_requests, &editor);
-    attach_startup_open_files(
-        &mut initial_requests,
-        &editor,
-        &startup_options.startup_paths.files,
-        &file_buffer_index,
-    );
-    attach_startup_open_folders(
-        &mut initial_requests,
-        &startup_options.startup_paths.folders,
-    );
-    attach_startup_open_vaults(
-        &mut initial_requests,
-        &editor,
-        &startup_options.startup_paths.vaults,
-    );
     // The hub only exists in a claimed primary; bypassed instances must
-    // not receive forwards meant for the real session.
-    let instance_hub = instance_guard
-        .as_ref()
-        .and_then(|_| spawn_instance_hub(&db, editor.clone(), tx.clone()));
+    // not receive forwards meant for the real session. Start it before
+    // direct startup routing so thread-spawn failure can fall back safely.
+    let instance_hub = instance_guard.as_ref().and_then(|_| {
+        spawn_instance_hub(
+            &db,
+            editor.clone(),
+            tx.clone(),
+            startup_options.startup_paths.clone(),
+        )
+    });
+    let routes_startup_paths_through_handoff =
+        instance_hub.is_some() && !startup_options.startup_paths.files.is_empty();
+    if routes_startup_paths_through_handoff {
+        remove_replaceable_initial_blank_request(&mut initial_requests, &editor);
+    } else {
+        attach_startup_open_files(
+            &mut initial_requests,
+            &editor,
+            &startup_options.startup_paths.files,
+            &file_buffer_index,
+        );
+        attach_startup_open_folders(
+            &mut initial_requests,
+            &startup_options.startup_paths.folders,
+        );
+        attach_startup_open_vaults(
+            &mut initial_requests,
+            &editor,
+            &startup_options.startup_paths.vaults,
+        );
+    }
     let ctx = RegistryCtx {
         persist: persist.client(),
         editor: editor.clone(),
@@ -280,82 +290,84 @@ fn attach_startup_open_files(
     if paths.is_empty() {
         return;
     }
-    let mut file_requests = Vec::new();
+    let mut buffer_ids = Vec::new();
+    let mut reconciles = Vec::new();
+    let mut recovery_notices = Vec::new();
     let mut failed_notices = Vec::new();
     for path in paths {
-        let mut notices = Vec::new();
-        let buffer_id = match file_buffer_for_path(editor, file_buffer_index, path) {
-            Some(buffer_id) => Some(buffer_id),
-            None => match continuity_ui::file_io::read_startup_file(path) {
-                Ok(opened) => {
-                    let encoding_notice = opened.encoding_notice;
-                    let opened_path = opened.file.path.clone();
-                    let buffer_id = editor.open_file_buffer(opened.content, opened.file);
-                    register_file_buffer(file_buffer_index, opened_path.clone(), buffer_id);
-                    if let Some(encoding) = encoding_notice {
-                        notices.push(format!(
-                            "Opened {} as {encoding}; saving will write UTF-8.",
-                            opened_path.display()
-                        ));
-                    }
-                    Some(buffer_id)
+        match continuity_ui::file_io::read_startup_file(path) {
+            Ok(opened) => {
+                let buffer_id = resolve_open_file_buffer(
+                    editor,
+                    file_buffer_index,
+                    &opened.content,
+                    opened.file.clone(),
+                );
+                if buffer_ids.contains(&buffer_id) {
+                    continue;
                 }
-                Err(e) => {
-                    let message = format!("Open failed for {}: {e}", path.display());
-                    eprintln!("continuity: {message}");
-                    failed_notices.push(message);
-                    None
+                if let Some(encoding) = opened.encoding_notice {
+                    recovery_notices.push(format!(
+                        "Opened {} as {encoding}; saving will write UTF-8.",
+                        opened.file.path.display()
+                    ));
                 }
-            },
-        };
-        if let Some(buffer_id) = buffer_id {
-            file_requests.push(startup_file_spawn_request(
-                buffer_id,
-                notices,
-                file_requests.len(),
-            ));
+                buffer_ids.push(buffer_id);
+                reconciles.push(continuity_ui::PendingReconcile {
+                    buffer_id,
+                    content: opened.content,
+                    file: opened.file,
+                });
+            }
+            Err(e) => {
+                let message = format!("Open failed for {}: {e}", path.display());
+                eprintln!("continuity: {message}");
+                failed_notices.push(message);
+            }
         }
     }
-    if file_requests.is_empty() {
+    if buffer_ids.is_empty() {
         if let Some(first) = requests.first_mut() {
             first.recovery_notices.append(&mut failed_notices);
         }
         return;
     }
+    recovery_notices.append(&mut failed_notices);
+    let initial_buffer_id = buffer_ids.remove(0);
+    let mut file_request =
+        startup_file_spawn_request(initial_buffer_id, buffer_ids, reconciles, recovery_notices);
     if let Some(first) = requests.first_mut() {
         first.open_tutorial_on_init = false;
     }
     if should_replace_initial_blank_request(requests, editor) {
-        let mut first_file = file_requests.remove(0);
         if let Some(existing_first) = requests.first_mut() {
             let mut existing_notices = std::mem::take(&mut existing_first.recovery_notices);
-            existing_notices.append(&mut failed_notices);
-            existing_notices.append(&mut first_file.recovery_notices);
-            first_file.recovery_notices = existing_notices;
-            *existing_first = first_file;
+            existing_notices.append(&mut file_request.recovery_notices);
+            file_request.recovery_notices = existing_notices;
+            *existing_first = file_request;
         }
-    } else if let Some(first) = requests.first_mut() {
-        first.recovery_notices.append(&mut failed_notices);
+    } else {
+        requests.push(file_request);
     }
-    requests.extend(file_requests);
 }
 
 pub(crate) fn startup_file_spawn_request(
-    buffer_id: BufferId,
+    initial_buffer_id: BufferId,
+    startup_open_buffer_ids: Vec<BufferId>,
+    startup_reconciles: Vec<continuity_ui::PendingReconcile>,
     recovery_notices: Vec<String>,
-    ordinal: usize,
 ) -> SpawnRequest {
     SpawnRequest {
-        initial_buffer_id: buffer_id,
+        initial_buffer_id,
         restored: None,
         activate_on_restore: false,
-        explicit_origin: startup_file_window_origin(ordinal),
+        explicit_origin: startup_file_window_origin(0),
         cascade_from: None,
         recovery_notices,
         open_tutorial_on_init: false,
-        startup_open_buffer_ids: Vec::new(),
+        startup_open_buffer_ids,
         startup_folder_roots: Vec::new(),
-        reconcile_on_init: None,
+        startup_reconciles,
     }
 }
 
@@ -388,6 +400,17 @@ fn should_replace_initial_blank_request(
         return false;
     };
     snapshot.file.is_none() && snapshot.rope_snapshot().rope().len_bytes() == 0
+}
+
+fn remove_replaceable_initial_blank_request(
+    requests: &mut Vec<SpawnRequest>,
+    editor: &Arc<EditorHandle>,
+) {
+    if should_replace_initial_blank_request(requests, editor) {
+        requests.clear();
+    } else if let Some(first) = requests.first_mut() {
+        first.open_tutorial_on_init = false;
+    }
 }
 
 fn attach_startup_open_folders(requests: &mut [SpawnRequest], folders: &[PathBuf]) {
@@ -427,7 +450,24 @@ fn attach_startup_open_vaults(
             open_tutorial_on_init: false,
             startup_open_buffer_ids: Vec::new(),
             startup_folder_roots: vec![root.clone()],
-            reconcile_on_init: None,
+            startup_reconciles: Vec::new(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_file_request_keeps_selected_files_in_one_window() {
+        let first = BufferId::new();
+        let second = BufferId::new();
+        let third = BufferId::new();
+        let request =
+            startup_file_spawn_request(first, vec![second, third], Vec::new(), Vec::new());
+
+        assert_eq!(request.initial_buffer_id, first);
+        assert_eq!(request.startup_open_buffer_ids, vec![second, third]);
     }
 }

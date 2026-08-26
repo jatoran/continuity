@@ -59,15 +59,6 @@ pub(crate) fn register_file_buffer(index: &FileBufferIndex, path: PathBuf, buffe
     upsert_file_buffer_entry(&mut entries, path, buffer_id);
 }
 
-/// Return the live buffer already associated with `path`, if any.
-pub(crate) fn file_buffer_for_path(
-    editor: &Arc<EditorHandle>,
-    index: &FileBufferIndex,
-    path: &Path,
-) -> Option<BufferId> {
-    find_live_file_buffer(editor, index, path)
-}
-
 /// Build the callback UI windows use to open files. The decision to
 /// reveal an existing tab vs. spawn a fresh window is made on the registry
 /// main thread (it owns the cross-window state), so the callback just
@@ -83,6 +74,7 @@ pub(crate) fn make_open_file_window_handler(ctx: &RegistryCtx) -> OpenFileWindow
             recovery_notices: request.recovery_notices,
             disposition: request.disposition,
             source_window_id: request.source_window_id,
+            target_pane: request.target_pane,
             vault_root: request.vault_root,
         });
     })

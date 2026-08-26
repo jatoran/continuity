@@ -61,7 +61,7 @@ impl Window {
         let dwrite = DWriteFactory::new()?;
         let startup_open_buffer_ids = commands.startup_open_buffer_ids;
         let startup_folder_roots = commands.startup_folder_roots;
-        let reconcile_on_init = commands.reconcile_on_init;
+        let startup_reconciles = commands.startup_reconciles;
         let (file_open_tx, file_open_rx) =
             crossbeam_channel::bounded(crate::file_io_worker::CHANNEL_CAPACITY);
 
@@ -323,12 +323,11 @@ impl Window {
             }
         }
         window.watch_existing_file_tabs();
-        // Reconcile this window's initial buffer against the bytes the
-        // registry already read when (re)opening a file that already had a
-        // buffer — shows current content or banners a dirty conflict.
-        if let Some(reconcile) = reconcile_on_init {
-            let initial = window.buffer_id;
-            window.reconcile_file_buffer(initial, reconcile.content, reconcile.file);
+        // Reconcile every grouped startup file against the bytes the
+        // registry already read. This includes reused buffers whose stored
+        // content may differ from disk.
+        for reconcile in startup_reconciles {
+            window.reconcile_file_buffer(reconcile.buffer_id, reconcile.content, reconcile.file);
         }
         // Restore never reads disk; recheck every restored file-associated
         // buffer so an edit made while continuity was closed reconciles at

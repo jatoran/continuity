@@ -58,6 +58,19 @@ The line-prefix toggles — `ToggleBulletAtLineStart` (`Ctrl+R`, `edit_lines/tog
 - **`ToggleBulletWithContinuationIndent { unit }`** behaves like `ToggleBulletAtLineStart` for a single-line selection; for a multi-line selection the add path also prepends one `unit` indent to every covered line **after the first** (turning the selection into a bulleted list whose continuation lines nest under the first item), and the strip path removes both the bullet and that indent. `unit` is read live from the dispatch context (mirrors `editor.indent`).
 - **Encoding**: `SpacesToTabs { tab_width }`, `TabsToSpaces { tab_width }`, `ConvertLineEndings(LineEnding)`.
 
+### Block-scope guarding (`edit_block_scope.rs`)
+A line-prefix rewrite is not a safe Markdown edit on its own.
+In CommonMark a plain line that follows a marked line is folded into the marked block as *lazy continuation* text, so prefixing `- ` to the first line of `alpha\nbeta` pulls the untouched `beta` inside the new list item; stripping the marker from the middle item of a list has the mirror defect and drops that line into the previous item.
+
+`finalize_block_toggle_specs` wraps `finalize_specs` for every block-marker planner — `ToggleBulletAtLineStart`, `ToggleBulletWithContinuationIndent`, `MarkdownToggleBullet/Numbered/Checkbox/Task`, `MarkdownCycleListMarker`, `MarkdownWrapInBlockquote`, and the `MarkdownSetHeading`/`MarkdownCycleHeading` rewrite — and inserts a blank-line separator wherever the rewrite would otherwise pull an untouched neighbour into, or newly join it to, the toggled run.
+It reads the post-toggle text straight out of the planner's whole-line replacement specs, so a planner opts in by changing one call, not by re-deriving structure.
+
+- **Chosen resolution is a paragraph split, not a continuation indent.** Indenting the following lines under the new item makes the absorption explicit rather than preventing it, which is the behaviour writers report as wrong.
+- **Separators are only inserted, never auto-removed.** A blank line the writer typed is indistinguishable from one a toggle inserted; deleting it on the reverse toggle would silently merge paragraphs the writer separated.
+- **Consequence for round trips**: toggle-on then toggle-off is byte-identical whenever no separator was needed (a single-line paragraph, the last line of a paragraph, a line adjacent to an existing list). When a separator was needed the text is otherwise byte-identical and the separator stays.
+- The separator inserts belong to the same `SelectionEditPlan`, so they land in the toggle's single undo group, and `selections_after` is shifted down one line per separator inserted above it.
+- The CommonMark predicates (`is_lazy_continuation_line`, `is_paragraph_continuable_line`) encode the paragraph-interruption rules: only an ordered list numbered `1` and a non-empty bullet may interrupt a paragraph, four-space-indented lines cannot (indented code does not interrupt), and ATX headings, fences, thematic breaks, and HTML blocks are leaves that neither continue nor are continued.
+
 ### Cursor coalescing (B1)
 `coalesce_selections` runs after every `apply_plan` and inside the `SetSelections` / `MutateSelections` dispatch arms. Identical `(anchor, head, kind)` tuples are deduped while preserving order.
 

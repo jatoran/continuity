@@ -14,8 +14,9 @@ use std::collections::HashMap;
 use continuity_buffer::Buffer;
 use continuity_text::{Position, Selection};
 
+use crate::edit_block_scope::finalize_block_toggle_specs;
 use crate::edit_markdown::split_leading_list_marker;
-use crate::edit_planning::{finalize_specs, line_content_end, EditSpec};
+use crate::edit_planning::{line_content_end, EditSpec};
 use crate::selection_edit::SelectionEditPlan;
 use crate::Error;
 
@@ -144,7 +145,7 @@ pub(crate) fn plan_toggle_bullet_at_line_start(
     }
 
     let selections_after = shift_selections(&selections_before, &deltas);
-    Ok(finalize_specs(specs, selections_before, selections_after))
+    finalize_block_toggle_specs(rope, specs, selections_before, selections_after)
 }
 
 /// Toggle a `- ` bullet on the covered lines and, for a multi-line
@@ -240,7 +241,7 @@ pub(crate) fn plan_toggle_bullet_with_continuation_indent(
     }
 
     let selections_after = shift_selections(&selections_before, &deltas);
-    Ok(finalize_specs(specs, selections_before, selections_after))
+    finalize_block_toggle_specs(rope, specs, selections_before, selections_after)
 }
 
 /// Snapshot every covered line for the toggle decision. Returns `None` when

@@ -15,7 +15,6 @@ import { commitProjectedSelection, runSelectionAction } from "./component_pointe
 import { orderedRange } from "./overlay_rects.js";
 import { projectionPositionAtPoint } from "./projection.js";
 import { isTouchScrolling } from "./scroll_surface.js";
-import { applySoftKeyboardGate } from "./soft_keyboard.js";
 
 /** Build the overlay chrome and return the controller the element drives. */
 export function createEditorOverlays(ctx, dom) {
@@ -36,8 +35,10 @@ export function createEditorOverlays(ctx, dom) {
     onDragStart: (edge) => {
       // Adjusting a selection is not typing. The handle is grabbed while the
       // textarea already holds focus, so without closing the gate here the grab
-      // reaches Chrome as one more touch against a focused editable.
-      applySoftKeyboardGate(ctx.input);
+      // reaches Chrome as one more touch against a focused editable. It closes
+      // only where there is no keyboard up: adjusting a selection while typing
+      // must leave the keyboard exactly where it is, in either direction.
+      ctx.softKeyboard.holdForSelection();
       dragAnchor = frozenAnchor(ctx, edge);
       actions.hide();
     },

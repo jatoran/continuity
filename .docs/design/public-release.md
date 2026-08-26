@@ -45,7 +45,7 @@ cargo xtask release --skip-sign
 
 ```powershell
 git tag v<version>
-git push origin main
+git push origin master
 git push origin v<version>
 
 gh release create v<version> `
@@ -53,9 +53,16 @@ gh release create v<version> `
   releases\<version>\continuity-<version>-portable.zip `
   releases\<version>\continuity-<version>-standalone.zip `
   releases\<version>\SHA256SUMS.txt `
-  --title "Continuity <version>" `
+  --title "Continuity for Windows v<version>" `
   --notes "<short release notes>"
 ```
+
+## Release Presentation
+- Desktop release titles are `Continuity for Windows v<version>`. SDK release titles are `Continuity SDK sdk-v<version>`. A release created without `--title` renders as its bare tag in the release list.
+- Desktop releases are full releases and own the repository's "Latest" badge. SDK releases pass `--prerelease` while the SDK channel is `preview`, so a preview SDK never displaces the desktop application as the headline release. See [Release and Public Repository Operations](../development/release_operations.md).
+- The release body should cross-link the other train, because both trains publish into one release list.
+- `EMBEDDING.md`'s `Current coordinates` table is validated by `cargo xtask docs-check` against `crates\app\Cargo.toml` and `sdk\release.toml`; bump the version and the table in the same change.
+- Unpublished local version bumps are not reservations. Ship the current `crates\app\Cargo.toml` version and let skipped versions stay skipped.
 
 ## Key Files
 | File | Responsibility |

@@ -2,7 +2,21 @@
 
 Continuity is a native Windows markdown notes editor for writing notes. Period. Code notes included, but this is not trying to be a code editor.
 
+![Continuity](assets/media/hero.png)
+
 I wanted something with the speed, ephemerality, and safety I like in Sublime Text, but aimed at notes: better Windows virtual desktop behavior, WYSIWYG markdown editing, and no "did I save?" anxiety. Every keystroke is written to a local SQLite database; saving a file is export, not durability.
+
+## Markdown renders as you type
+
+The source stays plain markdown. The caret line always shows you the raw text, everything else renders.
+
+![Live markdown rendering](assets/media/live-markdown.gif)
+
+## There is no save button
+
+Every keystroke goes to a local SQLite database, so there is nothing to lose. Below, the process is hard-killed mid-sentence and reopened. The note, the caret position, and the open tab all come back.
+
+![Crash safety](assets/media/crash-safety.gif)
 
 The markdown surface is my own flavor of WYSIWYG. The source stays plain markdown, but Continuity projects it through a custom live renderer so headings, lists, checkboxes, links, tables, inline code, and images can feel integrated instead of bolted on.
 
@@ -39,7 +53,26 @@ Both are early software and still changing quickly.
 - Configurable themes, keymap, settings, fonts, wrapping, and view behavior.
 - Fast large-buffer projection and soft-wrap work aimed at keeping writing responsive.
 
+### Find
+
+Live match highlighting across the buffer, with regex, whole-word, case, and scope toggles.
+
+![Find](assets/media/find.png)
+
 ### Performance notes
+
+These are enforced in CI, not aspirational. A build that misses one fails the push.
+
+| Gate | p99 budget |
+|---|---:|
+| Keypress to pixel | 8 ms |
+| Edit application | 4 ms |
+| `WM_PAINT` to frame ready | 2 ms |
+| Incremental markdown parse | 1 ms |
+| Cold start, empty | 120 ms |
+| Stripped binary | 9 MiB |
+
+There is also a heap assertion of zero new allocations per keystroke in steady state.
 
 - Text input: `WM_CHAR` p99 around 2-4 ms in recent release traces.
 - Edit application: p99 around 4 ms for normal typing/edit paths.

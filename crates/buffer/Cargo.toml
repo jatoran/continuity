@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name             = "continuity-buffer"
 version          = "0.2.36"
 edition.workspace      = true

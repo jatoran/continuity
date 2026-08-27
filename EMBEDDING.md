@@ -23,14 +23,32 @@ prerelease and the desktop application keeps the repository's "Latest" badge.
 
 ### Where SDK artifacts come from today
 
-Registry publication is **not active yet**: `npm install
-@continuity-editor/editor`, `cargo add continuity-engine`, and
-`pip install continuity-editor` do not resolve. Until the registries are
-activated, every published SDK artifact is attached to its GitHub Release, and
-the commands in this guide consume locally built artifacts unless explicitly
-marked otherwise.
+| Registry | Status | Install |
+|---|---|---|
+| crates.io | Live at `0.2.36` | `cargo add continuity-engine` |
+| npm | Live at `0.2.36` under the `next` tag | `npm install @continuity-editor/editor@next` |
+| PyPI | Not published | Build locally; see the Python section |
 
-To consume a published SDK release without building it:
+**The npm `@next` suffix is required, not optional.** The SDK channel is
+`preview`, so releases publish to the `next` dist-tag and the package has no
+`latest`. A bare `npm install @continuity-editor/editor` fails with
+`No matching version found`. The bare form starts working when
+`sdk/release.toml` flips `channel` to `stable`, which moves publication to the
+`latest` tag.
+
+PyPI is deliberately unpublished. The wheel is built only for
+`cp310-abi3-win_amd64` and there is no source distribution, so publishing it
+would make `pip install continuity-editor` fail on Linux and macOS with a
+confusing resolver error. Publishing waits on either cross-platform wheels or
+an sdist.
+
+`0.2.36` was published to crates.io and npm by hand from a verified local
+bundle to bootstrap the registries, because both registries require a package
+to exist before trusted publishing can be configured for it. Later releases
+publish from CI.
+
+Every published SDK artifact is also attached to its GitHub Release. To consume
+a release without a registry:
 
 ```powershell
 gh release download sdk-v0.2.34 --repo jatoran/continuity --dir sdk-v0.2.34

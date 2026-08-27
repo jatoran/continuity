@@ -82,9 +82,18 @@ The same editor engine, without the Windows application around it. One synchrono
 <continuity-editor value="# Hello\n\nStart typing."></continuity-editor>
 ```
 
-### Getting SDK artifacts
+### Install
 
-**Registry publication is not active yet.** `npm install @continuity-editor/editor`, `cargo add continuity-engine`, and `pip install continuity-editor` do not resolve today. Every published SDK artifact is attached to its GitHub Release instead:
+```bash
+npm install @continuity-editor/editor@next   # browser, Electron, any JS host
+cargo add continuity-engine                  # Rust
+```
+
+The `@next` on the npm package is required. The SDK is a preview channel, so it publishes to the `next` dist-tag and has no `latest`; a bare `npm install @continuity-editor/editor` will not resolve.
+
+`pip install continuity-editor` is not available yet. The Python wheel is currently built for Windows only, and shipping it without wheels for other platforms would make `pip install` fail confusingly on Linux and macOS.
+
+Every SDK artifact is also attached to its GitHub Release, if you would rather pin an exact file:
 
 ```powershell
 gh release download sdk-v0.2.34 --repo jatoran/continuity --dir continuity-sdk
@@ -92,6 +101,8 @@ npm install ./continuity-sdk/continuity-editor-0.2.34.tgz
 ```
 
 Each SDK release carries the npm tarball, the `continuity-text` / `continuity-buffer` / `continuity-engine` crates, a Windows C archive (DLL plus header), a Python wheel, a CycloneDX SBOM, `release-manifest.json`, and `SHA256SUMS.txt`, all covered by GitHub build provenance attestation.
+
+The C ABI ships as a Windows DLL plus `continuity_engine.h` in the release archive; it is not on a package registry.
 
 SDK releases are marked as prereleases while the channel is `preview`, so the repository's "Latest" release stays pointed at the desktop application.
 

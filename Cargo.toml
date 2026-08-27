@@ -59,8 +59,14 @@ continuity-config       = { path = "crates/config" }
 continuity-win          = { path = "crates/win" }
 continuity-trace        = { path = "crates/trace" }
 continuity-ui           = { path = "crates/ui" }
-continuity-test-support = { path = "crates/test_support", version = "0.1.0", default-features = false }
-continuity-test-fixtures = { path = "crates/test_fixtures", version = "0.1.0" }
+# Deliberately path-only: no `version` key. `continuity-test-support` is internal
+# test scaffolding and is never published, but a dev-dependency carrying a version
+# is treated as a registry dependency, so `cargo publish` for continuity-buffer
+# demanded it exist on crates.io. Cargo strips path-only dev-dependencies when
+# packaging, which is what lets the SDK crate closure publish at all.
+continuity-test-support = { path = "crates/test_support", default-features = false }
+# Path-only for the same reason as `continuity-test-support` above.
+continuity-test-fixtures = { path = "crates/test_fixtures" }
 
 # Buffer / text
 ropey                = "1.6"

@@ -57,6 +57,15 @@ gh release create v<version> `
   --notes "<short release notes>"
 ```
 
+## Package Managers
+- Continuity is listed on winget as `Continuity.Continuity`. `winget install Continuity.Continuity` is the normal install path; the MSI download remains available.
+- `.github/workflows/winget-release.yml` opens a manifest pull request against `microsoft/winget-pkgs` automatically when a desktop release is published. It runs in the public repository, because that is where `v*` releases are created, and `scripts\sync-public.ps1` copies it there.
+- The workflow triggers on the `released` event rather than `published`. `published` also fires for prereleases, and every SDK release is a prerelease; only full desktop releases belong on winget. A tag-prefix guard rejects `sdk-v*` as a second line of defence.
+- It requires a `WINGET_TOKEN` repository secret in the public repo: a classic personal access token with `public_repo` scope. The default `GITHUB_TOKEN` cannot push to the fork of `microsoft/winget-pkgs`.
+- winget's `PackageVersion` has no `v` prefix, so the workflow strips it from the tag and refuses anything that is not `MAJOR.MINOR.PATCH`.
+- Manifest metadata changes (description, tags, URLs) are edited in the `microsoft/winget-pkgs` pull request, not in this repository. `Tags` in particular drive `winget search`; a manifest without them is only findable by exact package name.
+- Every winget submission is subject to Microsoft review. Unsigned installers draw additional scrutiny; see the code-signing prerequisite in the roadmap.
+
 ## Release Presentation
 - Desktop release titles are `Continuity for Windows v<version>`. SDK release titles are `Continuity SDK sdk-v<version>`. A release created without `--title` renders as its bare tag in the release list.
 - Desktop releases are full releases and own the repository's "Latest" badge. SDK releases pass `--prerelease` while the SDK channel is `preview`, so a preview SDK never displaces the desktop application as the headline release. See [Release and Public Repository Operations](../development/release_operations.md).

@@ -1,0 +1,58 @@
+name: winget release
+
+# Submits a winget manifest PR to microsoft/winget-pkgs whenever a desktop
+# release is published, so the winget listing cannot drift behind the release
+# train.
+#
+# This runs in the PUBLIC repository, because that is where desktop `v*` tags
+# and their GitHub Releases live. `scripts/sync-public.ps1` copies it there.
+
+on:
+  release:
+    # `released` deliberately, not `published`: `published` also fires for
+    # prereleases, and every SDK release is a prerelease. Only full desktop
+    # releases should reach winget.
+    types: [released]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Desktop version or tag to submit, for example 0.4.8 or v0.4.8
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    name: submit winget manifest
+    # Belt and braces behind the `released` event type: an SDK tag must never
+    # be submitted as a desktop package version.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      !startsWith(github.event.release.tag_name, 'sdk-v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the package version
+        id: version
+        run: |
+          set -euo pipefail
+          raw="${{ inputs.version || github.event.release.tag_name }}"
+          # Tags are `v0.4.8`; winget's PackageVersion is `0.4.8`.
+          version="${raw#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "refusing to submit non-release version: $version" >&2
+            exit 1
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Open the manifest pull request
+        uses: vedantmgoyal9/winget-releaser@main
+        with:
+          identifier: Continuity.Continuity
+          version: ${{ steps.version.outputs.value }}
+          # Only the MSI. The portable and standalone zips are not installers
+          # winget can manage, and SHA256SUMS.txt is not an installer at all.
+          installers-regex: '-setup\.msi$'
+          # A classic PAT with `public_repo` scope. The default GITHUB_TOKEN
+          # cannot push to the fork of microsoft/winget-pkgs.
+          token: ${{ secrets.WINGET_TOKEN }}

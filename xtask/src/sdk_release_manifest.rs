@@ -119,7 +119,45 @@ fn verify_workspace(root: &Path, config: &ReleaseConfig) -> Result<()> {
             &format!("workspace dependency `{name}`"),
         )?;
     }
+    verify_unpublished_path_dependencies(dependencies, config)?;
     Ok(())
+}
+
+/// Reject a `version` key on any workspace path dependency outside the release
+/// package list.
+///
+/// Cargo resolves a dependency carrying a `version` against the registry even
+/// when it also has a `path`, and it strips path-only dev-dependencies when
+/// packaging. So a `version` on an internal-only crate makes `cargo publish`
+/// demand that crate exist on crates.io. `continuity-test-support` and
+/// `continuity-test-fixtures` each blocked the 0.2.36 bootstrap this way, one
+/// after the other, and the failure only surfaces at publish time — which for a
+/// tagged release means a burned tag.
+fn verify_unpublished_path_dependencies(
+    dependencies: &toml::value::Table,
+    config: &ReleaseConfig,
+) -> Result<()> {
+    let mut offenders = Vec::new();
+    for (name, value) in dependencies {
+        if config.cargo.packages.iter().any(|p| p == name) {
+            continue;
+        }
+        let Some(table) = value.as_table() else {
+            continue;
+        };
+        if table.contains_key("path") && table.contains_key("version") {
+            offenders.push(name.as_str());
+        }
+    }
+    if offenders.is_empty() {
+        return Ok(());
+    }
+    bail!(
+        "workspace path dependencies carry a `version` but are not published: {}. \
+         Cargo resolves them from the registry, so `cargo publish` will fail. \
+         Remove the `version` key to make them path-only.",
+        offenders.join(", ")
+    );
 }
 
 fn verify_rust_wrappers(root: &Path, config: &ReleaseConfig) -> Result<()> {

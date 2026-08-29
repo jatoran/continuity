@@ -21,8 +21,8 @@ The flags now live in one place (`xtask/src/sdk_crate_flags.rs`) that staging,
 the publish dry run, and the workflow all read, and the workflow calls
 `cargo xtask sdk-publish-crates` instead of restating the loop.
 
-`continuity-text 0.2.38` remains on crates.io with no matching `continuity-buffer`
-or `continuity-engine`; use `0.2.39`, where all three agree.
+`continuity-text 0.2.38` was published with no matching `continuity-buffer` or
+`continuity-engine` and has since been yanked; use `0.2.39`, where all three agree.
 
 ## 0.2.38
 

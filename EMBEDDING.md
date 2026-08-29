@@ -51,9 +51,10 @@ bundle to bootstrap the registries, because both registries require a package
 to exist before trusted publishing can be configured for it. `0.2.39` is the
 first release published end-to-end by CI through trusted publishing.
 
-`continuity-text` also carries an orphaned `0.2.38` with no matching
-`continuity-buffer` or `continuity-engine`, left by a release that published one
-crate before failing. Resolve the SDK closure at `0.2.39`.
+`continuity-text 0.2.38` was published without a matching `continuity-buffer` or
+`continuity-engine` by a release that failed partway through its closure, and has
+been yanked. Yanking leaves it resolvable for any lockfile that already pinned it
+but keeps new resolution off it, so the SDK closure resolves at `0.2.39`.
 
 Every published SDK artifact is also attached to its GitHub Release. To consume
 a release without a registry:
@@ -184,7 +185,7 @@ SDK `0.2.39` carries no product change; it completes the Cargo closure that `0.2
 The release workflow kept its own copy of the `cargo package` flags, and that copy had drifted from the staging path by omitting the `--config patch.crates-io.*` overrides, so the archive it re-derived embedded a `Cargo.lock` resolving workspace siblings from the registry rather than from local paths and could never match the staged, attested archive.
 `continuity-text` matched only because it is the one crate needing no overrides, which is why `0.2.38` published a third of its closure before failing.
 The flags now live in `xtask/src/sdk_crate_flags.rs`, which staging, the publish dry run, and the workflow all read.
-`continuity-text 0.2.38` remains on crates.io without a matching `continuity-buffer` or `continuity-engine`; use `0.2.39`.
+`continuity-text 0.2.38` was published without a matching `continuity-buffer` or `continuity-engine` and has since been yanked; the closure resolves at `0.2.39`.
 
 SDK `0.2.38` carries no product change; it is `0.2.37` republished so the Cargo closure reaches crates.io.
 `0.2.37`'s release workflow re-ran `cargo package` on Ubuntu and required the result to be byte-identical to the `.crate` staged on Windows, which cannot hold while the repository leaves line endings unnormalized, so the Cargo job failed before publishing anything.

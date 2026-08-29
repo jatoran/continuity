@@ -174,32 +174,22 @@ jobs:
               "$(sha256sum "$staged" | cut -d' ' -f1)"
           done
 
-  publish-pypi:
-    name: publish Python wheel
-    needs: stage
-    if: startsWith(github.ref, 'refs/tags/sdk-v')
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: continuity-sdk-bundle
-          path: sdk-bundle
-      - run: cargo xtask sdk-release-verify sdk-bundle
-      - name: Select the exact wheel
-        run: mkdir pypi-dist && cp sdk-bundle/*.whl pypi-dist/
-      - name: Publish through PyPI trusted publishing
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: pypi-dist
+  # There is deliberately no PyPI publication job. The wheel is built only for
+  # `cp310-abi3-win_amd64` and there is no source distribution, so publishing it
+  # would make `pip install continuity-editor` fail on Linux and macOS with a
+  # confusing resolver error — see `EMBEDDING.md`. The wheel is still staged,
+  # hashed, attested, and attached to the GitHub Release, so a Windows host can
+  # install it from there.
+  #
+  # It previously existed as a `publish-pypi` job that `github-release` depended
+  # on, which gated every SDK release on a publication the project had decided
+  # not to make: the job failed `invalid-publisher` on every run and skipped the
+  # release job behind it. Restore it only together with cross-platform wheels
+  # or an sdist, and register the PyPI trusted publisher before doing so.
 
   github-release:
     name: publish SDK release assets
-    needs: [stage, publish-npm, publish-crates, publish-pypi]
+    needs: [stage, publish-npm, publish-crates]
     if: startsWith(github.ref, 'refs/tags/sdk-v')
     runs-on: ubuntu-latest
     environment: sdk-release

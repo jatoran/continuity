@@ -29,12 +29,16 @@ prerelease and the desktop application keeps the repository's "Latest" badge.
 | npm | Live at `0.2.36` under the `next` tag | `npm install @continuity-editor/editor@next` |
 | PyPI | Not published | Build locally; see the Python section |
 
-**The npm `@next` suffix is required, not optional.** The SDK channel is
-`preview`, so releases publish to the `next` dist-tag and the package has no
-`latest`. A bare `npm install @continuity-editor/editor` fails with
-`No matching version found`. The bare form starts working when
-`sdk/release.toml` flips `channel` to `stable`, which moves publication to the
-`latest` tag.
+**Use the npm `@next` suffix.** The SDK channel is `preview`, so releases
+publish to the `next` dist-tag, and `next` is the only tag CI advances.
+
+A bare `npm install @continuity-editor/editor` does resolve, because the
+by-hand bootstrap of `0.2.36` also set `latest`. It is the wrong thing to
+install: `latest` is pinned at `0.2.36` and no release moves it, so the bare
+form silently returns a stale build that drifts further behind on every
+release. Either move `latest` forward by hand on each release or remove the tag;
+until then, treat the bare form as unsupported. `latest` starts tracking
+releases when `sdk/release.toml` flips `channel` to `stable`.
 
 PyPI is deliberately unpublished. The wheel is built only for
 `cp310-abi3-win_amd64` and there is no source distribution, so publishing it

@@ -138,7 +138,16 @@ jobs:
     name: publish Cargo closure
     needs: stage
     if: startsWith(github.ref, 'refs/tags/sdk-v')
-    runs-on: ubuntu-latest
+    # Must match `stage`'s platform. This job re-runs `cargo package` and
+    # requires the result to be byte-identical to the staged, hashed, attested
+    # `.crate`, which `stage` built on Windows. `cargo package` archives
+    # working-tree bytes, and the repository normalizes line endings for exactly
+    # one file (`.gitattributes` pins `tutorial.md` to LF), so a Windows
+    # checkout carries CRLF where a Linux checkout carries LF. Packaging the
+    # same commit on Ubuntu therefore produces a different archive and the
+    # comparison below can never pass. That went unnoticed until sdk-v0.2.37
+    # because every earlier run failed at trusted-publisher auth first.
+    runs-on: windows-latest
     environment: crates-io
     permissions:
       contents: read
@@ -159,6 +168,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # A bare `test` fails silently, which cost a release cycle to
+          # diagnose: the job exited 1 with nothing but a successful
+          # `cargo package` above it. Print both digests before comparing.
+          assert_same_archive() {
+            local label="$1" produced="$2" staged="$3"
+            local produced_hash staged_hash
+            produced_hash="$(sha256sum "$produced" | cut -d' ' -f1)"
+            staged_hash="$(sha256sum "$staged" | cut -d' ' -f1)"
+            if test "$produced_hash" != "$staged_hash"; then
+              echo "::error::$label archive does not match the staged bundle"
+              echo "  produced $produced_hash  ($produced)"
+              echo "  staged   $staged_hash  ($staged)"
+              return 1
+            fi
+            echo "$label matches the staged bundle: $produced_hash"
+          }
           for package in continuity-text continuity-buffer continuity-engine; do
             staged="$(find sdk-bundle -maxdepth 1 -name "$package-*.crate" -print -quit)"
             package_flags=()
@@ -167,11 +192,9 @@ jobs:
             fi
             cargo package --locked --package "$package" "${package_flags[@]}"
             produced="$(find target/package -maxdepth 1 -name "$package-*.crate" -print -quit)"
-            test "$(sha256sum "$produced" | cut -d' ' -f1)" = \
-              "$(sha256sum "$staged" | cut -d' ' -f1)"
+            assert_same_archive "$package (before publish)" "$produced" "$staged"
             cargo publish --locked --package "$package" "${package_flags[@]}"
-            test "$(sha256sum "$produced" | cut -d' ' -f1)" = \
-              "$(sha256sum "$staged" | cut -d' ' -f1)"
+            assert_same_archive "$package (after publish)" "$produced" "$staged"
           done
 
   # There is deliberately no PyPI publication job. The wheel is built only for

@@ -6,6 +6,18 @@ Release notes for `0.2.16` and earlier live in
 [`EMBEDDING.md`](https://github.com/jatoran/continuity/blob/main/EMBEDDING.md),
 which remains the cross-surface router.
 
+## 0.2.38
+
+No product change. Identical in content to `0.2.37`, which is published on npm
+but never reached crates.io: the release workflow re-ran `cargo package` on
+Ubuntu and required the result to be byte-identical to the `.crate` staged on
+Windows, which cannot hold while the repository leaves line endings
+unnormalized. The Cargo job now runs on the same platform as the staging job.
+
+Because GitHub re-runs a tag's workflow as it existed at that tag, the fix could
+not rescue `sdk-v0.2.37`, so this version carries it. Use `0.2.38`; `0.2.37`
+remains installable from npm and from its GitHub Release assets.
+
 ## 0.2.37
 
 ### Fixed

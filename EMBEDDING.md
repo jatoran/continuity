@@ -9,7 +9,7 @@ design documents remain authoritative for detailed APIs.
 | Release train | Current version | Canonical source |
 |---|---:|---|
 | Native Windows desktop | `0.4.9` | `crates/app/Cargo.toml` |
-| Embeddable SDK family | `0.2.37` | `sdk/release.toml` |
+| Embeddable SDK family | `0.2.38` | `sdk/release.toml` |
 
 The release trains are independent and are published as two tag series in the
 same repository: `v<version>` for the desktop application and `sdk-v<version>`
@@ -175,6 +175,10 @@ await initialize({ wasm: wasmUrl });
 Then use the Web Component directly or a framework adapter. The full browser,
 controlled-value, React, deployment, shortcut, theming, and headless examples
 live in [`packages/editor/README.md`](packages/editor/README.md).
+
+SDK `0.2.38` carries no product change; it is `0.2.37` republished so the Cargo closure reaches crates.io.
+`0.2.37`'s release workflow re-ran `cargo package` on Ubuntu and required the result to be byte-identical to the `.crate` staged on Windows, which cannot hold while the repository leaves line endings unnormalized, so the Cargo job failed before publishing anything.
+The job now runs on the staging job's platform, and because GitHub re-runs a tag's workflow as it existed at that tag, the fix needed a new version rather than a re-run.
 
 SDK `0.2.37` fixes `indent-guides="on"` drawing nothing at the first indent level, and changes no public API.
 A guide marks where an *enclosing* parent's content starts, and the body's own left edge was not counted as one, so a line indented exactly once drew no rule - a page of singly-indented content became indistinguishable from unindented content as soon as its parent scrolled off the top.

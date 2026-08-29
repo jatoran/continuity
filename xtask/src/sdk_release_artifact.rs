@@ -160,7 +160,7 @@ fn validate_relative_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn sha256(path: &Path) -> Result<String> {
+pub(crate) fn sha256(path: &Path) -> Result<String> {
     let mut input = File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mut digest = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];

@@ -12,8 +12,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, bail, Context, Result};
 
 use self::visual_studio::visual_studio_toolchain;
+use crate::sdk_crate_flags::{cargo_arguments, PUBLISH_ORDER};
 
-const PACKAGES: &[&str] = &["continuity-text", "continuity-buffer", "continuity-engine"];
 const FORBIDDEN_ARCHIVE_PARTS: &[&str] = &[
     ".docs/",
     "scratchpad",
@@ -141,97 +141,26 @@ fn check_package_versions(root: &Path, header: &str, canonical_version: &str) ->
     Ok(())
 }
 
+/// Stage the three published crates, then rehearse publishing them.
+///
+/// Both loops take their flags from [`crate::sdk_crate_flags`]. The release
+/// workflow's publish job uses the same table, which is what keeps a staged
+/// archive byte-identical to the one a publish job re-derives — the property
+/// `cargo xtask sdk-publish-crates` asserts before touching the registry.
 fn package_rust_crates(root: &Path) -> Result<()> {
-    run_cargo(
-        root,
-        &[
-            "package",
-            "-p",
-            "continuity-text",
-            "--locked",
-            "--allow-dirty",
-        ],
-    )?;
-    run_cargo(
-        root,
-        &[
-            "package",
-            "-p",
-            "continuity-buffer",
-            "--locked",
-            "--allow-dirty",
-            "--no-verify",
-            "--config",
-            "patch.crates-io.continuity-text.path=\"crates/text\"",
-            "--config",
-            "patch.crates-io.continuity-test-support.path=\"crates/test_support\"",
-        ],
-    )?;
-    run_cargo(
-        root,
-        &[
-            "package",
-            "-p",
-            "continuity-engine",
-            "--locked",
-            "--allow-dirty",
-            "--no-verify",
-            "--config",
-            "patch.crates-io.continuity-text.path=\"crates/text\"",
-            "--config",
-            "patch.crates-io.continuity-buffer.path=\"crates/buffer\"",
-            "--config",
-            "patch.crates-io.continuity-test-fixtures.path=\"crates/test_fixtures\"",
-        ],
-    )?;
-
-    publish_dry_run(root, "continuity-text", &[])?;
-    publish_dry_run(
-        root,
-        "continuity-buffer",
-        &[
-            "patch.crates-io.continuity-text.path=\"crates/text\"",
-            "patch.crates-io.continuity-test-support.path=\"crates/test_support\"",
-        ],
-    )?;
-    publish_dry_run(
-        root,
-        "continuity-engine",
-        &[
-            "patch.crates-io.continuity-text.path=\"crates/text\"",
-            "patch.crates-io.continuity-buffer.path=\"crates/buffer\"",
-            "patch.crates-io.continuity-test-fixtures.path=\"crates/test_fixtures\"",
-        ],
-    )?;
+    for package in PUBLISH_ORDER {
+        run_cargo(root, &cargo_arguments("package", package, &[]))?;
+    }
+    for package in PUBLISH_ORDER {
+        run_cargo(root, &cargo_arguments("publish", package, &["--dry-run"]))?;
+    }
     Ok(())
-}
-
-fn publish_dry_run(root: &Path, package: &str, patches: &[&str]) -> Result<()> {
-    let mut command = Command::new(cargo());
-    command
-        .current_dir(root)
-        .env("CARGO_NET_OFFLINE", "false")
-        .args([
-            "publish",
-            "-p",
-            package,
-            "--dry-run",
-            "--locked",
-            "--allow-dirty",
-        ]);
-    if package != "continuity-text" {
-        command.arg("--no-verify");
-    }
-    for patch in patches {
-        command.args(["--config", patch]);
-    }
-    run(&mut command, &format!("cargo publish --dry-run {package}"))
 }
 
 fn audit_and_extract_crates(root: &Path, run_directory: &Path, version: &str) -> Result<()> {
     let archive_root = run_directory.join("cargo-archives");
     fs::create_dir_all(&archive_root).context("create Cargo archive extraction directory")?;
-    for package in PACKAGES {
+    for package in PUBLISH_ORDER {
         let archive = root
             .join("target/package")
             .join(format!("{package}-{version}.crate"));

@@ -9,7 +9,7 @@ design documents remain authoritative for detailed APIs.
 | Release train | Current version | Canonical source |
 |---|---:|---|
 | Native Windows desktop | `0.4.9` | `crates/app/Cargo.toml` |
-| Embeddable SDK family | `0.2.38` | `sdk/release.toml` |
+| Embeddable SDK family | `0.2.39` | `sdk/release.toml` |
 
 The release trains are independent and are published as two tag series in the
 same repository: `v<version>` for the desktop application and `sdk-v<version>`
@@ -175,6 +175,12 @@ await initialize({ wasm: wasmUrl });
 Then use the Web Component directly or a framework adapter. The full browser,
 controlled-value, React, deployment, shortcut, theming, and headless examples
 live in [`packages/editor/README.md`](packages/editor/README.md).
+
+SDK `0.2.39` carries no product change; it completes the Cargo closure that `0.2.38` left partly published.
+The release workflow kept its own copy of the `cargo package` flags, and that copy had drifted from the staging path by omitting the `--config patch.crates-io.*` overrides, so the archive it re-derived embedded a `Cargo.lock` resolving workspace siblings from the registry rather than from local paths and could never match the staged, attested archive.
+`continuity-text` matched only because it is the one crate needing no overrides, which is why `0.2.38` published a third of its closure before failing.
+The flags now live in `xtask/src/sdk_crate_flags.rs`, which staging, the publish dry run, and the workflow all read.
+`continuity-text 0.2.38` remains on crates.io without a matching `continuity-buffer` or `continuity-engine`; use `0.2.39`.
 
 SDK `0.2.38` carries no product change; it is `0.2.37` republished so the Cargo closure reaches crates.io.
 `0.2.37`'s release workflow re-ran `cargo package` on Ubuntu and required the result to be byte-identical to the `.crate` staged on Windows, which cannot hold while the repository leaves line endings unnormalized, so the Cargo job failed before publishing anything.

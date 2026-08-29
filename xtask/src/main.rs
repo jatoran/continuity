@@ -18,6 +18,8 @@ mod perf_history;
 mod release;
 mod scan;
 mod sdk;
+mod sdk_crate_flags;
+mod sdk_publish;
 mod sdk_release;
 mod sdk_release_artifact;
 mod sdk_release_manifest;
@@ -87,6 +89,7 @@ fn main() -> ExitCode {
         "sdk-release-check" => sdk_release::check(),
         "sdk-release-dry-run" => sdk_release::dry_run(&rest),
         "sdk-release-verify" => sdk_release::verify(&rest),
+        "sdk-publish-crates" => sdk_publish::publish_crates(&rest),
         other => Err(anyhow!("unknown xtask `{other}` — try `help`")),
     };
 
@@ -159,6 +162,7 @@ fn print_help() {
     println!("  sdk-release-dry-run [--allow-dirty]");
     println!("                    build once and stage hashed SDK artifacts without publishing");
     println!("  sdk-release-verify [bundle-directory]");
+    println!("  sdk-publish-crates <bundle-directory> [--dry-run]");
     println!("                    verify every immutable artifact against its release manifest");
     println!();
     println!("Tutorial:");

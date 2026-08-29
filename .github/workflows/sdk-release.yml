@@ -162,40 +162,20 @@ jobs:
       - run: cargo xtask sdk-release-verify sdk-bundle
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
+      # Delegated to xtask on purpose. This step used to inline its own
+      # `cargo package` / `cargo publish` loop, which drifted from the flags
+      # `cargo xtask sdk-check` stages with: it omitted the
+      # `--config patch.crates-io.*` overrides, so the archive it re-derived
+      # embedded a `Cargo.lock` resolving `continuity-text` and
+      # `continuity-test-support` from the registry rather than from local
+      # paths. The staged-hash comparison could then never pass for
+      # `continuity-buffer` or `continuity-engine`, and sdk-v0.2.38 published a
+      # third of its closure before failing. `xtask/src/sdk_crate_flags.rs` is
+      # now the only description of these flags.
       - name: Publish in dependency order and compare Cargo's uploaded archives
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          # A bare `test` fails silently, which cost a release cycle to
-          # diagnose: the job exited 1 with nothing but a successful
-          # `cargo package` above it. Print both digests before comparing.
-          assert_same_archive() {
-            local label="$1" produced="$2" staged="$3"
-            local produced_hash staged_hash
-            produced_hash="$(sha256sum "$produced" | cut -d' ' -f1)"
-            staged_hash="$(sha256sum "$staged" | cut -d' ' -f1)"
-            if test "$produced_hash" != "$staged_hash"; then
-              echo "::error::$label archive does not match the staged bundle"
-              echo "  produced $produced_hash  ($produced)"
-              echo "  staged   $staged_hash  ($staged)"
-              return 1
-            fi
-            echo "$label matches the staged bundle: $produced_hash"
-          }
-          for package in continuity-text continuity-buffer continuity-engine; do
-            staged="$(find sdk-bundle -maxdepth 1 -name "$package-*.crate" -print -quit)"
-            package_flags=()
-            if test "$package" != continuity-text; then
-              package_flags+=(--no-verify)
-            fi
-            cargo package --locked --package "$package" "${package_flags[@]}"
-            produced="$(find target/package -maxdepth 1 -name "$package-*.crate" -print -quit)"
-            assert_same_archive "$package (before publish)" "$produced" "$staged"
-            cargo publish --locked --package "$package" "${package_flags[@]}"
-            assert_same_archive "$package (after publish)" "$produced" "$staged"
-          done
+        run: cargo xtask sdk-publish-crates sdk-bundle
 
   # There is deliberately no PyPI publication job. The wheel is built only for
   # `cp310-abi3-win_amd64` and there is no source distribution, so publishing it

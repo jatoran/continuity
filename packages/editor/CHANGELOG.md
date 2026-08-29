@@ -6,6 +6,24 @@ Release notes for `0.2.16` and earlier live in
 [`EMBEDDING.md`](https://github.com/jatoran/continuity/blob/main/EMBEDDING.md),
 which remains the cross-surface router.
 
+## 0.2.39
+
+No product change. `0.2.38` published to npm and got one of its three crates
+onto crates.io before failing: the release workflow kept its own copy of the
+`cargo package` flags, and that copy had drifted from the staging path by
+omitting the `--config patch.crates-io.*` overrides. Without them the
+re-derived archive embeds a `Cargo.lock` resolving `continuity-text` and
+`continuity-test-support` from the registry instead of from local paths, so it
+could never match the staged, attested archive. `continuity-text` matched only
+because it is the one crate needing no overrides.
+
+The flags now live in one place (`xtask/src/sdk_crate_flags.rs`) that staging,
+the publish dry run, and the workflow all read, and the workflow calls
+`cargo xtask sdk-publish-crates` instead of restating the loop.
+
+`continuity-text 0.2.38` remains on crates.io with no matching `continuity-buffer`
+or `continuity-engine`; use `0.2.39`, where all three agree.
+
 ## 0.2.38
 
 No product change. Identical in content to `0.2.37`, which is published on npm

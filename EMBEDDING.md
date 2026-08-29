@@ -25,8 +25,8 @@ prerelease and the desktop application keeps the repository's "Latest" badge.
 
 | Registry | Status | Install |
 |---|---|---|
-| crates.io | Live at `0.2.36` | `cargo add continuity-engine` |
-| npm | Live at `0.2.36` under the `next` tag | `npm install @continuity-editor/editor@next` |
+| crates.io | Live at `0.2.39` | `cargo add continuity-engine` |
+| npm | Live at `0.2.39` under the `next` tag | `npm install @continuity-editor/editor@next` |
 | PyPI | Not published | Build locally; see the Python section |
 
 **Use the npm `@next` suffix.** The SDK channel is `preview`, so releases
@@ -48,8 +48,12 @@ an sdist.
 
 `0.2.36` was published to crates.io and npm by hand from a verified local
 bundle to bootstrap the registries, because both registries require a package
-to exist before trusted publishing can be configured for it. Later releases
-publish from CI.
+to exist before trusted publishing can be configured for it. `0.2.39` is the
+first release published end-to-end by CI through trusted publishing.
+
+`continuity-text` also carries an orphaned `0.2.38` with no matching
+`continuity-buffer` or `continuity-engine`, left by a release that published one
+crate before failing. Resolve the SDK closure at `0.2.39`.
 
 Every published SDK artifact is also attached to its GitHub Release. To consume
 a release without a registry:

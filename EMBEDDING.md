@@ -8,8 +8,8 @@ design documents remain authoritative for detailed APIs.
 
 | Release train | Current version | Canonical source |
 |---|---:|---|
-| Native Windows desktop | `0.4.8` | `crates/app/Cargo.toml` |
-| Embeddable SDK family | `0.2.36` | `sdk/release.toml` |
+| Native Windows desktop | `0.4.9` | `crates/app/Cargo.toml` |
+| Embeddable SDK family | `0.2.37` | `sdk/release.toml` |
 
 The release trains are independent and are published as two tag series in the
 same repository: `v<version>` for the desktop application and `sdk-v<version>`
@@ -172,6 +172,13 @@ Then use the Web Component directly or a framework adapter. The full browser,
 controlled-value, React, deployment, shortcut, theming, and headless examples
 live in [`packages/editor/README.md`](packages/editor/README.md).
 
+SDK `0.2.37` fixes `indent-guides="on"` drawing nothing at the first indent level, and changes no public API.
+A guide marks where an *enclosing* parent's content starts, and the body's own left edge was not counted as one, so a line indented exactly once drew no rule - a page of singly-indented content became indistinguishable from unindented content as soon as its parent scrolled off the top.
+The left edge is that content's top-level parent and now draws at offset 0 like every other level; a genuinely top-level line still draws nothing, so the guides stay a statement about structure rather than a document margin.
+The offset-0 rule sits flush at the text origin rather than biased left of it: a background is clipped to its painting area, so a negative gradient stop paints nothing, and the only way to move the rule left is padding or a border on the line - both shift the content edge and with it the tab-stop grid origin, the same coordinate-system trap the hanging-indent rule documents.
+Hosts wanting more room to the left of the guides should pad their own container.
+The native desktop painter changed identically in `0.4.9`, and additionally stopped breaking its guides across soft-wrapped rows; the browser projection never had that gap, because it paints a line's guides into that line's own background.
+
 SDK `0.2.36` fixes Markdown block toggles absorbing the line below them, and changes no public API.
 Every block toggle - bullet, numbered, task, blockquote, and the heading rewrite - was a line-prefix rewrite blind to its neighbours, so marking one line pulled the next one into the new block as CommonMark lazy continuation text, and stripping a marker dropped the newly-plain line into the block above it.
 A toggle is now scoped to the lines it rewrites: where a rewrite would otherwise pull an untouched neighbour into the toggled block, the toggle inserts a blank-line separator in the same edit and the same undo group.
@@ -276,7 +283,9 @@ does not shift when it scrolls into the realized window. Three additions:
 `indent-guides="on"` paints vertical rules at each enclosing indent level
 (off by default, themed through `--continuity-indent-guide` and
 `--continuity-indent-guide-active`, with the desktop painter's column
-semantics); `setDecorations(id, ranges)` / `clearDecorations(id?)` paint host
+semantics — including the offset-0 body-left-edge rule, so a line indented
+exactly once still carries a guide); `setDecorations(id, ranges)` /
+`clearDecorations(id?)` paint host
 ranges without touching selection, history, or revision — themed per set through
 `--continuity-decoration-<id>` and exposed as `part="decoration decoration-<id>"`
 — which is what a host-side find bar needs, because only the measured viewport

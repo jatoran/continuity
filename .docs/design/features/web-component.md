@@ -332,9 +332,14 @@ idempotent.
   `indentGuides`) paints vertical rules at each enclosing indent level. Off by
   default so an existing host's appearance does not change under it. Column
   semantics mirror the desktop painter: a guide marks where an *enclosing*
-  parent's content starts, the body-left-edge column is suppressed, a blank line
-  inherits the columns its two non-blank neighbours share, and the caret's line
-  draws its deepest column in the active colour.
+  parent's content starts, the body-left-edge column at offset 0 is drawn (it is
+  the top-level parent, so a line indented exactly once still carries a rule), a
+  blank line inherits the columns its two non-blank neighbours share, and the
+  caret's line draws its deepest column in the active colour. The offset-0 rule
+  sits flush at the text origin: a background is clipped to its painting area,
+  so a negative stop paints nothing, and moving it left would need padding or a
+  border on the line, which shifts the content edge and with it the tab-stop
+  grid origin.
 - `setDecorations(id, ranges)` paints one named set of source ranges without
   touching selection, history, or revision; `clearDecorations(id?)` removes one
   set or all of them. The id must be a CSS identifier because it names both the

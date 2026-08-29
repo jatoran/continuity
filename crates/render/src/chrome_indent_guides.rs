@@ -20,14 +20,24 @@ use crate::display_projection::FrameDisplay;
 ///
 /// §25 — iterates the **display-row** grid (via `frame_display`), not the
 /// source-line grid: each visible display row is mapped back to its
-/// source line, wrap-continuation rows are skipped (a wrapped paragraph
-/// only draws guides on its first row), and each guide paints at
+/// source line and paints that line's columns at
 /// `display_row * line_height - scroll_y`. This keeps the guides aligned
 /// with the body text under soft-wrap and respects folds / row
 /// reservations because only rows the display map actually projects are
-/// iterated. The body-left-edge guide (`k == 0`, x at the text column
-/// origin) is suppressed — it duplicated the gutter↔body divider and read
-/// as a spurious guide.
+/// iterated. Wrap-continuation rows paint the same columns as the row
+/// they continue: a guide is a claim about the enclosing structure of the
+/// source line, which does not stop applying halfway down a wrapped
+/// paragraph, and stopping it there left a rule broken by every long
+/// line. Rows have distinct `y`, so repeating the columns cannot
+/// double-stamp.
+///
+/// The body-left-edge column (`k == 0`, x at the text column origin) is
+/// painted. It is the top-level parent of every indented line, and it is
+/// the only guide a line indented exactly once has — suppressing it meant
+/// a page of singly-indented content scrolled past with no left rule at
+/// all. It sits [`crate::chrome::GUTTER_BODY_GAP_DIP`] clear of the
+/// gutter↔body divider when line numbers are on, and there is no divider
+/// to duplicate when they are off.
 ///
 /// When `active_caret_source_line` is `Some`, that source line's deepest
 /// guide column is drawn with `active_color` so the indent level the
@@ -122,12 +132,9 @@ pub(crate) fn paint_indent_guides(
         let Some(spec) = frame_display.display_line_by_index(display_row) else {
             continue;
         };
-        // A wrapped paragraph draws its guides once, on the first display
-        // row of the source line; continuation rows inherit the column
-        // but would otherwise double-stamp.
-        if spec.is_wrap_continuation {
-            continue;
-        }
+        // Wrap-continuation rows paint their source line's columns too, so
+        // a wrapped paragraph carries an unbroken rule down every row it
+        // occupies.
         let source_line = spec.source_line.raw() as usize;
         if source_line < scan_start || source_line >= scan_end {
             continue;
@@ -154,10 +161,10 @@ pub(crate) fn paint_indent_guides(
         let is_active_line = active_caret_source_line == Some(source_line);
         // A guide at offset C means "an enclosing parent's content starts
         // at C". For depth N the parents sit at 0, bounds[0], …,
-        // bounds[N-2]. The k == 0 column (the body's own left edge) is
-        // suppressed — it duplicated the gutter divider.
-        for k in 1..depth {
-            let col_x = bounds[k - 1];
+        // bounds[N-2] — the k == 0 column is the top-level parent, drawn
+        // flush at the text origin.
+        for k in 0..depth {
+            let col_x = if k == 0 { 0.0 } else { bounds[k - 1] };
             // Half-pixel offset so the 1-DIP rule hits one device row
             // cleanly under grayscale AA, matching the ruler-columns
             // rendering convention.
@@ -277,15 +284,40 @@ mod tests {
     }
 
     #[test]
-    fn k_zero_guide_is_suppressed() {
-        // The painter draws guides for k in 1..depth, so a line at depth 1
-        // (one boundary) produces zero painted columns: the body-left-edge
-        // guide (k == 0) is intentionally suppressed.
+    fn singly_indented_line_paints_the_left_edge_column() {
+        // The painter draws guides for k in 0..depth, so a line at depth 1
+        // paints exactly one column: the body-left-edge guide at the text
+        // origin, which is that line's only enclosing parent.
         let rope = Rope::from_str("  code\n");
         let bounds = measure_indent_boundaries(&rope, 0, 2, 8.0, 16.0).expect("non-blank");
         let depth = bounds.len();
-        let painted = (1..depth).count();
         assert_eq!(depth, 1);
-        assert_eq!(painted, 0);
+        let painted: Vec<f32> = (0..depth)
+            .map(|k| if k == 0 { 0.0 } else { bounds[k - 1] })
+            .collect();
+        assert_eq!(painted, vec![0.0]);
+    }
+
+    #[test]
+    fn unindented_line_paints_no_column() {
+        // Depth 0: a top-level line has no enclosing parent, so the
+        // left-edge column is not drawn under it either.
+        let rope = Rope::from_str("code\n");
+        let bounds = measure_indent_boundaries(&rope, 0, 2, 8.0, 16.0).expect("non-blank");
+        assert!(bounds.is_empty());
+    }
+
+    #[test]
+    fn nested_line_paints_left_edge_then_each_parent_boundary() {
+        // Depth 2 ⇒ columns at the text origin and at the first indent
+        // unit's boundary; the line's own content boundary is not a guide.
+        let rope = Rope::from_str("    code\n");
+        let bounds = measure_indent_boundaries(&rope, 0, 2, 8.0, 16.0).expect("non-blank");
+        let depth = bounds.len();
+        assert_eq!(depth, 2);
+        let painted: Vec<f32> = (0..depth)
+            .map(|k| if k == 0 { 0.0 } else { bounds[k - 1] })
+            .collect();
+        assert_eq!(painted, vec![0.0, 16.0]);
     }
 }

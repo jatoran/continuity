@@ -6,6 +6,32 @@ Release notes for `0.2.16` and earlier live in
 [`EMBEDDING.md`](https://github.com/jatoran/continuity/blob/main/EMBEDDING.md),
 which remains the cross-surface router.
 
+## 0.2.37
+
+### Fixed
+
+- **`indent-guides="on"` now draws the first indent level.**
+  A guide marks where an *enclosing* parent's content starts, and the body's own
+  left edge was not counted as one, so a line indented exactly once drew no rule
+  at all. A page of singly-indented content was therefore indistinguishable from
+  unindented content as soon as its parent scrolled off the top. The left edge is
+  that content's top-level parent and now draws at offset 0 like every other
+  level; a genuinely top-level line still draws nothing.
+
+  The offset-0 rule sits flush at the text origin rather than biased left of it.
+  A background is clipped to its painting area, so a negative gradient stop paints
+  nothing, and the only way to move the rule left is padding or a border on the
+  line - both shift the content edge and with it the tab-stop grid origin, which
+  is the same coordinate-system trap the hanging-indent rule documents. Hosts
+  wanting more room to the left of the guides should pad their own container.
+
+  This matches the native desktop painter, which changed in the same way.
+
+### Changed
+
+- No public API change. `indentGuides` keeps its `"on" | "off"` shape and its
+  `"off"` default, so a host that never enabled guides is unaffected.
+
 ## 0.2.36
 
 ### Fixed

@@ -515,10 +515,19 @@ default, so an existing host's appearance does not change under it. Colours come
 from `--continuity-indent-guide` and `--continuity-indent-guide-active`.
 
 The column semantics match the native desktop editor: a guide marks where an
-*enclosing* parent's content starts, so a line at depth 1 draws none — the
-body's own left edge is not a parent. A blank line inherits the columns its two
+*enclosing* parent's content starts. The body's own left edge is the top-level
+parent, so a line indented exactly once draws one rule there and a top-level
+line draws none — a page of singly-indented content stays legible as indented
+however far you scroll into it. A blank line inherits the columns its two
 non-blank neighbours share, and the caret's line draws its deepest column in the
 active colour.
+
+The offset-0 rule sits flush at the text origin rather than a few pixels left of
+it. A background is clipped to its painting area, so a negative gradient stop
+paints nothing, and the only way to move the rule left is padding or a border on
+the line — both shift the content edge and with it the tab-stop grid origin. Add
+inline padding to the host's own container if you want more breathing room to
+the left of the guides.
 
 ## Decorating ranges
 

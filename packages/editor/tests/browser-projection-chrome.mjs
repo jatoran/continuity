@@ -187,21 +187,40 @@ async function runIndentGuideCases(ContinuityEditorElement, check, mount) {
   );
   count += 1;
 
-  // Depth 1 draws nothing: a guide marks an *enclosing* parent, and the body's
-  // own left edge is not one.
+  // The authored custom property keeps `var()` intact, so column structure is
+  // readable from it; the computed background only proves something painted.
+  const guideColumns = (index) => {
+    const value = projection.children[index].style.getPropertyValue("--continuity-line-guides");
+    return value.match(/--continuity-indent-guide[^)]*\) (-?[\d.]+)px/gu) ?? [];
+  };
+
+  // Depth 0 draws nothing: a guide marks an *enclosing* parent, and a
+  // top-level line has none.
   check(
-    getComputedStyle(projection.children[1]).backgroundImage === "none",
-    `a single-level line draws no guide (got ${getComputedStyle(projection.children[1]).backgroundImage})`,
+    getComputedStyle(projection.children[0]).backgroundImage === "none",
+    `a top-level line draws no guide (got ${getComputedStyle(projection.children[0]).backgroundImage})`,
+  );
+  count += 1;
+  // Depth 1's only parent is the body's left edge, and it is drawn: a page of
+  // singly-indented content has to read as indented while scrolling past it.
+  check(
+    guideColumns(1).length === 1 && guideColumns(1)[0].endsWith(" 0px"),
+    `a single-level line draws the left-edge column at 0px (got ${guideColumns(1).join(", ")})`,
   );
   count += 1;
   check(
-    getComputedStyle(projection.children[2]).backgroundImage.includes("gradient"),
-    "a twice-nested line draws its parent's guide",
+    guideColumns(2).length === 2 && guideColumns(2)[0].endsWith(" 0px"),
+    `a twice-nested line draws the left edge and its parent (got ${guideColumns(2).join(", ")})`,
   );
   count += 1;
   check(
     getComputedStyle(projection.children[3]).backgroundImage.includes("gradient"),
     "a blank line inherits the guides its neighbours share",
+  );
+  count += 1;
+  check(
+    getComputedStyle(projection.children[5]).backgroundImage === "none",
+    "a top-level line after nested content draws no guide",
   );
   count += 1;
 

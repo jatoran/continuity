@@ -8,9 +8,18 @@
 //
 // The column semantics mirror the desktop painter exactly: a guide at offset C
 // means "an enclosing parent's content starts at C", the body-left-edge column
-// is suppressed, a blank line inherits the columns its two non-blank
-// neighbours share, and the caret's line draws its deepest column in the
-// active colour.
+// at C = 0 is drawn (it is the top-level parent, and the only guide a line
+// indented exactly once has), a blank line inherits the columns its two
+// non-blank neighbours share, and the caret's line draws its deepest column in
+// the active colour.
+//
+// The C = 0 column sits flush at the text origin rather than biased a few
+// pixels left of it. A background is clipped to its painting area, so a
+// negative stop paints nothing, and the only way to move the rule left is
+// padding or a border on the line — both of which shift the content edge and
+// with it the tab-stop grid origin, the exact breakage `styles.js` documents
+// on the hanging-indent rule. Flush is also where the desktop painter puts it
+// (`margins.left + 0`), so the two surfaces stay pixel-comparable.
 
 /** How far a blank line looks for a non-blank neighbour to inherit from. */
 const BLANK_LINE_SKIRT = 64;
@@ -115,15 +124,19 @@ export function computeIndentBoundaries(leading, metrics) {
 function guideImage(bounds, depth, isActive) {
   const stops = [];
   let previous = 0;
-  for (let level = 1; level < depth; level += 1) {
+  for (let level = 0; level < depth; level += 1) {
     // Whole pixels: a 1px rule on a fractional offset resolves to two
     // half-covered device columns and reads as a smudge rather than a line.
-    const left = Math.round(bounds[level - 1]);
+    // Level 0 is the top-level parent and sits at the text origin.
+    const left = level === 0 ? 0 : Math.round(bounds[level - 1]);
     if (left < previous) continue;
     const color = isActive && level === depth - 1
       ? "var(--continuity-indent-guide-active)"
       : "var(--continuity-indent-guide)";
-    stops.push(`transparent ${previous}px ${left}px`, `${color} ${left}px ${left + 1}px`);
+    // The level-0 rule starts at the origin, so its leading gap is empty; a
+    // zero-width stop is legal but serializes into every computed style.
+    if (left > previous) stops.push(`transparent ${previous}px ${left}px`);
+    stops.push(`${color} ${left}px ${left + 1}px`);
     previous = left + 1;
   }
   if (stops.length === 0) return "";

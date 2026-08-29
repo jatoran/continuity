@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.9
+
+- Indent guides now draw a rule at the first indent level. Previously a line indented once drew nothing, because a guide marked an *enclosing* parent and the body's own left edge was not treated as one - so a long run of singly-indented content looked exactly like unindented content once you had scrolled past its parent. The left edge is that content's parent, and it now gets a rule like every other level.
+- Indent guides no longer break across a wrapped line. A soft-wrapped paragraph drew its guides only on its first visual row, so every long line punched a gap in the rules running down the page. The wrapped rows now carry the same guides as the row they continue.
+
 ## 0.4.8
 
 - Opening multiple selected documents from Explorer now creates one new Continuity window with every selected document in its own tab.

@@ -241,7 +241,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "continuity-app"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "anyhow",
  "continuity-buffer",
@@ -264,7 +264,7 @@ dependencies = [
 
 [[package]]
 name = "continuity-buffer"
-version = "0.2.36"
+version = "0.2.37"
 dependencies = [
  "ahash",
  "continuity-test-support",
@@ -354,7 +354,7 @@ dependencies = [
 
 [[package]]
 name = "continuity-engine"
-version = "0.2.36"
+version = "0.2.37"
 dependencies = [
  "ahash",
  "continuity-buffer",
@@ -367,7 +367,7 @@ dependencies = [
 
 [[package]]
 name = "continuity-engine-c"
-version = "0.2.36"
+version = "0.2.37"
 dependencies = [
  "continuity-buffer",
  "continuity-engine",
@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "continuity-python"
-version = "0.2.36"
+version = "0.2.37"
 dependencies = [
  "continuity-buffer",
  "continuity-engine",
@@ -510,7 +510,7 @@ dependencies = [
 
 [[package]]
 name = "continuity-text"
-version = "0.2.36"
+version = "0.2.37"
 dependencies = [
  "ropey",
  "serde",
@@ -571,7 +571,7 @@ dependencies = [
 
 [[package]]
 name = "continuity-wasm"
-version = "0.2.36"
+version = "0.2.37"
 dependencies = [
  "continuity-buffer",
  "continuity-decorate",

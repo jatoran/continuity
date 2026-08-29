@@ -41,6 +41,22 @@ pub(crate) struct NpmConfig {
     pub(crate) stable_tag: String,
 }
 
+impl ReleaseConfig {
+    /// npm dist-tag this release publishes under.
+    ///
+    /// `channel` is validated to be `preview` or `stable` before this runs, so
+    /// anything else is treated as the conservative choice rather than the one
+    /// that would move `latest`.
+    #[must_use]
+    pub(crate) fn npm_dist_tag(&self) -> &str {
+        if self.sdk.channel == "stable" {
+            &self.npm.stable_tag
+        } else {
+            &self.npm.preview_tag
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) struct PythonConfig {
@@ -311,6 +327,21 @@ mod tests {
                 target: "x86_64-pc-windows-msvc".into(),
             },
         }
+    }
+
+    #[test]
+    fn preview_channel_publishes_to_the_preview_dist_tag() {
+        assert_eq!(config().npm_dist_tag(), "next");
+    }
+
+    #[test]
+    fn stable_channel_publishes_to_the_stable_dist_tag() {
+        // The release workflow used to hardcode `--tag next`, so `stable-tag`
+        // was configuration that nothing read. This pins the mapping the
+        // staged manifest now carries into the publish job.
+        let mut stable = config();
+        stable.sdk.channel = "stable".into();
+        assert_eq!(stable.npm_dist_tag(), "latest");
     }
 
     #[test]

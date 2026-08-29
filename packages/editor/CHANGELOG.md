@@ -6,6 +6,24 @@ Release notes for `0.2.16` and earlier live in
 [`EMBEDDING.md`](https://github.com/jatoran/continuity/blob/main/EMBEDDING.md),
 which remains the cross-surface router.
 
+## 0.2.40
+
+No product change. **`npm install @continuity-editor/editor` is now the supported
+form.** The SDK channel moved from `preview` to `stable`, so releases publish to
+the `latest` dist-tag instead of `next`.
+
+`@next` stops at `0.2.39` and nothing advances it now, so a host pinned to
+`@next` will silently stay there. Switch to the bare specifier.
+
+The channel flip alone would not have done this: the release workflow hardcoded
+`--tag next` and never read `sdk/release.toml`'s `stable-tag`, so `stable` would
+have promoted the GitHub Release while still publishing to `next`. The resolved
+dist-tag is now staged into `release-manifest.json` and read from there, the same
+way the release job already read `channel`.
+
+SDK GitHub Releases are also no longer marked as prereleases, which is the other
+half of what `channel` controls.
+
 ## 0.2.39
 
 No product change. `0.2.38` published to npm and got one of its three crates

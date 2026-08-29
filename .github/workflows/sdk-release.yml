@@ -127,12 +127,25 @@ jobs:
           name: continuity-sdk-bundle
           path: sdk-bundle
       - run: cargo xtask sdk-release-verify sdk-bundle
-      - name: Publish exact tarball to the preview channel
+      - name: Publish exact tarball to the channel's dist-tag
         # The `./` prefix is load-bearing. npm parses a bare `dir/name.tgz` as a
         # GitHub `owner/repo` shorthand and resolves it over SSH — sdk-v0.2.34
         # died on `git ls-remote ssh://git@github.com/sdk-bundle/...tgz.git`.
         # Only a leading `./` forces the file spec.
-        run: npm publish "./sdk-bundle/continuity-editor-${GITHUB_REF_NAME#sdk-v}.tgz" --access public --tag next
+        #
+        # The dist-tag comes out of the staged manifest, the same way the
+        # GitHub release job reads `channel` from it. This step used to
+        # hardcode `--tag next`, which meant `sdk/release.toml`'s `stable-tag`
+        # was declared and never read: flipping `channel` to `stable` would
+        # have promoted the GitHub release while still publishing to `next`,
+        # leaving `latest` pinned wherever a by-hand publish last left it.
+        run: |
+          set -euo pipefail
+          dist_tag="$(jq -r '.npmTag' sdk-bundle/release-manifest.json)"
+          test -n "$dist_tag" && test "$dist_tag" != null
+          echo "publishing to dist-tag $dist_tag"
+          npm publish "./sdk-bundle/continuity-editor-${GITHUB_REF_NAME#sdk-v}.tgz" \
+            --access public --tag "$dist_tag"
 
   publish-crates:
     name: publish Cargo closure

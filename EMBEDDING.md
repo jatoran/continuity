@@ -9,7 +9,7 @@ design documents remain authoritative for detailed APIs.
 | Release train | Current version | Canonical source |
 |---|---:|---|
 | Native Windows desktop | `0.4.9` | `crates/app/Cargo.toml` |
-| Embeddable SDK family | `0.2.39` | `sdk/release.toml` |
+| Embeddable SDK family | `0.2.40` | `sdk/release.toml` |
 
 The release trains are independent and are published as two tag series in the
 same repository: `v<version>` for the desktop application and `sdk-v<version>`
@@ -18,27 +18,30 @@ never bumps the desktop version. All artifacts in one SDK release use the same
 SDK version. `cargo xtask docs-check` fails when this table disagrees with
 either canonical source.
 
-The SDK channel is `preview`, so every SDK GitHub Release is marked as a
-prerelease and the desktop application keeps the repository's "Latest" badge.
+The SDK channel is `stable`, so SDK releases publish to npm's `latest` dist-tag
+and their GitHub Releases are full releases rather than prereleases. Both trains
+therefore compete for the repository's "Latest" badge, which the most recent
+release of either train will hold.
 
 ### Where SDK artifacts come from today
 
 | Registry | Status | Install |
 |---|---|---|
-| crates.io | Live at `0.2.39` | `cargo add continuity-engine` |
-| npm | Live at `0.2.39` under the `next` tag | `npm install @continuity-editor/editor@next` |
+| crates.io | Live at `0.2.40` | `cargo add continuity-engine` |
+| npm | Live at `0.2.40` under the `latest` tag | `npm install @continuity-editor/editor` |
 | PyPI | Not published | Build locally; see the Python section |
 
-**Use the npm `@next` suffix.** The SDK channel is `preview`, so releases
-publish to the `next` dist-tag, and `next` is the only tag CI advances.
+**A bare `npm install @continuity-editor/editor` is the supported form.** The
+SDK channel is `stable`, so releases publish to the `latest` dist-tag and CI
+advances it on every release.
 
-A bare `npm install @continuity-editor/editor` does resolve, because the
-by-hand bootstrap of `0.2.36` also set `latest`. It is the wrong thing to
-install: `latest` is pinned at `0.2.36` and no release moves it, so the bare
-form silently returns a stale build that drifts further behind on every
-release. Either move `latest` forward by hand on each release or remove the tag;
-until then, treat the bare form as unsupported. `latest` starts tracking
-releases when `sdk/release.toml` flips `channel` to `stable`.
+`@next` still resolves, but it stops at `0.2.39`, the last release published
+while the channel was `preview`, and nothing advances it now. Use the bare form.
+
+The channel drives two things: the npm dist-tag and whether the SDK's GitHub
+Release is marked as a prerelease. Under `stable` the SDK competes with the
+desktop application for the repository's "Latest" badge. Setting `channel` back
+to `preview` restores both behaviours together.
 
 PyPI is deliberately unpublished. The wheel is built only for
 `cp310-abi3-win_amd64` and there is no source distribution, so publishing it
@@ -54,7 +57,7 @@ first release published end-to-end by CI through trusted publishing.
 `continuity-text 0.2.38` was published without a matching `continuity-buffer` or
 `continuity-engine` by a release that failed partway through its closure, and has
 been yanked. Yanking leaves it resolvable for any lockfile that already pinned it
-but keeps new resolution off it, so the SDK closure resolves at `0.2.39`.
+but keeps new resolution off it, so the SDK closure resolves at `0.2.40`.
 
 Every published SDK artifact is also attached to its GitHub Release. To consume
 a release without a registry:

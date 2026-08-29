@@ -1,6 +1,6 @@
 [sdk]
-version = "0.2.39"
-channel = "preview"
+version = "0.2.40"
+channel = "stable"
 msrv = "1.89"
 tag-prefix = "sdk-v"
 repository = "https://github.com/jatoran/continuity"

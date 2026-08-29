@@ -55,12 +55,15 @@ pub(crate) fn dry_run(args: &[String]) -> Result<()> {
         .as_secs();
     write_release_record(
         &output,
-        &config.sdk.version,
-        &config.sdk.channel,
-        &tag,
-        source_commit.trim(),
-        source_dirty,
-        generated,
+        &crate::sdk_release_artifact::ReleaseIdentity {
+            sdk_version: &config.sdk.version,
+            channel: &config.sdk.channel,
+            npm_tag: config.npm_dist_tag(),
+            tag: &tag,
+            source_commit: source_commit.trim(),
+            source_dirty,
+            generated_unix_seconds: generated,
+        },
     )?;
     verify_release_directory(&output, &config.sdk.version)?;
     fs::create_dir_all(&release_root)?;

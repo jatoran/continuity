@@ -17,11 +17,34 @@ pub(crate) struct ReleaseRecord {
     pub(crate) schema_version: u32,
     pub(crate) sdk_version: String,
     pub(crate) channel: String,
+    /// npm dist-tag this bundle publishes under, resolved from `channel`
+    /// against `sdk/release.toml`'s `preview-tag` / `stable-tag`.
+    ///
+    /// Staged rather than recomputed so the publish job reads it out of the
+    /// attested bundle. The workflow used to hardcode `--tag next`, which meant
+    /// `stable-tag` was declared in `sdk/release.toml` and silently ignored:
+    /// flipping `channel` to `stable` would have changed the GitHub prerelease
+    /// flag while still publishing to `next`.
+    pub(crate) npm_tag: String,
     pub(crate) tag: String,
     pub(crate) source_commit: String,
     pub(crate) source_dirty: bool,
     pub(crate) generated_unix_seconds: u64,
     pub(crate) artifacts: Vec<ArtifactRecord>,
+}
+
+/// Identity of one staged release, separate from its artifact list.
+///
+/// Grouped so [`write_release_record`] keeps a readable signature as the
+/// manifest grows.
+pub(crate) struct ReleaseIdentity<'a> {
+    pub(crate) sdk_version: &'a str,
+    pub(crate) channel: &'a str,
+    pub(crate) npm_tag: &'a str,
+    pub(crate) tag: &'a str,
+    pub(crate) source_commit: &'a str,
+    pub(crate) source_dirty: bool,
+    pub(crate) generated_unix_seconds: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -34,12 +57,7 @@ pub(crate) struct ArtifactRecord {
 
 pub(crate) fn write_release_record(
     directory: &Path,
-    sdk_version: &str,
-    channel: &str,
-    tag: &str,
-    source_commit: &str,
-    source_dirty: bool,
-    generated_unix_seconds: u64,
+    identity: &ReleaseIdentity<'_>,
 ) -> Result<PathBuf> {
     let artifacts = collect_artifacts(directory)?;
     let checksum_path = directory.join(CHECKSUM_NAME);
@@ -50,12 +68,13 @@ pub(crate) fn write_release_record(
     }
     let record = ReleaseRecord {
         schema_version: 1,
-        sdk_version: sdk_version.to_owned(),
-        channel: channel.to_owned(),
-        tag: tag.to_owned(),
-        source_commit: source_commit.to_owned(),
-        source_dirty,
-        generated_unix_seconds,
+        sdk_version: identity.sdk_version.to_owned(),
+        channel: identity.channel.to_owned(),
+        npm_tag: identity.npm_tag.to_owned(),
+        tag: identity.tag.to_owned(),
+        source_commit: identity.source_commit.to_owned(),
+        source_dirty: identity.source_dirty,
+        generated_unix_seconds: identity.generated_unix_seconds,
         artifacts,
     };
     let path = directory.join(RELEASE_RECORD_NAME);
@@ -180,7 +199,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{verify_release_directory, write_release_record};
+    use super::{verify_release_directory, write_release_record, ReleaseIdentity};
 
     #[test]
     fn release_bundle_detects_artifact_mutation() {
@@ -189,12 +208,15 @@ mod tests {
             .expect("invariant: artifact write");
         write_release_record(
             directory.path(),
-            "0.1.0",
-            "preview",
-            "sdk-v0.1.0",
-            "abc",
-            false,
-            1,
+            &ReleaseIdentity {
+                sdk_version: "0.1.0",
+                channel: "preview",
+                npm_tag: "next",
+                tag: "sdk-v0.1.0",
+                source_commit: "abc",
+                source_dirty: false,
+                generated_unix_seconds: 1,
+            },
         )
         .expect("invariant: manifest write");
         verify_release_directory(directory.path(), "0.1.0")

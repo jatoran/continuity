@@ -2,6 +2,8 @@
 
 Continuity is a native Windows markdown notes editor for writing notes. Period. Code notes included, but this is not trying to be a code editor.
 
+**[⬇ Download for Windows](https://github.com/jatoran/continuity/releases/latest)** - grab `continuity-<version>-setup.msi`. See [Downloads](#downloads) for the portable and standalone builds.
+
 ![Continuity](assets/media/hero.png)
 
 I wanted something with the speed, ephemerality, and safety I like in Sublime Text, but aimed at notes: better Windows virtual desktop behavior, WYSIWYG markdown editing, and no "did I save?" anxiety. Every keystroke is written to a local SQLite database; saving a file is export, not durability.
@@ -28,8 +30,8 @@ Continuity ships as two independent products built on one shared Rust editor eng
 
 | | What it is | Platform | Releases |
 |---|---|---|---|
-| **Continuity for Windows** | The native Win32 notes application. The end-user product. | Windows 10/11 | `v*` tags - [latest](https://github.com/jatoran/continuity/releases?q=tag%3Av&expanded=true) |
-| **Continuity SDK** | An embeddable editor for your own app: Web Component + WASM, Rust, C, Python, and a native Win32 child control. | Browser, Electron, Windows, Linux, macOS | `sdk-v*` tags (preview) |
+| **Continuity for Windows** | The native Win32 notes application. The end-user product. | Windows 10/11 | `v*` tags - [latest](https://github.com/jatoran/continuity/releases/latest), [all](https://github.com/jatoran/continuity/releases?q=tag%3Av&expanded=true) |
+| **Continuity SDK** | An embeddable editor for your own app: Web Component + WASM, Rust, C, Python, and a native Win32 child control. | Browser, Electron, Windows, Linux, macOS | `sdk-v*` tags - [all](https://github.com/jatoran/continuity/releases?q=tag%3Asdk-v&expanded=true) |
 
 They version separately and release separately, because they change at different rates and answer to different consumers. The desktop app is the one to download if you just want a notes editor. The SDK is the one to reach for if you want Continuity's editing behavior inside something you are building.
 
@@ -82,6 +84,8 @@ There is also a heap assertion of zero new allocations per keystroke in steady s
 ### Downloads
 
 GitHub Releases are the normal way to get builds. Desktop releases are tagged `v<version>`.
+
+[**releases/latest**](https://github.com/jatoran/continuity/releases/latest) always resolves to the newest desktop release, which is the link to use. Both products publish into one repository and the release list is strictly chronological, so SDK releases - which ship far more often - are interleaved with desktop ones. SDK releases never claim the "Latest" badge, so `releases/latest` cannot land you on one. To browse only desktop releases, filter the list with [`tag:v`](https://github.com/jatoran/continuity/releases?q=tag%3Av&expanded=true).
 
 - `continuity-<version>-setup.msi`: recommended for normal use. Installs under Program Files and supports in-place upgrades.
 - `continuity-<version>-portable.zip`: no-install build. Extract the folder and run `continuity.exe`; app data stays in that folder.
@@ -137,7 +141,7 @@ Each SDK release carries the npm tarball, the `continuity-text` / `continuity-bu
 
 The C ABI ships as a Windows DLL plus `continuity_engine.h` in the release archive; it is not on a package registry.
 
-SDK releases are marked as prereleases while the channel is `preview`, so the repository's "Latest" release stays pointed at the desktop application.
+SDK releases never take the repository's "Latest" badge, which belongs to the desktop application; that holds on every channel. A `preview`-channel SDK release is additionally marked as a GitHub prerelease, which is a statement about maturity, not about which product is the headline.
 
 Full integration contracts, per-surface APIs, supported targets, and version history: [EMBEDDING.md](EMBEDDING.md). Browser and framework examples: [`packages/editor/README.md`](packages/editor/README.md).
 

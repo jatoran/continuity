@@ -19,9 +19,10 @@ SDK version. `cargo xtask docs-check` fails when this table disagrees with
 either canonical source.
 
 The SDK channel is `stable`, so SDK releases publish to npm's `latest` dist-tag
-and their GitHub Releases are full releases rather than prereleases. Both trains
-therefore compete for the repository's "Latest" badge, which the most recent
-release of either train will hold.
+and their GitHub Releases are full releases rather than prereleases. They are
+still created with `--latest=false`: the repository's "Latest" badge belongs to
+the native desktop application on every channel, so `releases/latest` always
+resolves to the Windows installer and never to an SDK release.
 
 ### Where SDK artifacts come from today
 
@@ -39,9 +40,10 @@ advances it on every release.
 while the channel was `preview`, and nothing advances it now. Use the bare form.
 
 The channel drives two things: the npm dist-tag and whether the SDK's GitHub
-Release is marked as a prerelease. Under `stable` the SDK competes with the
-desktop application for the repository's "Latest" badge. Setting `channel` back
-to `preview` restores both behaviours together.
+Release is marked as a prerelease. It does not drive the "Latest" badge, which
+the SDK train gives up unconditionally via `--latest=false`. Setting `channel`
+back to `preview` moves npm publication to `next` and restores the prerelease
+marking together.
 
 PyPI is deliberately unpublished. The wheel is built only for
 `cp310-abi3-win_amd64` and there is no source distribution, so publishing it

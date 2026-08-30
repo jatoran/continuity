@@ -225,15 +225,25 @@ jobs:
         run: |
           set -euo pipefail
           channel="$(jq -r '.channel' sdk-bundle/release-manifest.json)"
-          # A preview SDK must not claim the repository's "Latest" badge; that
-          # belongs to the native desktop application. Gate on the staged
-          # manifest so the flag follows `sdk/release.toml`'s channel.
+          # `--prerelease` is a maturity claim and nothing else: a `preview`
+          # SDK is genuinely a prerelease, a `stable` one is not. Gate it on
+          # the staged manifest so the flag follows `sdk/release.toml`'s
+          # channel rather than a hand-edited workflow value.
           prerelease=""
           case "$channel" in
             preview) prerelease="--prerelease" ;;
             stable) ;;
             *) echo "unexpected SDK channel: $channel" >&2; exit 1 ;;
           esac
+          # Badge ownership is a separate question from maturity, so it gets a
+          # separate flag. Two trains publish into one repository and there is
+          # only one "Latest" badge; it belongs to the native desktop
+          # application, which is the mainstream product and the thing a
+          # visitor looking for an installer expects to find. `--latest=false`
+          # is unconditional for the SDK train: a stable SDK is still not the
+          # repository's headline release. Coupling this to `channel` is what
+          # silently handed the badge to `sdk-v0.2.40` when the SDK moved to
+          # the stable channel.
           # Both trains tag into one repository, so `--generate-notes` alone
           # picks whichever tag is chronologically previous — which is often a
           # desktop `v*` tag, producing a meaningless cross-train diff. Anchor
@@ -248,5 +258,6 @@ jobs:
             --verify-tag \
             --generate-notes \
             --title "Continuity SDK $GITHUB_REF_NAME" \
+            --latest=false \
             ${notes_range} \
             ${prerelease}

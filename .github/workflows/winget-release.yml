@@ -10,8 +10,14 @@ name: winget release
 on:
   release:
     # `released` deliberately, not `published`: `published` also fires for
-    # prereleases, and every SDK release is a prerelease. Only full desktop
-    # releases should reach winget.
+    # prereleases, and a `preview`-channel SDK release is one. Only full
+    # desktop releases should reach winget.
+    #
+    # This event type is NOT sufficient on its own. Since the SDK moved to the
+    # `stable` channel it publishes as a full release too, so `released` fires
+    # for `sdk-v*` tags as well; the tag-prefix guard on the job below is the
+    # load-bearing filter, not this. The SDK train is kept off the "Latest"
+    # badge with `--latest=false`, which does not suppress this event.
     types: [released]
   workflow_dispatch:
     inputs:
@@ -25,8 +31,9 @@ permissions:
 jobs:
   submit:
     name: submit winget manifest
-    # Belt and braces behind the `released` event type: an SDK tag must never
-    # be submitted as a desktop package version.
+    # The real filter: `released` fires for stable-channel SDK releases too,
+    # so an SDK tag must be rejected here or it would be submitted as a
+    # desktop package version.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       !startsWith(github.event.release.tag_name, 'sdk-v')

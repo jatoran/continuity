@@ -69,8 +69,8 @@ gh release create v<version> `
 
 ## Release Presentation
 - Desktop release titles are `Continuity for Windows v<version>`. SDK release titles are `Continuity SDK sdk-v<version>`. A release created without `--title` renders as its bare tag in the release list.
-- Desktop releases are full releases and own the repository's "Latest" badge. SDK releases pass `--prerelease` while the SDK channel is `preview`, so a preview SDK never displaces the desktop application as the headline release. See [Release and Public Repository Operations](../development/release_operations.md).
-- The release body should cross-link the other train, because both trains publish into one release list.
+- Desktop releases are full releases and own the repository's "Latest" badge. SDK releases pass `--latest=false` on every channel, so no SDK release displaces the desktop application as the headline release regardless of its maturity; `--prerelease` is applied separately and only while the SDK channel is `preview`. Do not couple the two. See [Release and Public Repository Operations](../development/release_operations.md).
+- The release body should cross-link the other train, because both trains publish into one release list. The list is chronological and the SDK train releases far more often, so the desktop installer is found through the "Latest" badge and the `releases/latest` URL rather than by position in the list. `README.md` leads with that link.
 - `EMBEDDING.md`'s `Current coordinates` table is validated by `cargo xtask docs-check` against `crates\app\Cargo.toml` and `sdk\release.toml`; bump the version and the table in the same change.
 - Unpublished local version bumps are not reservations. Ship the current `crates\app\Cargo.toml` version and let skipped versions stay skipped.
 

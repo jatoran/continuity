@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.10
+
+- Continuity now runs on a clean Windows install with nothing else installed. Earlier builds silently depended on the Microsoft Visual C++ Redistributable, which most machines already have, so the app worked on developers' PCs but failed to start on a fresh Windows image (including winget's automated install check) with a "DLL not found" error. The runtime is now built into the executable.
+
 ## 0.4.9
 
 - Indent guides now draw a rule at the first indent level. Previously a line indented once drew nothing, because a guide marked an *enclosing* parent and the body's own left edge was not treated as one - so a long run of singly-indented content looked exactly like unindented content once you had scrolled past its parent. The left edge is that content's parent, and it now gets a rule like every other level.

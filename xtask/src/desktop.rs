@@ -41,16 +41,10 @@ pub(crate) fn check() -> Result<()> {
         &["audit", "--omit=dev", "--audit-level=high"],
     )?;
 
-    let output_dir = workspace.join("target/desktop-web").join(format!(
-        "out-{}-{}",
-        env::consts::OS,
-        std::process::id()
-    ));
-    fs::create_dir_all(
-        output_dir
-            .parent()
-            .context("desktop output directory has no parent")?,
-    )?;
+    let output_root = workspace.join("target/desktop-web");
+    let output_dir = output_root.join(format!("out-{}-{}", env::consts::OS, std::process::id()));
+    fs::create_dir_all(&output_root)?;
+    prune_previous_output_dirs(&output_root, &output_dir);
     let mut make = npm_command();
     configure_npm(&workspace, &mut make);
     make.current_dir(&app_dir)
@@ -83,6 +77,46 @@ pub(crate) fn check() -> Result<()> {
         output_dir.display()
     );
     Ok(())
+}
+
+/// Delete Forge output roots left by earlier `desktop-check` runs.
+///
+/// Each run gets a process-unique output root so a still-running Electron
+/// process from the previous run cannot poison this build with file locks.
+/// That freshness is load-bearing, so the accumulated roots are pruned here
+/// instead of by reusing one name. A locked or otherwise undeletable root is
+/// skipped rather than failing the run: this is disk hygiene, not a gate.
+fn prune_previous_output_dirs(output_root: &Path, current: &Path) {
+    let entries = match fs::read_dir(output_root) {
+        Ok(entries) => entries,
+        Err(error) => {
+            eprintln!(
+                "desktop-check: could not read {} to prune old output roots: {error}",
+                output_root.display()
+            );
+            return;
+        }
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path == current || !path.is_dir() {
+            continue;
+        }
+        let is_output_root = path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .is_some_and(|name| name.starts_with("out-"));
+        if !is_output_root {
+            continue;
+        }
+        match fs::remove_dir_all(&path) {
+            Ok(()) => eprintln!("desktop-check: pruned old output root {}", path.display()),
+            Err(error) => eprintln!(
+                "desktop-check: leaving {} in place ({error})",
+                path.display()
+            ),
+        }
+    }
 }
 
 fn run_close_probe(executable: &Path, output_dir: &Path) -> Result<()> {

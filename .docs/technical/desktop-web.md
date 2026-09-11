@@ -106,6 +106,14 @@ Windows file locks from poisoning the next build. Packager ignores every
 `out*` tree, tests, lockfile, and development README; the ASAR gate requires the
 packed editor's generated JavaScript and WASM and rejects development entries.
 
+Because each root is process-unique, `desktop-check` prunes the previous
+`target/desktop-web/out-*` roots before it creates the current one. Without that
+prune every run left a full packaged application behind, and the roots grew
+without bound. A root that cannot be deleted -- typically still locked by an
+Electron process from an interrupted run -- is reported and skipped, since this
+is disk hygiene rather than a gate. `cargo xtask clean-scratch` sweeps any root
+left behind by a run that was killed before it reached the prune.
+
 Windows Squirrel uninstall removes the runnable app, package cache,
 registration, and shortcuts; its updater may leave a `.dead` self-removal
 tombstone until Windows permits deletion. CI treats any runnable executable or

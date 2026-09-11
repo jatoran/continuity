@@ -7,6 +7,8 @@ mod analyze_trace_memory_sections;
 mod analyze_trace_sections;
 mod artifact_budget;
 mod bench;
+mod clean_scratch;
+mod clean_stale;
 mod conventions;
 mod conventions_b_rules;
 mod conventions_identifier_rules;
@@ -64,6 +66,8 @@ fn main() -> ExitCode {
             Some(p) => conventions::check_commit_msg(Path::new(p)),
             None => Err(anyhow!("usage: cargo xtask check-commit-msg <file>")),
         },
+        "clean-scratch" => clean_scratch::run(&rest),
+        "clean-stale" => clean_stale::run(&rest),
         "snapshot-canary" => run_snapshot_canary(false),
         "snapshot-update" => run_snapshot_canary(true),
         "e2e-smoke" => run_e2e_smoke(),
@@ -127,6 +131,13 @@ fn print_help() {
     println!("                    (used by .githooks/commit-msg)");
     println!();
     println!("Phase 17.9 testing + perf:");
+    println!("  clean-scratch     delete disposable scratch under target/ (per-run packaging");
+    println!("                    roots, downloaded release bundles, dumped logs,");
+    println!("                    target/scratch/); --dry-run lists without deleting");
+    println!("  clean-stale       delete Cargo artifacts untouched for N days (default 14);");
+    println!("                    Cargo never reclaims target/, so stale per-hash test");
+    println!("                    binaries and incremental caches pile up without bound");
+    println!("                    [--days N] [--dry-run]");
     println!("  snapshot-canary   run the §D pixel canary in compare mode");
     println!("  snapshot-update   regenerate pixel-canary golden hashes");
     println!("  e2e-smoke         run the cheapest §C e2e tests (smoke + pane split)");

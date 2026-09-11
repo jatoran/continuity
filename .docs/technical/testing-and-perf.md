@@ -20,7 +20,7 @@ catches.
 | Tier | Trigger | Command | Target wall-time | Catches |
 |------|---------|---------|------------------|---------|
 | **fast** | every commit | `.githooks/pre-commit`: `xtask conventions` + `xtask ci` | < 90 s | conventions violations, fmt drift, clippy lints, type errors, unit-test regressions |
-| **fat** | every push | `.githooks/pre-push`: `+ xtask bench-fast` + `xtask e2e-smoke` + `xtask snapshot-canary` | 5–12 min | the above plus perf-gate regressions, the cheapest E2E pair, pixel-canary regressions |
+| **fat** | every push | `.githooks/pre-push`: `+ xtask bench-fast` + `xtask e2e-smoke` + `xtask snapshot-canary` + `xtask clean-stale` | 5–12 min | the above plus perf-gate regressions, the cheapest E2E pair, pixel-canary regressions; then reclaims Cargo artifacts older than 14 days |
 | **release** | manual / CI | `xtask check-all` (`= test-all + bench + perf-snapshot`) | well under 30 min | the above plus the full E2E set, the full perf-gate set, a fresh perf snapshot |
 
 `xtask agent-check` runs `docs-check` before `check-all`, then emits a
@@ -55,6 +55,8 @@ and perf-gate command hints, use
 | `test-all` | `ci` + every named E2E + `snapshot-canary`. |
 | `check-all` | `test-all` + full `bench` + `perf-snapshot`. The "is this commit shippable?" one-shot. |
 | `agent-check` | `check-all` with a `CheckAllOutcome` JSON record on stdout. |
+| `clean-stale [--days N] [--dry-run]` | Deletes Cargo artifacts under `target/` untouched for N days (default 14). Cargo never garbage-collects `target/`: every fingerprint change strands the previous `<crate>-<hash>.exe`, `.pdb`, `.rmeta`, and incremental directory. Because both hooks build `--all-targets`, each commit leaves roughly one debug test binary per crate behind; left alone this reached 665 GB across 126k artifacts. Runs last in the fat tier, where the working set is warm and anything past the cutoff is provably unused. Removing a live artifact costs a rebuild, never correctness. |
+| `clean-scratch [--dry-run]` | Deletes disposable non-Cargo output under `target/`: `target/scratch/`, leaked per-run packaging roots, downloaded release bundles, dumped CI logs. Never touches a profile tree or a tool-owned cache. |
 | `perf-snapshot` | Runs every gate, aggregates per-gate JSON into `target/perf/snapshot-<sha>.json`. |
 | `perf-history-append` | Appends the latest snapshot to `.perf/history.jsonl` (idempotent on `(sha, host_id)`). |
 | `perf-report [--last N]` | Prints a per-gate p99 / p99.9 / jitter trend table. |
@@ -222,8 +224,11 @@ mid-batch, reopens, asserts every Ok-returned `append_edit` survived.
   ABI, and the CPython 3.10+ `abi3` wheel.
 - **desktop-web** (`windows-latest`, `macos-latest`, and `ubuntu-latest`, every
   push + PR): runs `xtask desktop-check`, verifies the platform installer/DMG/
-  deb lifecycle, and uploads the native distributables. Pull-request artifacts
-  are unsigned; release signing/notarization uses separate credentials.
+  deb lifecycle, and uploads the native distributables with `retention-days: 1`.
+  Nothing downstream consumes those artifacts and a three-platform set is
+  about 840 MiB per run, so a longer retention exhausts the Free plan's Actions
+  storage within a few pushes. Pull-request artifacts are unsigned; release
+  signing/notarization uses separate credentials.
 - **check-all** (`windows-2022`, every push + PR): runs
   `xtask conventions` + `xtask check-all`. The image is pinned because WARP/
   DirectWrite pixel hashes and performance history require a stable operating-

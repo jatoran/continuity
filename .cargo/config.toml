@@ -1,5 +1,14 @@
 [alias]
 xtask = "run --quiet --package xtask --"
 
+# Link the MSVC C runtime statically. Windows ships the UCRT
+# (api-ms-win-crt-*) but not VCRUNTIME140.dll; that DLL only exists on
+# machines with a Visual C++ Redistributable installed. The desktop exe is a
+# single binary with no installer prerequisites, so it must not import it.
+# winget's post-install validation runs the installed exe on a clean image and
+# failed 0.4.8 with STATUS_DLL_NOT_FOUND (microsoft/winget-pkgs#424857).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
 [target.wasm32-unknown-unknown]
 rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]

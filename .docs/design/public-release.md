@@ -26,6 +26,8 @@
 - **Portable zip**: `continuity.exe` plus `data\`; double-clicking the exe auto-detects `data\` and keeps settings, themes, keymap, database, tutorial state, and backups in the extracted folder.
 - **Standalone zip**: only `continuity.exe`; settings, themes, keymap, database, and backups use normal Windows AppData locations.
 
+All three ship one executable with no runtime prerequisite. `.cargo/config.toml` links the MSVC C runtime statically (`-C target-feature=+crt-static` on `x86_64-pc-windows-msvc`), so the binary imports only DLLs that ship with Windows. Without that flag the executable imports `VCRUNTIME140.dll`, which exists only where a Visual C++ Redistributable is installed; it is present on every developer machine and absent on a clean image, which is exactly what winget's post-install validation runs. Before publishing, confirm the import list with `dumpbin /DEPENDENTS` on the packaged executable: `VCRUNTIME140.dll` must not appear.
+
 ## Workflow
 1. Update source, docs, version, changelog, and license in the source checkout.
 2. Build artifacts from the source checkout:

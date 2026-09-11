@@ -81,9 +81,17 @@ There is also a heap assertion of zero new allocations per keystroke in steady s
 - Large-buffer row counts: roughly 10k-line soft-wrapped buffers cold-walk in about 50-55 ms in recent local traces.
 - Rendering: viewport-first projection keeps large notes visible and editable while the full document index catches up.
 
+### Install
+
+```powershell
+winget install Continuity.Continuity
+```
+
+winget installs the MSI, registers it with Add/Remove Programs, and picks up new versions through `winget upgrade`. The downloads below are the same builds for anyone who prefers a file.
+
 ### Downloads
 
-GitHub Releases are the normal way to get builds. Desktop releases are tagged `v<version>`.
+GitHub Releases are the normal way to get builds without winget. Desktop releases are tagged `v<version>`.
 
 [**releases/latest**](https://github.com/jatoran/continuity/releases/latest) always resolves to the newest desktop release, which is the link to use. Both products publish into one repository and the release list is strictly chronological, so SDK releases - which ship far more often - are interleaved with desktop ones. SDK releases never claim the "Latest" badge, so `releases/latest` cannot land you on one. To browse only desktop releases, filter the list with [`tag:v`](https://github.com/jatoran/continuity/releases?q=tag%3Av&expanded=true).
 

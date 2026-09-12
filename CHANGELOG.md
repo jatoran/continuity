@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.11
+
+- Clicking back into a window or a split pane no longer jumps the view somewhere else. Whenever the window's layout was refreshed - clicking into a pane after a split or resize, resizing the window, toggling the sidebar - Continuity re-centred the view on the caret, so if you had scrolled away from the caret to read another part of the note, the view snapped back to wherever the caret happened to be (often the top or bottom of the document). The view now stays exactly where you left it; the caret only stays pinned in place when it is actually on screen.
+
 ## 0.4.10
 
 - Continuity now runs on a clean Windows install with nothing else installed. Earlier builds silently depended on the Microsoft Visual C++ Redistributable, which most machines already have, so the app worked on developers' PCs but failed to start on a fresh Windows image (including winget's automated install check) with a "DLL not found" error. The runtime is now built into the executable.

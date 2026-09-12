@@ -2,7 +2,9 @@
 //!
 //! The focused pane is mirrored onto `Window` fields for the legacy
 //! single-buffer paths. Right-edge chrome visibility is re-applied from
-//! the focused buffer whenever the mirrored buffer changes.
+//! the focused buffer whenever the mirrored buffer changes, and the
+//! paint-time geometry-anchor baselines are dropped so a baseline from
+//! the previous pane's buffer is never compared against the new one.
 //!
 //! Thread ownership: all state here is owned by the window UI thread.
 
@@ -31,6 +33,7 @@ impl Window {
         self.language = state.language;
         self.language_revision = state.language_revision;
         self.last_submitted_decoration_revision = state.last_submitted_decoration_revision;
+        self.surface.geometry_anchor.reset_baselines();
         self.apply_right_edge_chrome_for_current_view();
         self.clear_right_edge_layout_caches();
     }
@@ -51,6 +54,7 @@ impl Window {
         self.language = Self::default_language();
         self.language_revision = None;
         self.last_submitted_decoration_revision = None;
+        self.surface.geometry_anchor.reset_baselines();
         self.apply_right_edge_chrome_for_current_view();
         self.clear_right_edge_layout_caches();
     }

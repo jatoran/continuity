@@ -56,6 +56,7 @@ use ropey::Rope;
 
 use super::caret_visibility::approximate_caret_continuation_row;
 use crate::display_prewarm_cache::PrewarmQuery;
+use crate::window_caret_anchor::is_row_overlapping_viewport;
 use crate::window_paint::{visible_display_row_range, VIEWPORT_OVERSCAN_ROWS};
 use crate::Window;
 
@@ -70,9 +71,28 @@ pub(crate) struct GeometryAnchorState {
     /// `(caret_source_line, source_line_first_display_row)` captured at
     /// the end of the previous focused paint.
     pub(crate) previous_paint_caret_line_anchor: Option<(u32, u32)>,
+    /// `(source_line_at_viewport_top, source_line_first_display_row)`
+    /// captured at the end of the previous focused paint, only when that
+    /// frame's whole-document row index was complete (a partial index
+    /// placeholders off-viewport lines, so its prefix sums move as the
+    /// realized window moves and would read as spurious geometry shifts).
+    /// Holds the visible content still when the caret is off screen.
+    pub(crate) previous_paint_top_line_anchor: Option<(u32, u32)>,
     /// Set by the post-edit/motion caret reveal to request that the next
     /// focused paint guarantee the primary caret is inside the viewport.
     pub(crate) pending_caret_reveal: bool,
+}
+
+impl GeometryAnchorState {
+    /// Forget both per-paint baselines. Call whenever the focused buffer
+    /// or pane changes, or an explicit reflow anchor has already restored
+    /// the scroll: a baseline captured under another buffer or another
+    /// geometry must never be compared against the next painted frame.
+    pub(crate) fn reset_baselines(&mut self) {
+        self.previous_paint_caret_line_anchor = None;
+        self.previous_paint_top_line_anchor = None;
+        self.caret_was_on_screen_prior_frame = false;
+    }
 }
 
 /// Pure scroll math: shift `scroll_y_dip` by the caret source line's
@@ -148,6 +168,7 @@ impl Window {
             self.surface
                 .geometry_anchor
                 .previous_paint_caret_line_anchor = None;
+            self.surface.geometry_anchor.previous_paint_top_line_anchor = None;
             self.surface.geometry_anchor.pending_caret_reveal = false;
             return;
         };
@@ -155,6 +176,7 @@ impl Window {
             self.surface
                 .geometry_anchor
                 .previous_paint_caret_line_anchor = None;
+            self.surface.geometry_anchor.previous_paint_top_line_anchor = None;
             self.surface.geometry_anchor.pending_caret_reveal = false;
             return;
         };
@@ -167,24 +189,72 @@ impl Window {
             .max(total_rows.max(1) as f32 * line_height);
 
         let mut target_scroll = self.surface.view.scroll_y_dip;
+        let viewport_height = self.surface.view.viewport_height_dip;
 
-        // (1) Hold the caret line at the same screen y across an implicit
-        // geometry reflow (rows above the caret appearing / disappearing as
-        // the served frame's geometry swings while typing).
+        // (1) Hold the line the user is looking at across an implicit
+        // geometry reflow (rows appearing / disappearing as the served
+        // frame's geometry swings — decorations catching up, cache vs
+        // worker vs inline frames). When the caret line was on screen at
+        // the previous paint that is the caret line (rows above it
+        // changing count would otherwise move it while typing). When the
+        // caret is off screen — the user scrolled away to read — holding
+        // the caret line would drag the *visible* content by every row
+        // change between the viewport and the caret, so the source line
+        // at the viewport's top edge is held instead.
+        let mut held_caret_line = false;
         if let Some((prev_line, prev_first_row)) = self
             .surface
             .geometry_anchor
             .previous_paint_caret_line_anchor
         {
             if prev_line == caret_line && now_first_row != prev_first_row {
-                target_scroll = geometry_shift_scroll(
-                    target_scroll,
-                    prev_first_row,
-                    now_first_row,
-                    line_height,
-                    content_height,
-                    self.surface.view.viewport_height_dip,
-                );
+                let caret_continuation_rows = frame_display
+                    .display_line_index_for_source_pos(
+                        caret_line as usize,
+                        sel.head.byte_in_line as usize,
+                    )
+                    .map_or(0, |row| row.saturating_sub(now_first_row));
+                let prev_caret_screen_y =
+                    (prev_first_row.saturating_add(caret_continuation_rows)) as f32 * line_height
+                        - target_scroll;
+                if is_row_overlapping_viewport(prev_caret_screen_y, line_height, viewport_height) {
+                    target_scroll = geometry_shift_scroll(
+                        target_scroll,
+                        prev_first_row,
+                        now_first_row,
+                        line_height,
+                        content_height,
+                        viewport_height,
+                    );
+                    held_caret_line = true;
+                }
+            }
+        }
+        if !held_caret_line && !frame_display.row_index().is_partial() {
+            if let Some((top_line, prev_top_first_row)) =
+                self.surface.geometry_anchor.previous_paint_top_line_anchor
+            {
+                let now_top_first_row =
+                    frame_display.first_display_line_index_for_source(top_line as usize);
+                if now_top_first_row != prev_top_first_row {
+                    if crate::paint_trace::is_trace_enabled() {
+                        crate::paint_trace::log_event(
+                            "geometry_anchor_top_line_hold",
+                            &format!(
+                                "top_line={top_line} prev_first_row={prev_top_first_row} \
+                                 now_first_row={now_top_first_row}"
+                            ),
+                        );
+                    }
+                    target_scroll = geometry_shift_scroll(
+                        target_scroll,
+                        prev_top_first_row,
+                        now_top_first_row,
+                        line_height,
+                        content_height,
+                        viewport_height,
+                    );
+                }
             }
         }
 
@@ -284,12 +354,80 @@ impl Window {
             caret_line,
             frame_display.first_display_line_index_for_source(caret_line as usize),
         ));
+        self.surface.geometry_anchor.previous_paint_top_line_anchor =
+            compute_top_line_anchor(frame_display, target_scroll, line_height);
     }
+}
+
+/// `(source_line, first_display_row)` of the source line at the viewport's
+/// top edge in `frame_display`, or `None` when the frame's row index is
+/// partial (its prefix sums are not stable across paints) or the scroll
+/// sits past the last row.
+#[must_use]
+pub(crate) fn compute_top_line_anchor(
+    frame_display: &FrameDisplay,
+    scroll_y_dip: f32,
+    line_height: f32,
+) -> Option<(u32, u32)> {
+    let row_index = frame_display.row_index();
+    if row_index.is_partial() {
+        return None;
+    }
+    let top_row = (scroll_y_dip.max(0.0) / line_height.max(1.0)).floor() as u32;
+    let (source_line, _) = row_index.source_line_for_display_row(top_row)?;
+    let first_row = frame_display.first_display_line_index_for_source(source_line.as_usize());
+    Some((source_line.raw(), first_row))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_scroll_to_caret_visible, geometry_shift_scroll};
+    use super::{clamp_scroll_to_caret_visible, compute_top_line_anchor, geometry_shift_scroll};
+    use continuity_display_map::wrap::FixedCharWidth;
+    use continuity_render::FrameDisplay;
+    use ropey::Rope;
+
+    /// The top-line baseline names the source line whose rows cover the
+    /// viewport's first display row, together with that line's first row
+    /// — so a wrapped line that straddles the top edge is anchored by its
+    /// own first row, not by the row currently at the edge.
+    #[test]
+    fn top_line_anchor_names_source_line_covering_first_visible_row() {
+        let long_line = "word ".repeat(60);
+        let text = format!(
+            "a
+b
+{long_line}
+c
+d"
+        );
+        let rope = Rope::from_str(&text);
+        let mut measure = FixedCharWidth::new(8.0);
+        let frame_display = FrameDisplay::build_viewport_measured(
+            &rope,
+            1,
+            None,
+            &[0],
+            &[],
+            &[],
+            80,
+            &mut measure,
+            0..100,
+            0,
+        );
+        let wrapped_rows = frame_display.display_line_count_for_source(2);
+        assert!(
+            wrapped_rows > 3,
+            "the middle line must wrap into several rows"
+        );
+        // Scroll so the viewport top sits on the third row of the wrapped line.
+        let scroll = (2 + 2) as f32 * LH + 3.0;
+        let anchor = compute_top_line_anchor(&frame_display, scroll, LH)
+            .expect("complete row index yields a top-line anchor");
+        assert_eq!(anchor, (2, 2), "source line 2 starts at display row 2");
+        // Past the last row there is nothing to anchor.
+        let total = frame_display.display_line_count();
+        assert!(compute_top_line_anchor(&frame_display, total as f32 * LH + 1.0, LH).is_none());
+    }
 
     const LH: f32 = 22.0;
     const VH: f32 = 700.0;

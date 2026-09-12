@@ -3,47 +3,61 @@
 //! Implements the principle from `.docs/design/principles.md` §"Layout
 //! shifts preserve caret-line screen y": when font scale, font family,
 //! soft-wrap width, viewport geometry, or any other reflow source
-//! changes, the display line containing the primary caret must stay at
-//! the same screen y. Content above and below reflows; the caret line
-//! does not move.
+//! changes, the line the user is looking at must stay at the same screen
+//! y. Content above and below reflows; the anchored line does not move.
 //!
 //! ## Contract
 //!
 //! Every reflow-causing call site routes through
 //! [`Window::with_caret_line_anchored`]. The helper:
 //!
-//! 1. Captures the caret's display-line screen y (via the current
-//!    [`continuity_render::FrameDisplay`] projection — wrap-aware,
-//!    fold-aware).
+//! 1. Picks the anchored line ([`AnchorTarget`]): the caret line when the
+//!    caret row overlaps the viewport, otherwise the source line at the
+//!    viewport's top edge (the caret is off screen, so its y is not what
+//!    the user is tracking). Captures that line's screen y via the
+//!    current [`continuity_render::FrameDisplay`] projection —
+//!    wrap-aware, fold-aware.
 //! 2. Runs the closure (which mutates `self.surface.view` or other state).
-//! 3. Recomputes the caret's display-line index under the post-reflow
-//!    projection.
-//! 4. Adjusts `view.scroll_y_dip` so the caret line lands at the
-//!    snapshotted screen y, clamped into `[0, max_scroll]` and into the
-//!    visible viewport.
+//! 3. Recomputes the anchored line's display-line index under the
+//!    post-reflow projection.
+//! 4. Adjusts `view.scroll_y_dip` so the line lands at the snapshotted
+//!    screen y, clamped into `[0, max_scroll]`. Only a visible-caret
+//!    anchor is additionally clamped into the viewport (staying visible
+//!    wins over staying at the "right" y when the viewport shrank); an
+//!    off-screen anchor is never pulled into view — a reflow the user did
+//!    not ask for must not scroll them away from what they were reading.
 //!
-//! When the caret line vanishes mid-reflow (a fold collapsed it), the
-//! nearest surviving display line *above* the caret position is
-//! anchored instead. When the viewport shrank below the snapshotted y,
-//! the caret line clamps into the viewport rather than drift off-screen
-//! — staying visible wins over staying at the "right" y.
+//! When the anchored line vanishes mid-reflow (a fold collapsed it), the
+//! nearest surviving display line *above* it is anchored instead.
 //!
 //! ## Single helper, many funnels
 //!
 //! Today the helper wraps two funnels: [`Window::invalidate_font_state`]
 //! (covers font-scale and font-family reflows) and
 //! [`Window::refresh_focused_viewport`] (covers pane resize, window
-//! resize, sidebar toggle, minimap appearance, distraction-free). Direct
-//! callers exist for triggers that bypass both funnels — currently the
-//! soft-wrap toggle in [`crate::window_view`]. All future reflow surfaces
-//! must route through this helper; never write a parallel anchor.
+//! resize, pane-focus switch, sidebar toggle, minimap appearance,
+//! distraction-free). Direct callers exist for triggers that bypass both
+//! funnels — currently the soft-wrap toggle in [`crate::window_view`] and
+//! the silent external-change reload. All future reflow surfaces must
+//! route through this helper; never write a parallel anchor.
+//!
+//! Sibling modules: `anchor_target.rs` (payload + pure scroll math),
+//! `viewport_top.rs` (top-line capture + frame selection),
+//! `resolve_build.rs` (projection builds for the resolve path).
 
 use continuity_render::FrameDisplay;
 use continuity_text::Position;
 
 use crate::window::Window;
 
+mod anchor_target;
 mod resolve_build;
+mod viewport_top;
+
+pub(crate) use anchor_target::{
+    anchored_scroll, anchored_scroll_without_reveal, is_row_overlapping_viewport, AnchorTarget,
+    CaretAnchor,
+};
 
 /// How the caret display row was resolved from a frame projection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -119,19 +133,6 @@ impl CaretDisplayLine {
     }
 }
 
-/// Captured anchor state for a primary caret prior to a reflow.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct CaretAnchor {
-    /// Source-rope position of the primary caret head. The caret bytes
-    /// do not move during a pure reflow, but the display line they map
-    /// to may change (wrap, fold, scale).
-    caret: Position,
-    /// Screen y (pane-body-relative) of the caret's display line at the
-    /// moment the snapshot was taken. This is the value we want to
-    /// restore after the closure runs.
-    screen_y: f32,
-}
-
 impl Window {
     /// Run `f`, preserving the screen y of the line containing the
     /// primary caret across whatever reflow `f` causes. δ.3.
@@ -155,15 +156,40 @@ impl Window {
         out
     }
 
-    /// Snapshot the caret's pre-reflow anchor. Returns `None` when no
-    /// buffer is open or the caret's source line is fully folded with
-    /// no surviving line above (in which case anchoring is a no-op and
-    /// the closure runs without scroll adjustment).
+    /// Snapshot the pre-reflow anchor. Returns `None` when no buffer is
+    /// open or the caret's source line is fully folded with no surviving
+    /// line above (in which case anchoring is a no-op and the closure
+    /// runs without scroll adjustment).
+    ///
+    /// The anchored line is the caret line when the caret row overlaps
+    /// the viewport. When the user has scrolled the caret off screen the
+    /// source line at the viewport's top edge is anchored instead (see
+    /// [`AnchorTarget`]) — a reflow must never yank the viewport back to
+    /// an off-screen caret. This was the "view jumps when I click back
+    /// into a pane" bug: a pane-focus switch refreshes the viewport
+    /// geometry, and the old caret-only anchor clamped the off-screen
+    /// caret line into view.
     pub(crate) fn capture_caret_anchor(&self) -> Option<CaretAnchor> {
         self.caret_anchor_capture_count
             .set(self.caret_anchor_capture_count.get().saturating_add(1));
-        self.current_primary_caret_screen_y_dip()
-            .map(|(caret, screen_y)| CaretAnchor { caret, screen_y })
+        let (caret, caret_screen_y) = self.current_primary_caret_screen_y_dip()?;
+        let line_height = self.effective_line_height();
+        let viewport_h = self.surface.view.viewport_height_dip;
+        if is_row_overlapping_viewport(caret_screen_y, line_height, viewport_h) {
+            return Some(CaretAnchor {
+                position: caret,
+                screen_y: caret_screen_y,
+                target: AnchorTarget::VisibleCaret,
+            });
+        }
+        if let Some(anchor) = self.capture_viewport_top_line_anchor(caret, line_height) {
+            return Some(anchor);
+        }
+        Some(CaretAnchor {
+            position: caret,
+            screen_y: caret_screen_y,
+            target: AnchorTarget::OffScreenCaret,
+        })
     }
 
     /// Current primary-caret line y in pane-body DIPs. Returns the caret
@@ -178,28 +204,69 @@ impl Window {
         Some((caret, screen_y))
     }
 
-    /// Recompute the caret's display-line index under the current
+    /// Recompute the anchored line's display-line index under the current
     /// projection and shift `view.scroll_y_dip` so the line sits at
-    /// `anchor.screen_y`. Clamps into `[0, max_scroll]` and into the
-    /// visible viewport.
+    /// `anchor.screen_y`. Always clamps into `[0, max_scroll]`; only a
+    /// [`AnchorTarget::VisibleCaret`] anchor additionally clamps the line
+    /// into the visible viewport (on-screen wins over "right y" when the
+    /// viewport shrank). An off-screen anchor is restored to its
+    /// off-screen y so the reflow never scrolls the user away from what
+    /// they were reading.
     pub(crate) fn restore_caret_anchor(&mut self, anchor: CaretAnchor) {
-        let Some(display_line_after) = self.resolve_caret_display_line(anchor.caret) else {
+        let Some(display_line_after) = self.resolve_display_line_in_caret_frame(
+            self.primary_caret_position().unwrap_or(anchor.position),
+            anchor.position,
+        ) else {
             return;
         };
         let line_height = self.effective_line_height();
-        let new_line_top = display_line_after.display_row as f32 * line_height;
+        let row_after = match anchor.target {
+            AnchorTarget::ViewportTopLine => display_line_after.source_line_first_display_row,
+            AnchorTarget::VisibleCaret | AnchorTarget::OffScreenCaret => {
+                display_line_after.display_row
+            }
+        };
+        let new_line_top = row_after as f32 * line_height;
         let content_h = self
             .estimated_content_height()
             .max(display_line_after.total_display_rows.max(1) as f32 * line_height);
         let viewport_h = self.surface.view.viewport_height_dip;
-        let new_scroll = anchored_scroll(
-            new_line_top,
-            line_height,
-            anchor.screen_y,
-            viewport_h,
-            content_h,
-        );
+        let new_scroll = match anchor.target {
+            AnchorTarget::VisibleCaret => anchored_scroll(
+                new_line_top,
+                line_height,
+                anchor.screen_y,
+                viewport_h,
+                content_h,
+            ),
+            AnchorTarget::ViewportTopLine | AnchorTarget::OffScreenCaret => {
+                anchored_scroll_without_reveal(new_line_top, anchor.screen_y, viewport_h, content_h)
+            }
+        };
+        if crate::paint_trace::is_trace_enabled() {
+            crate::paint_trace::log_event(
+                "caret_anchor_restore",
+                &format!(
+                    "target={:?} line={} row_after={row_after} screen_y={:.1} scroll={:.1}->{new_scroll:.1}",
+                    anchor.target,
+                    anchor.position.line,
+                    anchor.screen_y,
+                    self.surface.view.scroll_y_dip,
+                ),
+            );
+        }
         self.surface.view.scroll_y_dip = new_scroll;
+        // The paint-time geometry anchor's baselines were captured under
+        // the pre-reflow projection; comparing them against the next
+        // painted frame would compensate the same row delta a second
+        // time. Re-baseline on the next paint instead.
+        self.surface.geometry_anchor.reset_baselines();
+    }
+
+    /// Primary caret head of the focused buffer, if any.
+    pub(crate) fn primary_caret_position(&self) -> Option<Position> {
+        let snap = self.editor.snapshot(self.buffer_id)?;
+        snap.selections().first().map(|sel| sel.head)
     }
 
     /// Display-line index of the primary caret under the *current*
@@ -233,20 +300,28 @@ impl Window {
     /// Resolve the caret's display row plus the total row-index height
     /// of the current projection.
     pub(crate) fn resolve_caret_display_line(&self, caret: Position) -> Option<CaretDisplayLine> {
+        self.resolve_display_line_in_caret_frame(caret, caret)
+    }
+
+    /// Resolve `lookup`'s display row in the projection that `caret`
+    /// selects. The frame is chosen / built with `caret` as the revealed
+    /// caret byte (so block-reveal geometry matches what is painted) and
+    /// `lookup` is the line whose row is read out of it. The two coincide
+    /// for the caret-line anchor; the viewport-top anchor passes the top
+    /// source line as `lookup` while keeping the real caret in the query.
+    pub(crate) fn resolve_display_line_in_caret_frame(
+        &self,
+        caret: Position,
+        lookup: Position,
+    ) -> Option<CaretDisplayLine> {
         let snap = self.editor.snapshot(self.buffer_id)?;
         let rope = snap.rope_snapshot().rope();
         let revision = snap.rope_snapshot().revision().0;
         let decorations = self
             .decoration_cache
             .get(self.buffer_id.as_uuid().as_u128());
-        let line = caret.line as usize;
-        let line_start = if line < rope.len_lines() {
-            rope.line_to_byte(line)
-        } else {
-            rope.len_bytes()
-        };
-        let caret_byte = line_start + caret.byte_in_line as usize;
-        let caret_bytes = [caret_byte];
+        let line = lookup.line as usize;
+        let caret_bytes = [caret_byte_offset(rope, caret)];
 
         let metrics =
             self.display_projection_metrics(self.current_search_minimap_active(), rope.len_lines());
@@ -259,97 +334,64 @@ impl Window {
             metrics.wrap_width_dip,
             self.surface.render.font_state,
         );
-        let last_painted = self
-            .surface
-            .projection
-            .last_painted_frame_display
-            .as_ref()
-            .and_then(|(cached_query, painted)| {
-                if cached_query.is_compatible_for_motion(&query) {
-                    Some(painted.clone())
-                } else {
-                    None
-                }
-            });
-        // Focus switches can promote the prior spectator projection.
-        let spectator = if last_painted.is_none() {
-            self.surface
-                .projection
-                .spectator_frame_cache
-                .borrow()
-                .lookup_for_focused_paint(self.tree.focused, &query)
-                .map(|promoted| promoted.frame_display)
-        } else {
-            None
-        };
-        let (mut fd, mut frame_source) = if let Some(fd) = last_painted {
-            if crate::paint_trace::is_trace_enabled() {
-                crate::paint_trace::log_event("caret_anchor_frame_source", "source=last_painted");
-            }
-            (fd, "last_painted")
-        } else if let Some(fd) = spectator {
-            if crate::paint_trace::is_trace_enabled() {
-                crate::paint_trace::log_event(
-                    "caret_anchor_frame_source",
-                    "source=spectator_cache",
-                );
-            }
-            (fd, "spectator_cache")
-        } else {
-            let has_row_index_hit = self.has_cached_row_index_for_frame_display_viewport(
-                Some(self.buffer_id),
-                revision,
-                decorations,
-                &[],
-                &[],
-                metrics.wrap_width_dip,
-            );
-            if crate::paint_trace::is_trace_enabled() {
-                let detail = if has_row_index_hit {
-                    "source=row_index_cache_hit".to_string()
-                } else {
-                    match self.surface.projection.last_painted_frame_display.as_ref() {
-                        Some((cached_query, _)) => {
-                            let mismatch = cached_query
-                                .motion_compat_mismatch(&query)
-                                .unwrap_or("unknown");
-                            format!("source=viewport_build stale_cache={mismatch}")
-                        }
-                        None => "source=viewport_build cache=empty".to_string(),
-                    }
-                };
-                crate::paint_trace::log_event("caret_anchor_frame_source", &detail);
-            }
-            if has_row_index_hit {
-                (
-                    self.build_caret_anchor_viewport_frame_display(
-                        rope,
-                        revision,
-                        decorations,
-                        &caret_bytes,
-                        metrics.wrap_width_dip,
-                        metrics.char_width_dip,
-                    ),
-                    "viewport_build",
-                )
-            } else if let Some(fd) = self.build_caret_anchor_targeted_frame_display(
-                &query,
-                rope,
-                revision,
-                decorations,
-                &caret_bytes,
-                line,
-                metrics.wrap_width_dip,
-                metrics.char_width_dip,
-            ) {
-                (fd, "targeted_row_index")
+        let (mut fd, mut frame_source) =
+            if let Some(found) = self.select_anchor_frame_display(&query) {
+                found
             } else {
-                return Some(caret_display_line_from_source_floor(rope, line));
-            }
-        };
+                let has_row_index_hit = self.has_cached_row_index_for_frame_display_viewport(
+                    Some(self.buffer_id),
+                    revision,
+                    decorations,
+                    &[],
+                    &[],
+                    metrics.wrap_width_dip,
+                );
+                if crate::paint_trace::is_trace_enabled() {
+                    let detail = if has_row_index_hit {
+                        "source=row_index_cache_hit".to_string()
+                    } else {
+                        match self.surface.projection.last_painted_frame_display.as_ref() {
+                            Some((cached_query, _)) => {
+                                let mismatch = cached_query
+                                    .motion_compat_mismatch(&query)
+                                    .unwrap_or("unknown");
+                                format!("source=viewport_build stale_cache={mismatch}")
+                            }
+                            None => "source=viewport_build cache=empty".to_string(),
+                        }
+                    };
+                    crate::paint_trace::log_event("caret_anchor_frame_source", &detail);
+                }
+                if has_row_index_hit {
+                    (
+                        self.build_caret_anchor_viewport_frame_display(
+                            rope,
+                            revision,
+                            decorations,
+                            &caret_bytes,
+                            metrics.wrap_width_dip,
+                            metrics.char_width_dip,
+                        ),
+                        "viewport_build",
+                    )
+                } else if let Some(fd) = self.build_caret_anchor_targeted_frame_display(
+                    &query,
+                    rope,
+                    revision,
+                    decorations,
+                    &caret_bytes,
+                    line,
+                    metrics.wrap_width_dip,
+                    metrics.char_width_dip,
+                ) {
+                    (fd, "targeted_row_index")
+                } else {
+                    return Some(caret_display_line_from_source_floor(rope, line));
+                }
+            };
 
         let mut resolved =
-            compute_caret_display_line_from_frame(&fd, line, caret.byte_in_line as usize)?;
+            compute_caret_display_line_from_frame(&fd, line, lookup.byte_in_line as usize)?;
         if resolved.resolution == CaretDisplayLineResolution::RowIndexOnly
             && resolved.source_line_rows > 1
         {
@@ -382,7 +424,7 @@ impl Window {
                 if let Some(refined_line) = compute_caret_display_line_from_frame(
                     &refined,
                     line,
-                    caret.byte_in_line as usize,
+                    lookup.byte_in_line as usize,
                 ) {
                     if refined_line.resolution != CaretDisplayLineResolution::RowIndexOnly {
                         fd = refined;
@@ -469,6 +511,17 @@ fn compute_caret_display_line_from_frame(
     None
 }
 
+/// Absolute byte offset of `pos` in `rope`, clamped to the rope end.
+pub(super) fn caret_byte_offset(rope: &ropey::Rope, pos: Position) -> usize {
+    let line = pos.line as usize;
+    let line_start = if line < rope.len_lines() {
+        rope.line_to_byte(line)
+    } else {
+        rope.len_bytes()
+    };
+    (line_start + pos.byte_in_line as usize).min(rope.len_bytes())
+}
+
 fn caret_display_line_from_source_floor(
     rope: &ropey::Rope,
     source_line: usize,
@@ -484,36 +537,6 @@ fn caret_display_line_from_source_floor(
         // No usable row index at all — definitely can't trust the floor.
         index_is_partial: true,
     }
-}
-
-/// Pure scroll-restoration math, factored out so it can be unit-tested
-/// without a `Window`. Given the caret's new line top, the desired
-/// pre-reflow screen y, and the post-reflow viewport/content heights,
-/// returns the scroll position that places the caret line at
-/// `screen_y_before` — clamped into `[0, max_scroll]` and into the
-/// viewport.
-#[must_use]
-pub(crate) fn anchored_scroll(
-    new_line_top: f32,
-    line_height: f32,
-    screen_y_before: f32,
-    viewport_h: f32,
-    content_h: f32,
-) -> f32 {
-    let max_scroll = (content_h - viewport_h).max(0.0);
-    let target = (new_line_top - screen_y_before).clamp(0.0, max_scroll);
-    let proposed_screen_y = new_line_top - target;
-    // Caret-line would land below the viewport — pull scroll so the
-    // caret bottom touches the viewport bottom instead. On-screen wins
-    // over "right y" when the viewport shrunk past the target.
-    if proposed_screen_y + line_height > viewport_h && viewport_h > 0.0 {
-        return ((new_line_top + line_height - viewport_h).max(0.0)).min(max_scroll);
-    }
-    // Caret-line would land above the viewport — pin it to the top.
-    if proposed_screen_y < 0.0 {
-        return new_line_top.min(max_scroll);
-    }
-    target
 }
 
 #[cfg(test)]

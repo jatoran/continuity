@@ -446,7 +446,16 @@ labels: `click_hit_test_frame_source` for hit-test source and
 Segment-click handling additionally checks the shared P18 `SegmentCache` with
 the row-count walker's line-projection stamp before resolving a fallback frame.
 
-`window_caret_anchor.rs::resolve_caret_display_line` is now the δ.3
+`window_caret_anchor.rs` holds the line the user is looking at across a
+reflow: the caret line when its row overlaps the viewport, otherwise the
+source line at the viewport's top edge (`AnchorTarget::ViewportTopLine`,
+resolved in `window_caret_anchor/viewport_top.rs`), and it never pulls an
+off-screen caret into view (`anchored_scroll_without_reveal` in
+`window_caret_anchor/anchor_target.rs`). An explicit restore also drops the
+paint-time `GeometryAnchorState` baselines so the next paint re-baselines
+instead of double-compensating. `resolve_caret_display_line` (a wrapper over
+`resolve_display_line_in_caret_frame`, which selects the frame with the real
+caret and reads out any lookup line) is the δ.3
 capture/restore consumer of the same reuse contract — it tries
 `last_painted_frame_display` (motion-compatible only — font-scale or
 wrap-width changes mid-anchor would corrupt the restore) and falls

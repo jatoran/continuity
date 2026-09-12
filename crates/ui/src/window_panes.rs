@@ -473,6 +473,9 @@ impl Window {
         if is_tab_switch {
             self.tab_session.adopted_tab = Some(active);
             self.restore_tab_view_bookmark(active, buffer_changed);
+            // The incoming tab has its own scroll + caret; the paint-time
+            // geometry-anchor baselines belong to the outgoing tab.
+            self.surface.geometry_anchor.reset_baselines();
         }
         self.retarget_find_bar_to_focused_pane();
         if repaired {

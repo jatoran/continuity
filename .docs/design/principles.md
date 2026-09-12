@@ -60,6 +60,11 @@ When font scale, soft-wrap width, theme size, or pane size changes, the line con
 
 **Implementation.** The contract is realized by `crates/ui/src/window_caret_anchor.rs::Window::with_caret_line_anchored`. Every reflow-causing call site routes through that helper; never write parallel anchor logic. The audit + remediation that landed the helper lives at `.docs/development/archive/audit_caret_anchor.md`.
 
+**Off-screen caret.** The anchored line is the line the user is looking at.
+When the caret row overlaps the viewport that is the caret line.
+When the user has scrolled the caret off screen (reading elsewhere in the document), the source line at the viewport's top edge is held instead, and the caret is never pulled back into view by a reflow it did not ask for.
+Clamping an off-screen caret into the viewport was the "clicking back into a pane or window jumps the view" defect: every pane-focus switch, window resize, or sidebar toggle re-targeted the viewport to wherever the caret happened to be.
+
 **Explicit exception — live drag-resize.** Inside a Win32 modal sizing loop (`WM_ENTERSIZEMOVE` → `WM_EXITSIZEMOVE`), per-tick `WM_SIZE` deltas take an unanchored fast path; a single anchor captured at the loop's start is restored once at its end. The contract holds for the final frame the user settles on; intermediate frames during the drag are deliberately not anchored because (a) the per-tick anchor builds a full `FrameDisplay` projection that dominates resize CPU, and (b) the user's eye is tracking the resize handle, not the caret line. Detail in [`features/caret.md`](features/caret.md) §"Screen-y anchor across reflow".
 
 ---

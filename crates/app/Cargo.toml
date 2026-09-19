@@ -1,6 +1,6 @@
 [package]
 name             = "continuity-app"
-version          = "0.4.11"
+version          = "0.4.12"
 edition.workspace      = true
 rust-version.workspace = true
 license.workspace      = true
@@ -23,7 +23,9 @@ continuity-trace   = { workspace = true }
 continuity-win     = { workspace = true }
 anyhow             = { workspace = true }
 crossbeam-channel  = { workspace = true }
+serde              = { workspace = true }
 serde_json         = { workspace = true }
+sha2               = { workspace = true }
 thiserror          = { workspace = true }
 
 [dev-dependencies]

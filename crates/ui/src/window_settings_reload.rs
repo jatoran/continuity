@@ -73,6 +73,12 @@ impl Window {
                 crate::WindowControl::PersistEvent(event) => {
                     self.handle_persist_event(event);
                 }
+                crate::WindowControl::UpdateAvailable(offer) => {
+                    self.on_update_available(offer);
+                }
+                crate::WindowControl::UpdateStatus { text, sticky } => {
+                    self.on_update_status(text, sticky);
+                }
                 crate::WindowControl::RevealBufferTab {
                     buffer_id,
                     content,

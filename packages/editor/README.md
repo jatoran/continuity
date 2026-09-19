@@ -101,6 +101,17 @@ peer). `/lazy` dynamically loads route-local editors. `/conformance` exports a
 disposable browser wiring harness, and `/commit-queue` provides an optional
 single-in-flight, newest-wins debounced save queue with a maximum-delay cap.
 
+## Pipe tables
+
+GFM pipe tables render as bordered column grids in both the editor and
+`<continuity-renderer>`. Columns size to their widest cell (floored at 3em,
+capped at 16em so long cells wrap) and shrink proportionally to fit the pane.
+Delimiter alignments (`:--`, `:-:`, `--:`) apply to the body cells, links and
+inline styles render inside cells, and the row under the caret shows its raw
+`| a | b |` source for editing while the rest of the table stays laid out. Cell
+borders follow `--continuity-border`; header cells are bold on a faint
+foreground tint.
+
 ## Plain text and static rendering
 
 Set `syntax="plain"` to retain the rope, selection, undo, multi-cursor, and

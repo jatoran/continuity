@@ -253,6 +253,7 @@ mod window_titlebar;
 mod window_trace_state;
 mod window_trace_summary_timer;
 mod window_tutorial;
+mod window_updates;
 mod window_vault_autosave;
 mod window_vault_launcher;
 mod window_vault_tabs;
@@ -276,5 +277,8 @@ pub use live_reload::LiveReload;
 pub use overlays::{OverlayKind, Overlays};
 pub use window::Window;
 pub use window_config::{PendingReconcile, WindowCommands, WindowConfig};
-pub use window_control::{wake_window_control, WindowControl, WindowControlRx, WindowControlTx};
+pub use window_control::{
+    request_window_close, wake_window_control, UpdateAction, UpdateActions, UpdateOffer,
+    WindowControl, WindowControlRx, WindowControlTx,
+};
 pub use window_placement_persistence::{RestoredState, WindowPersistence, WindowStateSnapshot};

@@ -138,7 +138,10 @@ impl Window {
             active_theme,
             titlebar_dark_applied: None,
             window_title_applied: None,
-            view_options: crate::window_view_options::ViewOptions::default(),
+            view_options: crate::window_view_options::ViewOptions {
+                update_actions: commands.update_actions.clone(),
+                ..crate::window_view_options::ViewOptions::default()
+            },
             right_edge_chrome_defaults:
                 crate::window_right_edge_chrome::RightEdgeChromeState::default(),
             right_edge_chrome_by_view: HashMap::new(),

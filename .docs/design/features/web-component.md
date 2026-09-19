@@ -138,6 +138,30 @@ hidden marker — so the rule is drawn as a pseudo-element on the line and, like
 heading sizing, is suppressed while the line carries the caret and shows raw
 source.
 
+**Pipe tables.** The engine classifies table lines (`block-pipeTable`) and the
+shared display map hides every `|` byte, so a projected table line arrives as
+its cell texts run together. `projection_tables.js` turns each contiguous run
+of table lines into a column grid without breaking the one-element-per-source-
+line contract: every row keeps its own line element, laid out as `display:
+grid` with a `--continuity-table-columns` template shared by all rows of that
+table, and `projection_line_render.js` splits the projected text into
+`.table-cell` spans at the display offsets where the hidden pipes sat. The
+concatenated cell text is exactly the projected line text, so grapheme
+hit-testing, visual carets, and inline spans (links, emphasis, code) keep
+walking the same text nodes in the same order. Column widths follow the Windows
+renderer's policy: the widest cell wins, columns are floored at 3em and capped
+at 16em so prose wraps inside the cell, and when the capped columns still
+exceed the pane width they shrink proportionally so the table fits rather than
+scrolling. The delimiter row's bytes are all hidden; it renders as a zero-height
+row and the header's heavier bottom border is the separator. The caret's own
+row is source-visible and falls back to the raw `| a | b |` line like every
+other block, so editing a cell edits plain text; the surrounding rows keep
+their grid. Widths are recomputed once per content change or pane-width change
+and carried in each row's fingerprint, so only rows whose grid changed
+re-render. Alignment comes from the delimiter row (`:--`, `:-:`, `--:`).
+Formula cells, cell-scoped keybindings, and the in-cell caret of the Windows
+renderer are not ported.
+
 Browser canvas measurement derives average character width and line height
 after initialization and every observed resize/zoom. Before committing a new
 soft-wrap width, an end-caret fast path preserves the cached distance from the
@@ -577,6 +601,10 @@ Canonical measurements and the manual matrix live in
   carry-over, and the per-line background they paint into.
 - `packages/editor/src/wrap_layout.js` — measured hanging indent and the font
   metrics unrealized lines are measured against.
+- `packages/editor/src/projection_line_render.js` — inline-span slicing for
+  one projected line and the pipe-table row variant.
+- `packages/editor/src/projection_tables.js` — pipe-table runs, cell splitting
+  at hidden pipes, column sizing and fit.
 - `packages/editor/src/clipboard_bridge.js` — clipboard read/write fallback
   chain and host delegation.
 - `packages/editor/src/native_selection.js` — `selectionchange` adoption of

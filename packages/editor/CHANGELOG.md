@@ -6,6 +6,17 @@ Release notes for `0.2.16` and earlier live in
 [`EMBEDDING.md`](https://github.com/jatoran/continuity/blob/main/EMBEDDING.md),
 which remains the cross-surface router.
 
+## 0.2.41
+
+- Pipe tables now render as real column grids in the Web Component and
+  `<continuity-renderer>`: bordered cells, a bold header, delimiter alignments,
+  links and inline styles inside cells, columns sized to their widest cell and
+  fitted to the pane. Previously the engine hid the pipes but the browser drew no
+  cell chrome, so a table read as its cell texts run together.
+- Ordered-list continuation numbers by items at the list's indent, so a nested
+  sub-bullet under `3.` no longer makes Enter produce `5.` instead of `4.`
+  (shared engine fix, also in the desktop application).
+
 ## 0.2.40
 
 No product change. **`npm install @continuity-editor/editor` is now the supported

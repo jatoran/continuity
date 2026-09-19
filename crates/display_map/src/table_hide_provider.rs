@@ -91,6 +91,37 @@ pub fn compute_table_hidden_ranges_for_line(
     out
 }
 
+/// `true` when the line covering `[line_start, line_end)` belongs to a
+/// pipe table that is being rendered visually (intersects an evaluated
+/// table's block range and that table is not selection-suppressed).
+///
+/// Rendered table lines must **not** soft-wrap in the display map. The
+/// visual chrome sizes each row by its cell-wrapped content and reserves
+/// display rows for that (`table_row_reservations`); the raw source
+/// line — pipes hidden but link / image URLs and formula text still
+/// laid out — is usually far wider than the rendered cells, so wrapping
+/// it would allocate more display rows than the chrome covers and the
+/// raw continuation rows would bleed out below the table (the pasted
+/// ESPN-league table repro: every body row carried a 150-byte link, the
+/// rows drifted, and the last five rows' source showed under the
+/// table). One display row per source line plus the reservation keeps
+/// the projection and the chrome in lock-step; the chrome's `body_bg`
+/// fill and right-side overflow mask cover the unwrapped raw glyphs.
+#[must_use]
+pub fn is_rendered_table_line(
+    decorations: &Decorations,
+    suppressed_table_blocks: &[Range<usize>],
+    line_start: usize,
+    line_end: usize,
+) -> bool {
+    decorations.evaluated_tables.iter().any(|table| {
+        line_intersects_block(table, line_start, line_end)
+            && !suppressed_table_blocks
+                .iter()
+                .any(|r| r.start == table.block_range.start && r.end == table.block_range.end)
+    })
+}
+
 fn line_intersects_block(table: &EvaluatedTable, line_start: usize, line_end: usize) -> bool {
     table.block_range.start < line_end && table.block_range.end > line_start
 }
@@ -291,6 +322,42 @@ mod tests {
         let line = "-- look, dashes --";
         let out = compute_table_hidden_ranges_for_line(&d, &[], 0, line.len(), line);
         assert!(out.is_empty());
+    }
+
+    #[test]
+    #[allow(clippy::single_range_in_vec_init)]
+    fn rendered_table_line_predicate_follows_block_range_and_suppression() {
+        let d = make_decorations(vec![EvaluatedTable {
+            block_range: 10..50,
+            overrides: Vec::new(),
+        }]);
+        assert!(is_rendered_table_line(&d, &[], 10, 30));
+        assert!(
+            is_rendered_table_line(&d, &[], 45, 60),
+            "line straddling the block end"
+        );
+        assert!(
+            !is_rendered_table_line(&d, &[], 0, 10),
+            "line ending at block start"
+        );
+        assert!(
+            !is_rendered_table_line(&d, &[], 50, 70),
+            "line after the block"
+        );
+        assert!(
+            !is_rendered_table_line(&d, &[10..50], 10, 30),
+            "a selection-suppressed table renders raw and may wrap"
+        );
+        assert!(
+            is_rendered_table_line(&d, &[10..49], 10, 30),
+            "suppression matches the exact block range only"
+        );
+        assert!(!is_rendered_table_line(
+            &make_decorations(Vec::new()),
+            &[],
+            10,
+            30
+        ));
     }
 
     #[test]

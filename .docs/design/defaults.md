@@ -138,6 +138,16 @@ Geometry constants and crowding behavior in `crates/render/src/pane_chrome_layou
 
 ---
 
+## Updates
+
+- **Background check on by default** (`[updates] check = true`): one unauthenticated GitHub Releases request twelve seconds after launch and then at most once a day. Off means no network traffic for updates at all; `help.check_for_updates` still works on demand.
+- **Offer is a sticky banner, never a modal**: `Update now` / `Release notes` / `Skip this version`. A conflict banner already on screen is not displaced.
+- **Nothing downloads until `Update now`.** The asset is verified against the release's `SHA256SUMS.txt` before anything is launched.
+- **Install in place, then relaunch**: MSI installs (including winget) run the new MSI through `msiexec /passive`; portable and standalone copies swap the executable and leave `data\` alone. Every window closes through its normal path first, so autosave and placement are flushed.
+- **Skipped versions stay skipped** until an explicit check. State lives in `updates.json` beside the database.
+
+Detail: `.docs/design/features/updates.md`.
+
 ## Hot-reload contract (settings ↔ runtime parity)
 
 Every user-visible behavior should be reachable from **both** the command palette (runtime toggling) and `settings.toml` (persistent default + hot reload). When the two surfaces meet at runtime, the contract below decides who wins.

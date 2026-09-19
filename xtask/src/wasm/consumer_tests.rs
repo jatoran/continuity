@@ -42,6 +42,11 @@ pub(super) fn run_node_contracts(consumer: &Path) -> Result<()> {
         consumer,
         "soft-keyboard-policy.test.mjs",
         "packed soft-keyboard state transition contract",
+    )?;
+    run_contract(
+        consumer,
+        "projection_tables.test.mjs",
+        "packed pipe-table projection layout contract",
     )
 }
 

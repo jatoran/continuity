@@ -172,6 +172,11 @@ directly, so desktop behaviour is untouched.
 
 A synthetic, read-only buffer covering every user-visible feature and hotkey, opened in a tab in the focused pane. Auto-generated from the per-feature design docs and the default keymap — never hand-written. Opens automatically on first launch; re-openable any time via the `help.tutorial` command.
 
+### In-app updates
+
+Continuity for Windows checks GitHub Releases for a newer version and installs it in place.
+The check is a banner, never a modal; nothing is downloaded until the user asks.
+
 ### Vaults
 
 A vault is an opened folder with a `.continuity/vault.toml` marker. It keeps the ordinary file-tree workflow, adds folder-scoped continuous export, and supplies portable tree and appearance policy. Opening a folder without the marker remains ordinary manual-save browsing.
@@ -666,6 +671,7 @@ _Every command registered by `continuity_command::default_registry`, grouped by 
 
 | Command | Keys | Palette | Description |
 |---|---|---|---|
+| `help.check_for_updates` |  | yes | Check GitHub Releases for a newer Continuity now and offer to install it in place |
 | `help.tutorial` |  | yes | Open the tutorial as a read-only tab — covers every feature, hotkey, and command (auto-generated from the docs) |
 
 ### `keymap.*`

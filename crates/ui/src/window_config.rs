@@ -135,6 +135,9 @@ pub struct WindowCommands {
     pub open_vault_window: Option<OpenVaultWindow>,
     /// Registry-owned live vault-window index updater.
     pub vault_activated: Option<VaultActivated>,
+    /// Host callback for update-banner actions and on-demand checks. `None`
+    /// disables the banner buttons and `help.check_for_updates`.
+    pub update_actions: Option<crate::window_control::UpdateActions>,
     /// Persistence client used by history, file, and vault surfaces.
     /// `None` is supported by test windows and headless canaries.
     pub persist_client: Option<PersistClient>,

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.12
+
+- Continuity now updates itself. Shortly after launch, and then once a day, it checks GitHub Releases for a newer version and shows a banner with Update now, Release notes, and Skip this version. Update now downloads the release, verifies its checksum, closes Continuity through the normal save path, installs in place (the installer for MSI and winget installs, an executable swap for portable and standalone copies), and reopens. Check for updates in the command palette runs the check on demand; `[updates] check = false` turns the background check off.
+- Pasted tables render cleanly. Rows with long links or logos no longer spill their raw source out below the table, and a logo image in a cell no longer leaves a stray `!` in front of the text.
+- Ordered lists count items, not lines: pressing Enter after `4.` when `3.` has an indented sub-bullet now gives `5.`, not `6.`.
+
 ## 0.4.11
 
 - Clicking back into a window or a split pane no longer jumps the view somewhere else. Whenever the window's layout was refreshed - clicking into a pane after a split or resize, resizing the window, toggling the sidebar - Continuity re-centred the view on the caret, so if you had scrolled away from the caret to read another part of the note, the view snapped back to wherever the caret happened to be (often the top or bottom of the document). The view now stays exactly where you left it; the caret only stays pinned in place when it is actually on screen.

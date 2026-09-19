@@ -64,44 +64,53 @@ pub(crate) fn try_ordered_continue_with_renumber(
     };
 
     let byte = head.to_byte_offset(rope)?;
-    // The inserted line's final number is its 1-based position within the
-    // renumbered run: lines `start_line..=line` occupy 1..=(line-start+1),
-    // so the new item is `(line - start_line) + 2`.
-    let new_number = (line - start_line + 2) as u32;
+    // Number by *items*, not by lines. The run `start_line..=end_line` may
+    // contain nested lines (a deeper-indented sub-list or continuation
+    // paragraph owned by an item) that are transparent to the run walk
+    // but are not items at this level; counting them as positions is what
+    // produced `1. 2. 3. (nested) 5.`. Walk the run once, assign each
+    // ordered item at the run indent its 1-based item index, and place the
+    // new item right after the caret line's item.
+    let mut items: Vec<(usize, u32)> = Vec::new();
+    let mut items_up_to_caret: u32 = 0;
+    for run_line in start_line..=end_line {
+        if !is_ordered_at_exact_indent(rope, run_line, &run_indent) {
+            continue;
+        }
+        let index = items.len() as u32 + 1;
+        items.push((run_line, index));
+        if run_line <= line {
+            items_up_to_caret = index;
+        }
+    }
+    let new_number = items_up_to_caret.saturating_add(1);
     let inserted = format!("\n{run_indent}{new_number}. ");
 
     let mut specs = vec![EditSpec::insert(rope, byte, inserted.clone())?];
-    // Renumber the existing run lines to 1..=(run length). The inserted
-    // line already carries `new_number`; renumbering the old lines makes
-    // the lines *after* the caret shift up by one and corrects any prior
+    // Renumber the existing items to 1..=(item count). The inserted line
+    // already carries `new_number`; renumbering the old items makes the
+    // items *after* the caret shift up by one and corrects any prior
     // mis-numbering. We renumber against the pre-edit rope and let
     // `finalize_specs` order everything descending — the insert at the
     // line-content boundary never overlaps a line-content replace because
     // a replace ends at `line_content_end` while the next line's replace
     // starts at the following `line_to_byte`, and the insert carries a
     // non-empty payload so `merge_specs` never folds it into a delete.
-    for renumber_line in start_line..=end_line {
+    for (renumber_line, item_index) in items {
         let rl_start = rope.line_to_byte(renumber_line);
         let rl_end = line_content_end(rope, renumber_line);
         let rl_text = rope.byte_slice(rl_start..rl_end).to_string();
-        if rl_text.len() < run_indent.len() || !rl_text.starts_with(&run_indent) {
-            continue;
-        }
         let rl_body = &rl_text[run_indent.len()..];
         let Some(rl_marker) = detect_list_marker(rl_body) else {
             continue;
         };
-        if !matches!(rl_marker.kind, ListMarkerKind::Ordered(_)) {
-            continue;
-        }
-        // Final number: positions up to and including the caret line keep
-        // their 1-based index; lines after the caret line shift up by one
-        // to make room for the inserted item.
-        let position_in_run = renumber_line - start_line + 1;
+        // Final number: items up to and including the caret line keep
+        // their item index; items after the caret line shift up by one to
+        // make room for the inserted item.
         let final_number = if renumber_line <= line {
-            position_in_run as u32
+            item_index
         } else {
-            (position_in_run + 1) as u32
+            item_index.saturating_add(1)
         };
         let after_marker = &rl_body[rl_marker.prefix_len..];
         let new_line = format!("{run_indent}{final_number}. {after_marker}");
@@ -249,6 +258,19 @@ fn line_body(rope: &Rope, line: usize, indent: &str) -> String {
     let end = line_content_end(rope, line);
     let text = rope.byte_slice(start..end).to_string();
     text[indent.len().min(text.len())..].to_string()
+}
+
+/// Whether `line` is an ordered item at exactly `indent` — nested lines
+/// (deeper indent) are *not* items at this level, unlike the run walk in
+/// [`is_ordered_at_indent`] which treats them as transparent.
+fn is_ordered_at_exact_indent(rope: &Rope, line: usize, indent: &str) -> bool {
+    if caret_line_indent_for(rope, line) != indent {
+        return false;
+    }
+    let body = line_body(rope, line, indent);
+    detect_list_marker(&body)
+        .map(|m| matches!(m.kind, ListMarkerKind::Ordered(_)))
+        .unwrap_or(false)
 }
 
 fn is_ordered_at_indent(rope: &Rope, line: usize, indent: &str) -> bool {

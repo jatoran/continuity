@@ -1,6 +1,6 @@
 [package]
 name = "continuity-wasm"
-version = "0.2.40"
+version = "0.2.41"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

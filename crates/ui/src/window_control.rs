@@ -28,6 +28,17 @@ pub enum WindowControl {
     /// [`PersistEvent::ThreadStopped`] when its receiver disconnects
     /// (the persist thread panicked rather than exited cleanly).
     PersistEvent(PersistEvent),
+    /// A newer release is available; show the offer banner.
+    UpdateAvailable(UpdateOffer),
+    /// Progress or outcome text from the update host ("Downloading…",
+    /// "Continuity is up to date", a failure). `sticky` keeps it until
+    /// the user dismisses it or the app exits to install.
+    UpdateStatus {
+        /// Banner text.
+        text: String,
+        /// Whether the banner stays until dismissed.
+        sticky: bool,
+    },
     /// Reveal (and focus) an already-open file buffer in this window, in
     /// response to a reopen of a path the registry routed here. The window
     /// activates an existing tab for the buffer (or adopts a fresh tab if
@@ -67,9 +78,56 @@ pub enum WindowControl {
 /// registry main loop.
 pub type WindowControlTx = Sender<WindowControl>;
 
+/// A newer release the host found on GitHub Releases.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpdateOffer {
+    /// Version string without the `v` prefix, e.g. `0.4.12`.
+    pub version: String,
+    /// Release page (`html_url`) for the *Release notes* button.
+    pub notes_url: String,
+}
+
+/// What the user asked the host to do about updates.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum UpdateAction {
+    /// Download, verify, and install the offered release, then exit.
+    Install(UpdateOffer),
+    /// Never offer this version again.
+    Skip(String),
+    /// Poll GitHub Releases now (`help.check_for_updates`).
+    CheckNow,
+}
+
+/// Host callback that carries an [`UpdateAction`] off the UI thread.
+#[derive(Clone)]
+pub struct UpdateActions(pub std::sync::Arc<dyn Fn(UpdateAction) + Send + Sync>);
+
+impl std::fmt::Debug for UpdateActions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("UpdateActions(<host callback>)")
+    }
+}
+
 /// Receiver end of a registry → window control channel. Owned by a
 /// single window's UI thread.
 pub type WindowControlRx = Receiver<WindowControl>;
+
+/// Ask a window to close gracefully (`WM_CLOSE`) from another thread —
+/// the update host uses it to shut every window down before the
+/// installer replaces the executable. Every save/autosave path runs on
+/// the window's own close sequence exactly as for a user-initiated close.
+pub fn request_window_close(raw_window: usize) {
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
+
+    if raw_window == 0 {
+        return;
+    }
+    let hwnd = HWND(raw_window as *mut core::ffi::c_void);
+    unsafe {
+        let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+    }
+}
 
 /// Post an immediate control-channel drain tick to a live window.
 ///

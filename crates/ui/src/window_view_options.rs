@@ -23,6 +23,10 @@ use crate::Window;
 /// `gutter_caret_line_only` keeps render density to just the caret line.
 #[derive(Debug, Clone)]
 pub(crate) struct ViewOptions {
+    /// Host callback for update-banner actions (`window_updates.rs`).
+    /// Lives here rather than on `Window` because `window.rs` sits at the
+    /// file-length cap; it is per-window state like everything else here.
+    pub update_actions: Option<crate::window_control::UpdateActions>,
     /// Render the gutter line-number column on the left of the editor.
     pub line_numbers: bool,
     /// When the gutter is visible, render only the caret line's number
@@ -212,6 +216,7 @@ impl StatusCountMode {
 impl Default for ViewOptions {
     fn default() -> Self {
         Self {
+            update_actions: None,
             line_numbers: true,
             gutter_caret_line_only: true,
             relative_line_numbers: false,

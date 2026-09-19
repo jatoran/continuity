@@ -30,13 +30,16 @@ mod main_initial_requests;
 mod registry;
 mod registry_build;
 mod registry_closed_history;
+mod registry_config_fanout;
 mod registry_file_buffers;
 mod registry_open_file;
 mod registry_time;
+mod registry_updates;
 mod registry_vaults;
 mod registry_window_control;
 mod runtime_paths;
 mod single_instance;
+mod updater;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -118,6 +121,7 @@ fn main() -> Result<()> {
     let settings_path = startup_options.runtime_paths.settings_path.clone();
     let themes_dir = startup_options.runtime_paths.themes_dir.clone();
     let initial_settings = load_initial_settings(&settings_path);
+    let initial_settings_updates_check = initial_settings.updates.check;
     let watcher = settings_path
         .parent()
         .map(|cfg_dir| {
@@ -185,6 +189,8 @@ fn main() -> Result<()> {
             &startup_options.startup_paths.vaults,
         );
     }
+    let updater = Arc::new(updater::UpdateHost::new(tx.clone()));
+    updater.spawn_poller(initial_settings_updates_check);
     let ctx = RegistryCtx {
         persist: persist.client(),
         editor: editor.clone(),
@@ -194,6 +200,7 @@ fn main() -> Result<()> {
         live_reload: Some(live_reload),
         file_io: file_io.client(),
         file_buffer_index,
+        updater,
     };
     let runtime = RegistryRuntime {
         config_rx,

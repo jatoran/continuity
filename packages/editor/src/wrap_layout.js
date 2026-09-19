@@ -33,7 +33,8 @@ export function computeWrapMetrics(container) {
   const columns = parseInt(style.tabSize, 10) || DEFAULT_TAB_COLUMNS;
   const context = ensureMeasureContext(font);
   const spaceAdvance = context ? context.measureText(" ").width : 0;
-  return { font, spaceAdvance, tabWidth: spaceAdvance * columns };
+  const fontSizePx = Number.parseFloat(style.fontSize) || 16;
+  return { font, spaceAdvance, tabWidth: spaceAdvance * columns, fontSizePx };
 }
 
 /** Apply hanging indent, measuring exact pixels only for realized viewport lines. */
@@ -111,7 +112,8 @@ export function elementWrapMetrics(style) {
   const columns = parseInt(style.tabSize, 10) || DEFAULT_TAB_COLUMNS;
   const context = ensureMeasureContext(font);
   const spaceAdvance = context ? context.measureText(" ").width : 0;
-  return { font, spaceAdvance, tabWidth: spaceAdvance * columns };
+  const fontSizePx = Number.parseFloat(style.fontSize) || 16;
+  return { font, spaceAdvance, tabWidth: spaceAdvance * columns, fontSizePx };
 }
 
 function hasOverwideFirstToken(element, text, contentStart, prefixWidth, metrics) {

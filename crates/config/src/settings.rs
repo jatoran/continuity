@@ -13,6 +13,7 @@ use crate::mode::{
 use crate::settings_backup::BackupConfig;
 use crate::settings_markdown::MarkdownConfig;
 use crate::settings_window::WindowConfig;
+use crate::updates::UpdatesConfig;
 use crate::workers::WorkerConfig;
 use crate::Error;
 
@@ -40,6 +41,8 @@ pub struct Settings {
     pub focus: FocusConfig,
     /// Worker-thread watchdogs.
     pub workers: WorkerConfig,
+    /// In-app update checking.
+    pub updates: UpdatesConfig,
 }
 
 impl Settings {

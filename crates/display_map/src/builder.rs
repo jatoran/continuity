@@ -521,7 +521,16 @@ impl<'a> DisplayMapBuilder<'a> {
         );
 
         let before_count = lines.len();
-        if self.wrap.enabled() {
+        // Rendered table rows never soft-wrap (must agree with the
+        // row-count walker's rule in `row_counts.rs`); their extra
+        // display rows come from the chrome's reservation below.
+        let is_rendered_table_line = crate::table_hide_provider::is_rendered_table_line(
+            self.decorations,
+            self.suppressed_table_blocks,
+            line_start,
+            line_end,
+        );
+        if self.wrap.enabled() && !is_rendered_table_line {
             let split = soft_wrap_spec(spec, &line_text, self.wrap, measure)?;
             for s in split {
                 lines.push(s);

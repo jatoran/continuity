@@ -57,6 +57,19 @@ pub fn tutorial_seen_path() -> Result<PathBuf, Error> {
     Ok(dir.join(".tutorial_seen"))
 }
 
+/// Path of the update checker's small JSON state file (last check time,
+/// skipped version): `<data dir>/updates.json`. Lives beside the database
+/// so portable installs keep it folder-local like everything else.
+///
+/// # Errors
+///
+/// Returns [`Error::Compression`] when the data directory cannot be created.
+pub fn updates_state_path() -> Result<PathBuf, Error> {
+    let dir = data_dir()?;
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.join("updates.json"))
+}
+
 /// The hot-backup directory.
 ///
 /// Resolution order:

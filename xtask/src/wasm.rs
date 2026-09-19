@@ -315,6 +315,10 @@ fn run_clean_consumer(workspace: &Path, tarball: &Path) -> Result<()> {
         &consumer.join("soft-keyboard-policy.test.mjs"),
     )?;
     copy_file(
+        &workspace.join("packages/editor/tests/projection_tables.test.mjs"),
+        &consumer.join("projection_tables.test.mjs"),
+    )?;
+    copy_file(
         &workspace.join("crates/test_fixtures/fixtures/wasm_engine_parity.json"),
         &consumer.join("wasm_engine_parity.json"),
     )?;

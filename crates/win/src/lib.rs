@@ -10,9 +10,11 @@ pub mod com;
 pub mod dpi;
 pub mod dwm;
 pub mod error;
+pub mod http;
 pub mod icon;
 pub mod ime;
 pub mod monitor;
+pub mod registry;
 pub mod single_instance;
 pub mod virtual_desktop;
 pub mod window;
@@ -21,10 +23,12 @@ pub use com::ComGuard;
 pub use dpi::{dpi_for_window, set_per_monitor_dpi_v2};
 pub use dwm::set_titlebar_dark_mode;
 pub use error::Error;
+pub use http::{https_get, HttpsUrl};
 pub use icon::load_app_icon;
 pub use monitor::{
     cascade_origin_on_source_monitor, centered_origin_on_focused_monitor, focused_monitor_work_area,
 };
+pub use registry::read_hklm_string;
 pub use single_instance::{
     activate_first_visible_window_of_current_process_on_current_desktop, send_to_instance_hub,
     InstanceHub, SingleInstanceMutex,

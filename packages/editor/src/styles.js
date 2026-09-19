@@ -259,6 +259,50 @@ export const EDITOR_STYLES = `
   pointer-events: none;
 }
 .block-fencedCodeBlock, .block-indentedCodeBlock { background: color-mix(in srgb, var(--continuity-foreground) 6%, transparent); }
+/* Pipe tables. Each source line stays its own element (the projection holds
+   one element per source line) and lays out as a grid whose column template is
+   shared by every row of the table, so the columns line up without a common
+   parent. The engine hides the pipes; cells are the text between them, so the
+   row's text nodes still concatenate to the projected line for hit-testing.
+   The caret's own row is source-visible and falls back to the raw line. */
+.line.table-row {
+  display: grid;
+  grid-template-columns: var(--continuity-table-columns, auto);
+  align-items: stretch;
+  padding-inline-start: 0;
+  text-indent: 0;
+}
+/* Consecutive rows overlap by one pixel so shared borders read as one line. */
+.line.table-row + .line.table-row { margin-block-start: -1px; }
+.table-cell {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 0 .4em;
+  border: 1px solid var(--continuity-border);
+  margin-inline-start: -1px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-indent: 0;
+}
+.table-cell:first-child { margin-inline-start: 0; }
+.table-cell.table-align-center { text-align: center; }
+.table-cell.table-align-right { text-align: right; }
+.line.table-header .table-cell {
+  font-weight: 750;
+  background: color-mix(in srgb, var(--continuity-foreground) 7%, transparent);
+  border-bottom-width: 2px;
+}
+/* The delimiter row's bytes are all hidden; the header's heavier bottom border
+   is the visual separator, so the row itself takes no height. Under the caret
+   it becomes source-visible and returns to a normal raw line. */
+.line.table-delimiter {
+  min-height: 0;
+  height: 0;
+  line-height: 0;
+  overflow: hidden;
+  margin-block-start: 0;
+}
+.line.table-delimiter .table-cell { border: 0; padding: 0; }
 .inline-strong { font-weight: 750; }
 .inline-emphasis { font-style: italic; }
 .inline-strikethrough { text-decoration: line-through; }

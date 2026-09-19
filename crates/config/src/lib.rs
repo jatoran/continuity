@@ -12,6 +12,7 @@ pub mod settings_backup;
 pub mod settings_markdown;
 pub mod settings_window;
 pub mod smart_typography;
+pub mod updates;
 pub mod validate;
 pub mod vault;
 pub mod vault_workspace;
@@ -36,6 +37,7 @@ pub use settings_backup::BackupConfig;
 pub use settings_markdown::MarkdownConfig;
 pub use settings_window::WindowConfig;
 pub use smart_typography::smart_typography_rules;
+pub use updates::UpdatesConfig;
 pub use vault::{
     VaultAppearanceConfig, VaultConfig, VaultFileStyle, VaultFileStyleKind, VaultFilesConfig,
     VaultSaveConfig, VaultSort, DEFAULT_VAULT_TOML, VAULT_CONFIG_DIRECTORY, VAULT_CONFIG_FILE,

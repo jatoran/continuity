@@ -442,6 +442,16 @@ fn scan_pipe_table(base: usize, src: &str, out: &mut Vec<InlineSpan>) {
             });
         }
     }
+    // Cell content carries the same inline shapes as prose — links,
+    // emphasis, code, strike, image refs — and every consumer of the
+    // display map (the browser projection, the native body pass under the
+    // table chrome, link hit-testing) needs them as spans so the markup is
+    // hidden and the text styled. Without this a `[Send Email](https://…)`
+    // cell projected as its raw markup on the web. The native table chrome
+    // parses cells on its own (`table_layout/cell_inline.rs`) and ignores
+    // these spans; the native inline-image pass skips spans inside table
+    // blocks so a logo in a cell never reserves phantom rows.
+    scan_text_inlines(base, src, out);
 }
 
 #[cfg(test)]

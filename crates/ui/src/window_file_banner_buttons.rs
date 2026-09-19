@@ -35,6 +35,9 @@ pub(crate) enum BannerAction {
     KeepMine,
     ShowDiff,
     InitializeVault,
+    UpdateInstall,
+    UpdateReleaseNotes,
+    UpdateSkip,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -42,6 +45,8 @@ pub(crate) enum BannerButtonsKind {
     None,
     Conflict,
     InitializeVault,
+    /// In-app update offer (`window_updates.rs`).
+    Update,
 }
 
 /// One clickable conflict-banner button in DIP coordinates.
@@ -79,6 +84,8 @@ impl Window {
                     BannerButtonsKind::Conflict
                 } else if banner.vault_initialization.is_some() {
                     BannerButtonsKind::InitializeVault
+                } else if banner.update_offer.is_some() {
+                    BannerButtonsKind::Update
                 } else {
                     BannerButtonsKind::None
                 }
@@ -101,6 +108,20 @@ impl Window {
             BannerAction::KeepMine => self.file_keep_mine_impl(),
             BannerAction::ShowDiff => self.file_show_diff_impl(),
             BannerAction::InitializeVault => self.initialize_current_folder_as_vault(),
+            BannerAction::UpdateInstall => {
+                self.apply_update_banner_action(crate::window_updates::UpdateBannerAction::Install);
+                Ok(())
+            }
+            BannerAction::UpdateReleaseNotes => {
+                self.apply_update_banner_action(
+                    crate::window_updates::UpdateBannerAction::ReleaseNotes,
+                );
+                Ok(())
+            }
+            BannerAction::UpdateSkip => {
+                self.apply_update_banner_action(crate::window_updates::UpdateBannerAction::Skip);
+                Ok(())
+            }
         };
         true
     }
@@ -137,6 +158,11 @@ pub(crate) fn compute_banner_geometry(width: f32, kind: BannerButtonsKind) -> Ba
             BannerButtonsKind::InitializeVault => {
                 &[("Initialize vault", BannerAction::InitializeVault)]
             }
+            BannerButtonsKind::Update => &[
+                ("Update now", BannerAction::UpdateInstall),
+                ("Release notes", BannerAction::UpdateReleaseNotes),
+                ("Skip this version", BannerAction::UpdateSkip),
+            ],
             BannerButtonsKind::None => &[],
         };
         let gap_count = labels.len().saturating_sub(1) as f32;

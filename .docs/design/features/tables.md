@@ -184,7 +184,7 @@ The active-cell outline is themed by the dedicated `markdown.table.active_cell_o
 
 Each `TableCellLayout` carries `inline_runs: Vec<(Range<u32>, SpanStyle)>` — UTF-8 byte ranges indexing into `display_text` plus a `SpanStyle` (`bold`, `italic`, `strikethrough`, `underline`, `role`). The painter (`apply_cell_inline_runs` in `table_paint.rs`) translates each byte range to UTF-16 code-unit indices and applies `SetFontWeight` / `SetFontStyle` / `SetStrikethrough` / `SetUnderline` per run.
 
-The parser (`crates/render/src/table_layout/cell_inline.rs::compute_cell_inline`) is a narrow inline scanner — single-level bold (`**…**` / `__…__`), italic (`*…*` / `_…_`), inline code (`` `…` ``), strike (`~~…~~`), and `[text](url)` links. Markers strip from `display_text`; only the inner content shows. Nested bold-inside-italic is supported recursively. Unmatched markers render as literal characters. Footnote refs, image refs, and per-line list-marker continuation are NOT scanned in cells (rare in tables, parser stays small).
+The parser (`crates/render/src/table_layout/cell_inline.rs::compute_cell_inline`) is a narrow inline scanner — single-level bold (`**…**` / `__…__`), italic (`*…*` / `_…_`), inline code (`` `…` ``), strike (`~~…~~`), and `[text](url)` links. Markers strip from `display_text`; only the inner content shows. Nested bold-inside-italic is supported recursively. Unmatched markers render as literal characters. Image refs `![alt](url)` are scanned only far enough to show the alt text plain (no link styling) and drop the URL; a leading alt-less image (a pasted team logo before the team name) vanishes together with the spacing after it so the cell does not start with a gap or a stray `!`. Footnote refs and per-line list-marker continuation are NOT scanned in cells (rare in tables, parser stays small).
 
 Cells in the formula-evaluator override path (`is_formula = true`) skip the inline scanner — their `display_text` is the evaluated numeric value. The alignment row (`is_alignment_row = true`) carries empty text and no inline runs. **Caret-in-cell cells keep raw source bytes** as `display_text` with empty `inline_runs`, so the user can edit `**` markers as ordinary text; the painter then renders the literal characters and the active-cell outline marks the cell.
 
@@ -206,6 +206,8 @@ An optional `<!--continuity:width=<col widths>;wrap=on|off-->` comment on the li
 
 `table_row_reservations(layouts)` emits one `ImageRowReservation` per source line whose `row_display_rows > 1` (reusing the inline-image phantom-row path). The UI merges these with the image reservations (`window_image_placements::merge_table_row_reservations`, max per source line) before building the `FrameDisplay`, so a tall table row reserves its extra display rows and body / gutter / caret below it stay aligned. The reserved rows are `is_wrap_continuation` phantoms (no glyphs); the painter draws chrome only on the row's first display row, spanning the full reserved height. **The 1:1 source↔display claim above holds only for single-row tables;** a wrapped/`<br>` row breaks it by design, and the reservation keeps everything below aligned.
 
+**Rendered table lines never soft-wrap in the display map.** `table_hide_provider::is_rendered_table_line` gates both the row-count walker (`builder/row_counts.rs`) and line materialization (`builder.rs::materialize_source_line`): a line inside a non-suppressed table block projects to exactly one display row plus the chrome's reservation, regardless of how wide the raw source is. The raw line (pipes hidden, but link / image URLs and formula text still laid out) is usually far wider than the rendered cells; letting it wrap allocated more display rows than the chrome covered, the chrome and the projection drifted apart row by row, and the last rows' raw markdown bled out under the table (the pasted league-table repro, every body row carrying a 150-byte link). The chrome's `body_bg` fill plus the right-side overflow mask cover the single unwrapped raw row. A selection-suppressed table has no chrome and wraps like plain text. Regression: `crates/display_map/tests/table_lines_do_not_soft_wrap.rs`.
+
 ### Wrapping while editing
 
 A caret-in-cell still shows **raw source** (markers + literal `<br>` visible, so typing is WYSIWYG) but now wraps it byte-preservingly (`cell_wrap.rs::wrap_raw_preserving`) instead of clipping to one line. The wrapped lines concatenate back to the source exactly (break spaces stay at line ends), so the in-cell caret bar maps a source-byte caret to its wrapped row via cumulative line byte lengths (`active_cell.rs::locate_caret_line`). This keeps the row's display height roughly stable across caret enter/exit (rendered-wrapped ≈ editing-wrapped) instead of collapsing the cell to one line — fewer layout shifts, per the caret-line-screen-y principle.
@@ -214,7 +216,7 @@ A caret-in-cell still shows **raw source** (markers + literal `<br>` visible, so
 
 Both paths size each cell rect to the row's display-row count, but anchor differently:
 - **Focused pane** — `table_chrome_cache::record_table_chrome` stacks rows by `TableLayout::display_row_offset_within_table(row)` (cumulative `row_height`), recorded once into the command list and replayed at the table's first display row.
-- **Spectator panes** — `pane_body/table_chrome.rs::paint_spectator_table_chrome` runs as a **post-pass after the body-text loop** (mirroring the focused command-list replay), and anchors each row at the frame's *actual* `first_display_line_index_for_source(row)`, spanning the frame's *actual* `display_line_count_for_source(row)`. Following the frame (not `row_height`) keeps the chrome tiled exactly over the projected rows even when a promoted focused frame (after a focus switch) or a soft-wrapped raw table line allocates a source line a different row count than the cell-wrap reservation implies. An inline per-row spectator paint (the pre-fix shape) masked only a tall row's first display row, leaving the wrap-continuation glyphs bleeding over the cell grid.
+- **Spectator panes** — `pane_body/table_chrome.rs::paint_spectator_table_chrome` runs as a **post-pass after the body-text loop** (mirroring the focused command-list replay), and anchors each row at the frame's *actual* `first_display_line_index_for_source(row)`, spanning the frame's *actual* `display_line_count_for_source(row)`. Following the frame (not `row_height`) keeps the chrome tiled exactly over the projected rows even when a promoted focused frame (after a focus switch) allocates a source line a different row count than the cell-wrap reservation implies (rendered table lines no longer soft-wrap, so the raw-wrap case is confined to selection-suppressed tables, which paint no chrome). An inline per-row spectator paint (the pre-fix shape) masked only a tall row's first display row, leaving the wrap-continuation glyphs bleeding over the cell grid.
 
 ## Pasted-table block normalization
 
@@ -237,6 +239,15 @@ Immediately after the paste lands, the table can render as raw `| a | b |` for a
 ### Tests
 
 - `crates/ui/src/window_markdown_table_ops/paste_normalize.rs::tests` — full-table vs missing-delimiter detection, lone-header / single-column conservatism, column counting (escaped pipe excluded), delimiter-row format, newline prefix gated on block-start, and combined synthesis + prefix.
+
+## Web component
+
+The browser projection renders pipe tables as CSS grids, one grid row per
+source line with a column template shared across the table, cells split at the
+engine's hidden-pipe segments, and column sizing that mirrors this renderer's
+widest-cell / cap / fit policy. Formula cells, cell-scoped keybindings, and the
+in-cell caret are not ported; the caret's row reveals raw source like every
+other browser block. See `web-component.md` § "Pipe tables".
 
 ## Out of scope (deferred)
 

@@ -31,6 +31,12 @@ macro_rules! view_context_timeline_methods {
             Err(Error::UnsupportedContext("show_tutorial_buffer"))
         }
 
+        /// Ask the host to check GitHub Releases for a newer Continuity
+        /// now and report the outcome in a banner.
+        fn check_for_updates(&mut self) -> Result<(), Error> {
+            Err(Error::UnsupportedContext("check_for_updates"))
+        }
+
         /// Open or focus the buffer-history swimlane tab.
         fn show_buffer_history_tab(&mut self) -> Result<(), Error> {
             Err(Error::UnsupportedContext("show_buffer_history_tab"))

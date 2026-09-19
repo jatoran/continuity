@@ -17,15 +17,16 @@ use std::thread;
 
 use crate::error::Error;
 use crate::registry_closed_history::archive_closed_window;
+use crate::registry_config_fanout::{fan_out_config_event, fan_out_persist_event};
 use crate::registry_file_buffers::{
     make_open_file_window_handler, make_register_file_buffer_handler, FileBufferIndex,
 };
 use crate::registry_time::unix_ms_now;
 use continuity_buffer::{BufferId, FileAssociation, WindowId};
-use continuity_config::{ConfigEvent, Settings};
-use continuity_core::{EditorHandle, SnapshotPolicy};
+use continuity_config::ConfigEvent;
+use continuity_core::EditorHandle;
 use continuity_keymap::Keymap;
-use continuity_persist::{BackupConfig, BackupScheduler, PersistClient, WindowRow};
+use continuity_persist::{BackupScheduler, PersistClient, WindowRow};
 use continuity_ui::file_io::FileIoClient;
 use continuity_ui::{
     DesktopShell, LiveReload, RestoredState, Window, WindowCommands, WindowConfig, WindowControl,
@@ -49,6 +50,19 @@ pub(crate) enum RegistryEvent {
     },
     /// Known-vault activation or live-window registration.
     Vault(crate::registry_vaults::VaultRegistryEvent),
+    /// The update host found a newer release; every live window shows
+    /// the offer banner.
+    UpdateAvailable(continuity_ui::UpdateOffer),
+    /// Progress / outcome text from the update host for every window.
+    UpdateStatus {
+        /// Banner text.
+        text: String,
+        /// Whether the banner stays until dismissed.
+        sticky: bool,
+    },
+    /// The staged installer is waiting for this process to exit: ask every
+    /// window to close gracefully.
+    CloseAllWindows,
     /// A UI thread has finished its message pump. The registry archives
     /// the window to the closed-history stack and tombstones its row —
     /// for every graceful close, including the last window. A crash never
@@ -165,6 +179,7 @@ pub(crate) struct RegistryCtx {
     /// Cross-window file-path-to-buffer index used to reuse an existing
     /// file buffer when opening the same file into a fresh window.
     pub file_buffer_index: FileBufferIndex,
+    pub updater: Arc<crate::updater::UpdateHost>,
 }
 
 /// Inputs to the registry's main loop that aren't routed through
@@ -242,6 +257,18 @@ pub fn run(
                 }
                 Ok(RegistryEvent::Vault(event)) => {
                     crate::registry_vaults::handle_event(&ctx, &mut state, event)?;
+                }
+                Ok(RegistryEvent::UpdateAvailable(offer)) => {
+                    crate::registry_updates::fan_out(&state, WindowControl::UpdateAvailable(offer));
+                }
+                Ok(RegistryEvent::UpdateStatus { text, sticky }) => {
+                    crate::registry_updates::fan_out(
+                        &state,
+                        WindowControl::UpdateStatus { text, sticky },
+                    );
+                }
+                Ok(RegistryEvent::CloseAllWindows) => {
+                    crate::registry_updates::close_all_windows(&state);
                 }
                 Ok(RegistryEvent::OpenFileBuffer {
                     content,
@@ -461,6 +488,7 @@ fn run_window(
             vault_activated: Some(crate::registry_vaults::make_activated_handler(
                 &ctx, window_id,
             )),
+            update_actions: Some(ctx.updater.window_callback()),
             persist_client: Some(ctx.persist.clone()),
             initial_banners: req.recovery_notices,
             open_tutorial_on_init: req.open_tutorial_on_init,
@@ -501,77 +529,6 @@ fn make_persistence(
             }
         }),
     }
-}
-
-/// δ.3 — fan a persistence-thread event out to every live window.
-/// Wraps the event in [`WindowControl::PersistEvent`] so the window's
-/// existing control-poll tick handles it like a config event.
-fn fan_out_persist_event(state: &LiveState, event: continuity_persist::PersistEvent) {
-    for tx in state.control_senders.values() {
-        let _ = tx.send(WindowControl::PersistEvent(event.clone()));
-    }
-}
-
-/// Apply the owner-side effects of a settings change *before* fanning the
-/// event out to live windows. Keeps per-owner config (backup cadence,
-/// persist sync mode) on its single owner thread instead of through
-/// shared mutable state.
-fn fan_out_config_event(
-    ctx: &RegistryCtx,
-    backup: Option<&Arc<BackupScheduler>>,
-    state: &LiveState,
-    event: ConfigEvent,
-) {
-    if let ConfigEvent::Settings(settings) = &event {
-        apply_owner_routed_settings(ctx, backup, settings.as_ref());
-        // Update the shared `LiveReload.initial` cell so any window
-        // spawned *after* this commit observes the new settings on
-        // its `maybe_apply_initial_settings` call. The watcher
-        // fanout below only reaches windows that are already live;
-        // without this replace, a new-window construction triggered
-        // right after a commit would replay the process-start
-        // snapshot and ignore the runtime change.
-        if let Some(reload) = ctx.live_reload.as_ref() {
-            reload.replace_settings(settings.as_ref().clone());
-        }
-    }
-    for tx in state.control_senders.values() {
-        let _ = tx.send(WindowControl::ConfigChanged(event.clone()));
-    }
-}
-
-fn apply_owner_routed_settings(
-    ctx: &RegistryCtx,
-    backup: Option<&Arc<BackupScheduler>>,
-    settings: &Settings,
-) {
-    // Persistence mode → persist owner via typed message.
-    let pragma = settings.persistence_mode().synchronous_pragma();
-    if let Err(e) = ctx.persist.set_synchronous(pragma) {
-        eprintln!("continuity: set_synchronous({pragma}) failed: {e}");
-    }
-    // Backup cadence + retention → backup-scheduler owner via typed message.
-    if let Some(backup) = backup {
-        let backup_dir = continuity_persist::backups_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let interval =
-            std::time::Duration::from_secs(u64::from(settings.backup.interval_minutes) * 60);
-        let retain = settings.backup.hourly_retention as usize;
-        backup.set_config(BackupConfig {
-            directory: backup_dir,
-            interval,
-            retain,
-        });
-    }
-    // Snapshot policy → core owner via typed message.
-    // `interval_ms` is not user-tunable in `settings.toml` today, so
-    // carry the previous default forward — only the byte/edit thresholds
-    // come from settings.
-    let policy = SnapshotPolicy {
-        edits: settings.persistence.snapshot_every_edits,
-        bytes: settings.persistence.snapshot_every_bytes as usize,
-        interval_ms: SnapshotPolicy::default().interval_ms,
-    };
-    ctx.editor.set_snapshot_policy(policy);
 }
 
 fn load_keymap(default_toml: &str, user_path: Option<&PathBuf>) -> Result<Keymap, Error> {

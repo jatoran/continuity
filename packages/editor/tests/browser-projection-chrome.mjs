@@ -14,6 +14,17 @@ import {
   settle,
 } from "./browser-touch-helpers.mjs";
 
+/** Dispatch the pointer sequence a mouse click produces on the textarea. */
+function mouseClick(input, clientX, clientY) {
+  const mouse = { pointerType: "mouse", pointerId: 1 };
+  input.dispatchEvent(pointerEvent("pointerdown", clientX, clientY, mouse));
+  input.dispatchEvent(pointerEvent("pointerup", clientX, clientY, { ...mouse, buttons: 0 }));
+  input.dispatchEvent(new PointerEvent("click", {
+    bubbles: true, cancelable: true, pointerType: "mouse", pointerId: 1,
+    button: 0, buttons: 0, clientX, clientY, detail: 1,
+  }));
+}
+
 const MOUNT_OPTIONS = { label: "Projection chrome document" };
 
 /** Mount one editor for these suites under a distinct accessible name. */
@@ -28,6 +39,7 @@ export async function runProjectionChromeTests(ContinuityEditorElement, check) {
   assertions += await runHangingIndentCases(ContinuityEditorElement, check, mount);
   assertions += await runIndentGuideCases(ContinuityEditorElement, check, mount);
   assertions += await runDecorationCases(ContinuityEditorElement, check, mount);
+  assertions += await runPipeTableCases(ContinuityEditorElement, check, mount);
   return assertions;
 }
 
@@ -90,6 +102,105 @@ async function runThematicBreakCases(ContinuityEditorElement, check, mount) {
   check(
     getComputedStyle(focused, "::after").content === "none",
     "no rule is drawn over the revealed source",
+  );
+  count += 1;
+
+  dispose();
+  return count;
+}
+
+/**
+ * A pipe table projects as one grid row per source line sharing a column
+ * template: the engine hides the pipes, the cells are the text between them,
+ * the delimiter row collapses, and the caret's own row comes back as raw source.
+ */
+async function runPipeTableCases(ContinuityEditorElement, check, mount) {
+  const value = [
+    "| # | NAME | EMAIL |",
+    "| --- | :---: | ---: |",
+    "| 1 | Carolla's best buddy | [Send Email](https://example.com/mail?id=1) |",
+    "| 2 | Bend the Knee | plain |",
+    "after",
+    "",
+  ].join("\n");
+  const { editor, input, projection, dispose } = await mountEditor(ContinuityEditorElement, mount, value);
+  let count = 0;
+  placeCaret(input, value.indexOf("after") + 1);
+  await settle();
+
+  const rows = [0, 1, 2, 3].map((index) => projection.children[index]);
+  check(
+    rows.every((row) => row.classList.contains("table-row")),
+    `every table line renders as a grid row (${rows.map((row) => row.className).join(" / ")})`,
+  );
+  count += 1;
+  check(
+    rows[0].classList.contains("table-header") && rows[1].classList.contains("table-delimiter"),
+    "the first row is the header and the second is the collapsed delimiter",
+  );
+  count += 1;
+  check(
+    getComputedStyle(rows[0]).display === "grid" && rows[0].querySelectorAll(".table-cell").length === 3,
+    `the header lays out as a three-column grid (display ${getComputedStyle(rows[0]).display}, cells ${rows[0].querySelectorAll(".table-cell").length})`,
+  );
+  count += 1;
+  check(
+    !rows[0].textContent.includes("|") && !rows[2].textContent.includes("|"),
+    "pipes are hidden in projected rows",
+  );
+  count += 1;
+  check(
+    rows[1].getBoundingClientRect().height === 0 && rows[1].textContent === "",
+    `the delimiter row takes no height (got ${rows[1].getBoundingClientRect().height})`,
+  );
+  count += 1;
+  const headerCells = [...rows[0].querySelectorAll(".table-cell")];
+  const bodyCells = [...rows[2].querySelectorAll(".table-cell")];
+  const columnsAlign = headerCells.every((cell, column) => (
+    Math.abs(cell.getBoundingClientRect().left - bodyCells[column].getBoundingClientRect().left) <= 0.75
+  ));
+  check(columnsAlign, "header and body columns share the same left edges");
+  count += 1;
+  check(
+    bodyCells[1].classList.contains("table-align-center") && bodyCells[2].classList.contains("table-align-right"),
+    "delimiter alignments reach the body cells",
+  );
+  count += 1;
+  const link = bodyCells[2].querySelector(".inline-link");
+  check(
+    link?.textContent === "Send Email" && !bodyCells[2].textContent.includes("https://"),
+    `a link in a cell shows its text only (got ${JSON.stringify(bodyCells[2].textContent)})`,
+  );
+  count += 1;
+  const widest = headerCells[1].getBoundingClientRect().width;
+  check(
+    widest > headerCells[0].getBoundingClientRect().width,
+    "the NAME column is wider than the # column because its widest cell is wider",
+  );
+  count += 1;
+
+  // Tapping inside a projected cell lands the caret on that source byte.
+  const bendRect = glyphRect(bodyCells[1], 1);
+  const bendCell = [...rows[3].querySelectorAll(".table-cell")][1];
+  const bendGlyph = glyphRect(bendCell, 1);
+  mouseClick(input, bendGlyph.left + 1, bendGlyph.top + bendGlyph.height / 2);
+  await settle();
+  const caretLine = value.slice(0, input.selectionStart).split("\n").length - 1;
+  check(
+    caretLine === 3 && value.slice(input.selectionStart, input.selectionStart + 4) === "Bend",
+    `clicking a cell glyph places the caret on that byte (line ${caretLine}, before ${JSON.stringify(value.slice(input.selectionStart, input.selectionStart + 4))})`,
+  );
+  count += 1;
+  check(
+    rows[3].dataset.sourceVisible === "true"
+      && rows[3].textContent === "| 2 | Bend the Knee | plain |"
+      && getComputedStyle(rows[3]).display !== "grid",
+    `the caret's row reveals raw source (got ${JSON.stringify(rows[3].textContent)})`,
+  );
+  count += 1;
+  check(
+    rows[2].classList.contains("table-row") && Math.abs(bendRect.left - glyphRect(bodyCells[1], 1).left) <= 0.75,
+    "the other rows keep their grid and column positions while one row is being edited",
   );
   count += 1;
 

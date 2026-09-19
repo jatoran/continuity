@@ -182,7 +182,12 @@ async function measureBudgets(initializationMs, wasmBytes) {
   // consults a tracked policy (typing intent plus visual-viewport occlusion)
   // instead of firing reflexively, and that policy is a module whose whole value
   // is the reasoning written next to each transition. Unminified source ships.
-  assert.ok(packageSizes.javascriptBytes <= 352 * 1024, `package JavaScript ${packageSizes.javascriptBytes} > 352 KiB`);
+  // Raised 352 -> 368 KiB on 2026-09-18 for pipe-table chrome: table runs lay
+  // out as per-line CSS grids sharing one column template, cells split at the
+  // engine's hidden pipes, and columns size to the widest cell then fit the
+  // pane. The line renderer moved into its own module alongside the table row
+  // variant; the projection consumer itself did not grow.
+  assert.ok(packageSizes.javascriptBytes <= 368 * 1024, `package JavaScript ${packageSizes.javascriptBytes} > 368 KiB`);
   assert.ok(packageSizes.lazyEntryBytes <= 2 * 1024, `lazy entry ${packageSizes.lazyEntryBytes} > 2 KiB`);
   assert.ok(packageSizes.installedBytes <= 2 * 1024 * 1024, `installed package ${packageSizes.installedBytes} > 2 MiB`);
   return metrics;

@@ -466,6 +466,10 @@ impl continuity_command::ViewContext for Window {
         self.show_tutorial_buffer_impl()
             .map_err(map_ui_to_command_error)
     }
+    fn check_for_updates(&mut self) -> Result<(), continuity_command::Error> {
+        self.check_for_updates_impl()
+            .map_err(map_ui_to_command_error)
+    }
 
     // δ.5 — theme-management workflow. Bodies live in
     // `window_theme_manage.rs` so this file stays under the 600-line cap.

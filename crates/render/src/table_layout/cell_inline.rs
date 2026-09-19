@@ -147,6 +147,32 @@ pub(super) fn compute_cell_inline(raw: &str) -> CellInline {
                 continue;
             }
         }
+        // Image ref: `![alt](url)` — display the alt text (plain, no
+        // link styling); the URL never shows. Tables do not render
+        // inline images, and without this rule the link parser stripped
+        // `[alt](url)` but left a stray `!` in the cell (pasted team
+        // logos rendered as `!  Tecmo Bowlers`).
+        if b == b'!' && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+            if let Some((text_start, text_end, end)) = parse_link(bytes, i + 1) {
+                let body = &raw[text_start..text_end];
+                let inner = compute_cell_inline(body);
+                let display_start = display.len() as u32;
+                display.push_str(&inner.display_text);
+                for (range, style) in inner.inline_runs {
+                    runs.push((merge_strike(range, display_start), style));
+                }
+                i = end;
+                if inner.display_text.is_empty() && display.is_empty() {
+                    // A leading alt-less image contributed nothing; drop
+                    // the spacing that separated it from the cell text so
+                    // the cell does not start with a gap.
+                    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+                        i += 1;
+                    }
+                }
+                continue;
+            }
+        }
         // Link: `[text](url)` — display `text` styled as link.
         if b == b'[' {
             if let Some((text_start, text_end, end)) = parse_link(bytes, i) {
@@ -397,6 +423,31 @@ mod tests {
         let r = parse("__strong__");
         assert_eq!(r.display_text, "strong");
         assert!(r.inline_runs.iter().any(|(_, s)| s.bold));
+    }
+
+    #[test]
+    fn image_ref_shows_alt_text_without_link_style() {
+        let r = parse("see ![logo](https://x/y.svg) here");
+        assert_eq!(r.display_text, "see logo here");
+        assert!(
+            r.inline_runs.iter().all(|(_, s)| *s != SpanStyle::link()),
+            "an image ref must not be styled as a link: {:?}",
+            r.inline_runs
+        );
+    }
+
+    #[test]
+    fn leading_alt_less_image_ref_vanishes_with_its_spacing() {
+        // Pasted team logos: `![](url)  Tecmo Bowlers` must read as
+        // `Tecmo Bowlers`, not `!  Tecmo Bowlers` or `  Tecmo Bowlers`.
+        let r = parse("![](https://g.espncdn.com/logos/4.svg)  Tecmo Bowlers");
+        assert_eq!(r.display_text, "Tecmo Bowlers");
+    }
+
+    #[test]
+    fn bare_bang_before_non_link_stays_literal() {
+        let r = parse("wow! [x] done");
+        assert_eq!(r.display_text, "wow! [x] done");
     }
 
     #[test]

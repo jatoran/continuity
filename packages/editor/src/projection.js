@@ -1,18 +1,17 @@
-import {
-  sourceLineStarts,
-  utf8ByteToUtf16,
-} from "./coordinates.js";
+import { sourceLineStarts } from "./coordinates.js";
 import { applySourceEdits } from "./source_lines.js";
 import {
   applyMeasuredWrapLayout,
   computeSourceWrapPrefix,
   computeWrapMetrics,
+  measureTextAdvance,
 } from "./wrap_layout.js";
 import { applyIndentGuides, hasIndentGuides } from "./indent_guides.js";
 import { projectionPointToPosition } from "./pointer_hit_test.js";
+import { inlineRanges, renderLine, renderTableRow } from "./projection_line_render.js";
+import { computeTableRows } from "./projection_tables.js";
 import { projectionScrollOffset } from "./scroll_extent.js";
 
-const INLINE_PRIORITY = ["link", "checkbox", "code", "strong", "emphasis", "strikethrough"];
 const STRUCTURAL_MARKER_CHARS = /[\n#*_~`>[\]()-]/u;
 const PROJECTION_ENCODER = new TextEncoder();
 const PROJECTION_OVERSCAN_VIEWPORTS = 2;
@@ -66,6 +65,7 @@ export function renderProjection(container, input, snapshot, projection, activeL
   };
   projectionStates.set(container, context);
   refreshLayoutMetrics(container, context);
+  refreshTableRows(container, context);
   projection.lines.forEach((_, index) => renderProjectionLine(
     container, context, index, index >= detailedRange.start && index < detailedRange.end,
   ));
@@ -153,6 +153,8 @@ export function renderProjectionRange(container, input, snapshot, patch, activeL
   }
   context.activeLines = activeLines;
   context.hasStructuralDirty = false;
+  refreshLayoutMetrics(container, context);
+  refreshTableRows(container, context);
   renderProjectionViewport(container, input, false);
   return true;
 }
@@ -164,6 +166,7 @@ export function renderProjectionViewport(container, input, shouldMeasure = true)
     return;
   }
   refreshLayoutMetrics(container, context);
+  if (context.tableRowsWidth !== container.clientWidth) refreshTableRows(container, context);
   if (!shouldMeasure) {
     applyProjectionViewportRange(container, context, context.detailedRange);
     return;
@@ -203,6 +206,22 @@ function refreshLayoutMetrics(container, context) {
   context.hasIndentGuides = hasIndentGuides(container);
 }
 
+/**
+ * Re-derive the pipe-table grids. Column widths depend on every row of a
+ * table and on the pane width, so this runs once per content or width change
+ * rather than per line; each row's fingerprint carries the grid signature so
+ * only rows whose grid actually changed re-render.
+ */
+function refreshTableRows(container, context) {
+  const metrics = context.metrics ?? computeWrapMetrics(container);
+  context.tableRows = computeTableRows(context, {
+    measure: (text) => measureTextAdvance(text, metrics),
+    fontSizePx: metrics.fontSizePx,
+    availableWidth: container.clientWidth,
+  });
+  context.tableRowsWidth = container.clientWidth;
+}
+
 function renderProjectionLine(container, context, index, shouldProject) {
   const element = container.children[index];
   const line = context.projectedLines[index];
@@ -213,15 +232,21 @@ function renderProjectionLine(container, context, index, shouldProject) {
   const canProject = shouldProject && Boolean(line);
   const isSourceVisible = context.activeLines.has(index);
   const text = isSourceVisible || !canProject ? sourceText : line.text;
+  // A projected pipe-table row lays out as a column grid; the caret's own row
+  // (source-visible) falls back to the raw line like every other block.
+  const tableRow = canProject && !isSourceVisible ? context.tableRows?.[index] : undefined;
+  const tableClass = tableRow
+    ? ` table-row${tableRow.isHeader ? " table-header" : ""}${tableRow.isDelimiter ? " table-delimiter" : ""}`
+    : "";
   const className = line
-    ? `line ${context.blockClasses[index] ?? "block-plain"}`
+    ? `line ${context.blockClasses[index] ?? "block-plain"}${tableClass}`
     : "line block-plain";
-  const projectedWrapPrefix = line?.wrapIndentByteEnd ?? 0;
+  const projectedWrapPrefix = tableRow ? 0 : line?.wrapIndentByteEnd ?? 0;
   const wrapPrefix = isSourceVisible || !canProject
     ? computeSourceWrapPrefix(text)
     : { byteEnd: projectedWrapPrefix, isListItem: projectedWrapPrefix > 0 && /^[\t ]*(?:[•☐☑]|[-*+]|\d+[.)])[\t ]+/u.test(text) };
   const inlineDigest = canProject && !isSourceVisible ? context.inlineDigests?.[index] ?? "" : "";
-  const fingerprint = `${className}\u0000${isSourceVisible}\u0000${wrapPrefix.byteEnd}\u0000${text}\u0000${canProject}\u0000${inlineDigest}`;
+  const fingerprint = `${className}\u0000${isSourceVisible}\u0000${wrapPrefix.byteEnd}\u0000${text}\u0000${canProject}\u0000${inlineDigest}\u0000${tableRow?.signature ?? ""}`;
   if (element.className !== className) element.className = className;
   if (element.dataset.line !== String(index)) element.dataset.line = String(index);
   if (element.dataset.sourceVisible !== String(isSourceVisible)) {
@@ -231,7 +256,13 @@ function renderProjectionLine(container, context, index, shouldProject) {
     const ranges = canProject && !isSourceVisible
       ? inlineRanges(line, context.lineInlines[index])
       : [];
-    renderLine(element, text, ranges);
+    if (tableRow) {
+      element.style.setProperty("--continuity-table-columns", tableRow.template);
+      renderTableRow(element, text, ranges, tableRow);
+    } else {
+      element.style.removeProperty("--continuity-table-columns");
+      renderLine(element, text, ranges);
+    }
     element.dataset.detailed = String(Boolean(canProject));
     element.dataset.fingerprint = fingerprint;
   }
@@ -251,6 +282,7 @@ export function renderActiveSourceLines(container, snapshot, activeLines, edits 
   context.sourceLines = sourceLines;
   refreshLayoutMetrics(container, context);
   reconcileEditedLines(container, context, edits);
+  refreshTableRows(container, context);
   if (container.children.length !== sourceLines.length) {
     return false;
   }
@@ -483,87 +515,4 @@ function upperBound(values, target) {
     }
   }
   return lower;
-}
-
-function inlineRanges(line, inlines) {
-  const ranges = [];
-  for (const span of inlines) {
-    if (span.kind.startsWith("marker:")) {
-      continue;
-    }
-    const displayRange = computeDisplayRange(line, span);
-    if (!displayRange) {
-      continue;
-    }
-    const start = utf8ByteToUtf16(line.text, displayRange.start);
-    const end = utf8ByteToUtf16(line.text, displayRange.end);
-    ranges.push({
-      start,
-      end: Math.max(start + 1, end),
-      kind: span.kind,
-      sourceStart: span.startByte,
-      sourceEnd: span.endByte,
-    });
-  }
-  return ranges;
-}
-
-function computeDisplayRange(line, span) {
-  if (line.displayToSource.length > 0) {
-    const bytes = line.displayToSource
-      .filter(([, source]) => source >= span.startByte && source < span.endByte)
-      .map(([display]) => display);
-    return bytes.length > 0 ? { start: Math.min(...bytes), end: Math.max(...bytes) + 1 } : null;
-  }
-  let displayByte = 0;
-  let start;
-  let end;
-  for (const segment of line.segments) {
-    const displayLength = segment.kind === "visible"
-      ? segment.endByte - segment.startByte
-      : PROJECTION_ENCODER.encode(segment.replacement).byteLength;
-    const overlapStart = Math.max(segment.startByte, span.startByte);
-    const overlapEnd = Math.min(segment.endByte, span.endByte);
-    if (overlapStart < overlapEnd && segment.kind !== "hidden") {
-      const offset = segment.kind === "visible" ? overlapStart - segment.startByte : 0;
-      start ??= displayByte + offset;
-      end = segment.kind === "visible"
-        ? displayByte + overlapEnd - segment.startByte
-        : displayByte + displayLength;
-    }
-    displayByte += displayLength;
-  }
-  return start === undefined ? null : { start, end };
-}
-
-function renderLine(element, text, ranges) {
-  const boundaries = new Set([0, text.length]);
-  ranges.forEach(({ start, end }) => {
-    boundaries.add(Math.max(0, Math.min(start, text.length)));
-    boundaries.add(Math.max(0, Math.min(end, text.length)));
-  });
-  const ordered = [...boundaries].sort((left, right) => left - right);
-  const fragment = document.createDocumentFragment();
-  for (let index = 0; index < ordered.length - 1; index += 1) {
-    const start = ordered[index];
-    const end = ordered[index + 1];
-    const value = text.slice(start, end);
-    const active = ranges.filter((range) => range.start <= start && range.end >= end);
-    const kind = INLINE_PRIORITY.find((candidate) => active.some((range) => range.kind === candidate));
-    if (!kind) {
-      fragment.append(document.createTextNode(value));
-      continue;
-    }
-    const span = document.createElement("span");
-    span.className = `inline-${kind}`;
-    span.textContent = value;
-    const sourceRange = active.find((range) => range.kind === kind);
-    span.dataset.sourceStart = String(sourceRange.sourceStart);
-    span.dataset.sourceEnd = String(sourceRange.sourceEnd);
-    fragment.append(span);
-  }
-  if (text.length === 0) {
-    fragment.append(document.createElement("br"));
-  }
-  element.replaceChildren(fragment);
 }

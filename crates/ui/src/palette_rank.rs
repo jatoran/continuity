@@ -23,6 +23,7 @@ const DEFAULT_ORDER: &[&str] = &[
     "view.toggle_minimap",
     "view.toggle_outline",
     "help.tutorial",
+    "help.check_for_updates",
 ];
 
 /// Score one palette entry against the user's query.
@@ -233,6 +234,7 @@ fn aliases_for(command: &str) -> &'static [&'static str] {
         "file.save" => &["save file", "write file", "export"],
         "file.save_as" => &["save as", "export as"],
         "help.tutorial" => &["tutorial", "help", "guide", "intro"],
+        "help.check_for_updates" => &["update", "upgrade", "new version", "check for updates"],
         "palette.show" => &["command palette", "run command"],
         "settings.open" => &["settings", "preferences", "config", "configuration"],
         "view.pick_font" | "view.set_font_family" => {

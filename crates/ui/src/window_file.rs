@@ -24,6 +24,8 @@ pub struct FileBanner {
     text: String,
     pub(crate) pending: Option<PendingExternalChange>,
     pub(crate) vault_initialization: Option<PathBuf>,
+    /// Set for the in-app update offer banner (`window_updates.rs`).
+    pub(crate) update_offer: Option<crate::window_control::UpdateOffer>,
     /// UNIX-epoch milliseconds at which this banner should auto-dismiss.
     /// `None` means the banner is sticky and only dismisses on user
     /// action (Esc, reload/keep/diff button, etc.) — used for banners
@@ -45,6 +47,7 @@ impl FileBanner {
             text,
             pending: None,
             vault_initialization: None,
+            update_offer: None,
             expires_at_ms: None,
         }
     }
@@ -62,6 +65,7 @@ impl FileBanner {
             text,
             pending: None,
             vault_initialization: None,
+            update_offer: None,
             expires_at_ms: Some(now_ms.saturating_add(duration_ms)),
         }
     }
@@ -94,6 +98,7 @@ impl FileBanner {
                 from_save,
             }),
             vault_initialization: None,
+            update_offer: None,
             expires_at_ms: None,
         }
     }
@@ -103,6 +108,19 @@ impl FileBanner {
             text: format!("Use {} as a Continuity vault?", root.display()),
             pending: None,
             vault_initialization: Some(root),
+            update_offer: None,
+            expires_at_ms: None,
+        }
+    }
+
+    /// Sticky offer banner for a newer release (`Update now` / `Release
+    /// notes` / `Skip this version`).
+    pub(crate) fn update_offer(offer: crate::window_control::UpdateOffer) -> Self {
+        Self {
+            text: format!("Continuity {} is available.", offer.version),
+            pending: None,
+            vault_initialization: None,
+            update_offer: Some(offer),
             expires_at_ms: None,
         }
     }
@@ -220,6 +238,8 @@ impl Window {
             crate::window_file_banner_buttons::BannerButtonsKind::Conflict
         } else if banner.vault_initialization.is_some() {
             crate::window_file_banner_buttons::BannerButtonsKind::InitializeVault
+        } else if banner.update_offer.is_some() {
+            crate::window_file_banner_buttons::BannerButtonsKind::Update
         } else {
             crate::window_file_banner_buttons::BannerButtonsKind::None
         };

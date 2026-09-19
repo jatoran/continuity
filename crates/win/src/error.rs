@@ -14,6 +14,20 @@ pub enum Error {
         #[source]
         source: windows::core::Error,
     },
+    /// An HTTP fetch was asked for a URL that is not absolute `https://`.
+    #[error("not an https:// URL: {0}")]
+    InvalidUrl(String),
+    /// The server answered with a non-2xx status.
+    #[error("HTTP {status} from {url}")]
+    HttpStatus {
+        /// Response status code.
+        status: u32,
+        /// Requested URL.
+        url: String,
+    },
+    /// The response body exceeded the buffer cap.
+    #[error("HTTP body exceeded {0} bytes")]
+    HttpTooLarge(usize),
 }
 
 impl Error {

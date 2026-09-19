@@ -113,7 +113,7 @@ commits the projected caret and synchronously focuses the textarea in the
 trusted click turn; pan, cancellation, and long-press ownership suppress that
 focus path. This is component-owned default behavior and exposes no shadow-DOM
 or host hit-test contract. Fine-pointer routing is unchanged. See
-[Touch input](../design/features/touch-input.md). A DOM projection underneath it consumes Rust decoration
+[Touch input](../design/features/touch-input.md). Pipe tables lay out as per-line CSS grids sharing one column template per table (see [Web Component](../design/features/web-component.md) § "Pipe tables"). A DOM projection underneath it consumes Rust decoration
 and display-map output for visible Markdown. An overlay
 paints collapsed carets and non-collapsed ranges from the projection's measured
 glyph rectangles; the raw-source textarea caret plus selected background and
@@ -385,7 +385,7 @@ input-to-frame or Web Component claims:
 | Optimized module, raw | recorded | 1,095,963 bytes |
 | Edited 10,000-line viewport projection | product target p99 <=100 ms; shared-runner CI ceiling <=180 ms | 70.1 ms |
 | Installed npm package | <=2 MiB | 1,297,896 bytes |
-| Installed JavaScript | <=320 KiB | 313,895 bytes (2026-07-30, after projection chrome: host decorations, indent guides, touch selection handles, shared overlay geometry, serializable history; gate raised 208 -> 264 -> 288 -> 320 KiB across those surfaces) |
+| Installed JavaScript | <=368 KiB | 369,879 bytes (2026-09-18, after pipe-table chrome: per-line CSS grid rows sharing one column template, cells split at hidden pipes, widest-cell column sizing fitted to the pane; gate raised 208 -> 264 -> 288 -> 320 -> 336 -> 352 -> 368 KiB across the rail, touch, projection-chrome, soft-keyboard, and table surfaces) |
 | Lazy entry | <=2 KiB | 355 bytes |
 
 The reference run used Node 22.17.0 on Windows x86-64. The packed archive was

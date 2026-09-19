@@ -62,6 +62,17 @@ pub(crate) fn build_inline_image_placements(
         else {
             continue;
         };
+        // An image ref inside a pipe-table cell is the table chrome's
+        // business (cells parse their own inline content); reserving
+        // phantom rows or painting a bitmap over the cell grid would break
+        // the row geometry the chrome was sized against.
+        if decorations
+            .evaluated_tables
+            .iter()
+            .any(|table| table.block_range.contains(&span.range.start))
+        {
+            continue;
+        }
         let alt_text = rope_slice_to_string(rope, alt_range.start, alt_range.end);
         let url_text = rope_slice_to_string(rope, url_range.start, url_range.end);
         let attrs = parse_image_alt(&alt_text);
@@ -138,6 +149,17 @@ pub(crate) fn build_image_row_reservation_inputs(
         else {
             continue;
         };
+        // An image ref inside a pipe-table cell is the table chrome's
+        // business (cells parse their own inline content); reserving
+        // phantom rows or painting a bitmap over the cell grid would break
+        // the row geometry the chrome was sized against.
+        if decorations
+            .evaluated_tables
+            .iter()
+            .any(|table| table.block_range.contains(&span.range.start))
+        {
+            continue;
+        }
         let alt_text = rope_slice_to_string(rope, alt_range.start, alt_range.end);
         let url_text = rope_slice_to_string(rope, url_range.start, url_range.end);
         let attrs = parse_image_alt(&alt_text);

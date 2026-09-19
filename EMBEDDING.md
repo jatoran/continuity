@@ -28,8 +28,8 @@ resolves to the Windows installer and never to an SDK release.
 
 | Registry | Status | Install |
 |---|---|---|
-| crates.io | Live at `0.2.40` | `cargo add continuity-engine` |
-| npm | Live at `0.2.40` under the `latest` tag | `npm install @continuity-editor/editor` |
+| crates.io | Live at `0.2.41` | `cargo add continuity-engine` |
+| npm | Live at `0.2.41` under the `latest` tag | `npm install @continuity-editor/editor` |
 | PyPI | Not published | Build locally; see the Python section |
 
 **A bare `npm install @continuity-editor/editor` is the supported form.** The
@@ -59,7 +59,7 @@ first release published end-to-end by CI through trusted publishing.
 `continuity-text 0.2.38` was published without a matching `continuity-buffer` or
 `continuity-engine` by a release that failed partway through its closure, and has
 been yanked. Yanking leaves it resolvable for any lockfile that already pinned it
-but keeps new resolution off it, so the SDK closure resolves at `0.2.40`.
+but keeps new resolution off it, so the SDK closure resolves at `0.2.41`.
 
 Every published SDK artifact is also attached to its GitHub Release. To consume
 a release without a registry:

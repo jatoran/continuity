@@ -12,7 +12,7 @@ use crate::pane_layout::{metrics, pane_at_point, Rect};
 use crate::pane_state::PerPaneState;
 use crate::pane_tree::{PaneId, PaneTree};
 use crate::window::{Window, WHEEL_LINES_PER_NOTCH};
-use crate::window_font_picker::compute_overscroll_bottom_dip;
+use crate::window_view::scroll_extent::compute_overscroll_bottom_dip;
 
 /// Exponential decay time constant for wheel inertia. At 60 ms, velocity
 /// reaches 10% in about 138 ms, so wheel flicks still feel continuous but
@@ -389,8 +389,9 @@ impl Window {
         ) {
             return;
         }
-        let content_height_dip = self.estimated_content_height();
-        let max_scroll = (content_height_dip - viewport_h).max(0.0);
+        // Inertia can carry the view into the scroll-past-end zone; prewarm
+        // against the same ceiling the wheel clamp admits.
+        let max_scroll = self.max_scroll_dip(self.estimated_content_height());
         let target_scroll_y = (scroll_y + velocity.signum() * viewport_h).clamp(0.0, max_scroll);
         let viewport_rows = crate::window_paint::visible_display_row_range(
             target_scroll_y,
@@ -524,12 +525,15 @@ impl Window {
             return Some(f(&mut self.surface.view));
         }
         let buffer_id = self.buffer_id_for_pane(pane)?;
+        // The view scrolled here belongs to the pane's active tab; record it
+        // so focusing the pane later is not mistaken for a tab switch.
+        let active_tab = self.tree.groups.get(&pane).map(|group| group.active);
         let state = self
             .panes
             .entry(pane)
-            .or_insert_with(|| PerPaneState::new(buffer_id, Self::default_language()));
+            .or_insert_with(|| PerPaneState::new(buffer_id, Self::default_language(), active_tab));
         if state.buffer_id != buffer_id {
-            *state = PerPaneState::new(buffer_id, Self::default_language());
+            *state = PerPaneState::new(buffer_id, Self::default_language(), active_tab);
         }
         Some(f(&mut state.view))
     }

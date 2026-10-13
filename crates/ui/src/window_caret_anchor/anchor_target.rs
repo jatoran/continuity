@@ -67,9 +67,10 @@ pub(crate) fn is_row_overlapping_viewport(
 }
 
 /// Pure scroll-restoration math for a caret line that was on screen.
-/// Given the caret's new line top, the desired pre-reflow screen y, and
-/// the post-reflow viewport/content heights, returns the scroll position
-/// that places the caret line at `screen_y_before` — clamped into
+/// Given the caret's new line top, the desired pre-reflow screen y, the
+/// post-reflow viewport height, and the post-reflow scroll ceiling
+/// (`max_scroll`, scroll-past-end allowance included), returns the scroll
+/// position that places the caret line at `screen_y_before` — clamped into
 /// `[0, max_scroll]` and into the viewport.
 #[must_use]
 pub(crate) fn anchored_scroll(
@@ -77,9 +78,9 @@ pub(crate) fn anchored_scroll(
     line_height: f32,
     screen_y_before: f32,
     viewport_h: f32,
-    content_h: f32,
+    max_scroll: f32,
 ) -> f32 {
-    let max_scroll = (content_h - viewport_h).max(0.0);
+    let max_scroll = max_scroll.max(0.0);
     let target = (new_line_top - screen_y_before).clamp(0.0, max_scroll);
     let proposed_screen_y = new_line_top - target;
     // Caret-line would land below the viewport — pull scroll so the
@@ -98,16 +99,15 @@ pub(crate) fn anchored_scroll(
 /// Pure scroll-restoration math for an anchored line that was **not**
 /// required to be on screen (the viewport-top line, or an off-screen
 /// caret). Places the line at `screen_y_before` and clamps only into
-/// `[0, max_scroll]`; there is deliberately no pull-into-viewport rule,
-/// because that rule is what scrolled the user away from what they were
-/// reading whenever a reflow fired with the caret off screen.
+/// `[0, max_scroll]` (scroll-past-end allowance included); there is
+/// deliberately no pull-into-viewport rule, because that rule is what
+/// scrolled the user away from what they were reading whenever a reflow
+/// fired with the caret off screen.
 #[must_use]
 pub(crate) fn anchored_scroll_without_reveal(
     new_line_top: f32,
     screen_y_before: f32,
-    viewport_h: f32,
-    content_h: f32,
+    max_scroll: f32,
 ) -> f32 {
-    let max_scroll = (content_h - viewport_h).max(0.0);
-    (new_line_top - screen_y_before).clamp(0.0, max_scroll)
+    (new_line_top - screen_y_before).clamp(0.0, max_scroll.max(0.0))
 }

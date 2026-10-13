@@ -96,40 +96,44 @@ impl GeometryAnchorState {
 }
 
 /// Pure scroll math: shift `scroll_y_dip` by the caret source line's
-/// first-display-row delta, clamped into `[0, max_scroll]`. Factored out
-/// so the compensation contract is unit-testable without a `Window`.
+/// first-display-row delta, clamped into `[0, max_scroll]`. `max_scroll` is
+/// the view's full scroll extent, scroll-past-end allowance included
+/// ([`Window::max_scroll_dip`]). Factored out so the compensation contract
+/// is unit-testable without a `Window`.
 #[must_use]
 pub(crate) fn geometry_shift_scroll(
     scroll_y_dip: f32,
     prev_first_row: u32,
     now_first_row: u32,
     line_height: f32,
-    content_height_dip: f32,
-    viewport_height_dip: f32,
+    max_scroll: f32,
 ) -> f32 {
     let delta = (now_first_row as f32 - prev_first_row as f32) * line_height;
-    let max_scroll = (content_height_dip - viewport_height_dip).max(0.0);
-    (scroll_y_dip + delta).clamp(0.0, max_scroll)
+    (scroll_y_dip + delta).clamp(0.0, max_scroll.max(0.0))
 }
 
 /// Pure scroll math: clamp `scroll_y_dip` so the caret's display row sits
 /// inside `[scroll, scroll + viewport]`. Returns the input unchanged when
-/// the caret is already visible. This is the **visibility floor** the
-/// geometry anchor applies (after holding the caret line) when a reveal was
-/// requested — measured against the *resolved* frame's geometry so a wrong
-/// pre-paint estimate can never leave the caret stranded off screen.
-/// Factored out for unit testing without a `Window`.
+/// the caret is already visible and the scroll is inside `[0, max_scroll]`.
+/// This is the **visibility floor** the geometry anchor applies (after
+/// holding the caret line) when a reveal was requested — measured against
+/// the *resolved* frame's geometry so a wrong pre-paint estimate can never
+/// leave the caret stranded off screen. `max_scroll` must include the
+/// scroll-past-end allowance: a visible caret in the overscroll zone is
+/// already revealed, and capping at the classic document bottom is what
+/// warped the view on every keystroke there. Factored out for unit testing
+/// without a `Window`.
 #[must_use]
 pub(crate) fn clamp_scroll_to_caret_visible(
     scroll_y_dip: f32,
     caret_display_row: u32,
     line_height: f32,
-    content_height_dip: f32,
     viewport_height_dip: f32,
+    max_scroll: f32,
 ) -> f32 {
     let caret_top = caret_display_row as f32 * line_height;
     let caret_bottom = caret_top + line_height;
-    let max_scroll = (content_height_dip - viewport_height_dip).max(0.0);
+    let max_scroll = max_scroll.max(0.0);
     let adjusted = if caret_top < scroll_y_dip {
         // Caret row is above the viewport top — scroll up to it.
         caret_top
@@ -187,6 +191,10 @@ impl Window {
         let content_height = self
             .estimated_content_height()
             .max(total_rows.max(1) as f32 * line_height);
+        // Full scroll extent, scroll-past-end allowance included: neither
+        // the line hold nor the visibility floor below may pull a view the
+        // user parked in the overscroll zone back to the document bottom.
+        let max_scroll = self.max_scroll_dip(content_height);
 
         let mut target_scroll = self.surface.view.scroll_y_dip;
         let viewport_height = self.surface.view.viewport_height_dip;
@@ -223,8 +231,7 @@ impl Window {
                         prev_first_row,
                         now_first_row,
                         line_height,
-                        content_height,
-                        viewport_height,
+                        max_scroll,
                     );
                     held_caret_line = true;
                 }
@@ -251,8 +258,7 @@ impl Window {
                         prev_top_first_row,
                         now_top_first_row,
                         line_height,
-                        content_height,
-                        viewport_height,
+                        max_scroll,
                     );
                 }
             }
@@ -292,8 +298,8 @@ impl Window {
                 target_scroll,
                 caret_display_row,
                 line_height,
-                content_height,
-                self.surface.view.viewport_height_dip,
+                viewport_height,
+                max_scroll,
             );
         }
 
@@ -432,13 +438,14 @@ d"
     const LH: f32 = 22.0;
     const VH: f32 = 700.0;
     const CONTENT: f32 = 1204.0 * LH;
+    /// Classic document bottom: no scroll-past-end allowance.
+    const MAX: f32 = CONTENT - VH;
+    /// Scroll-past-end ceiling: the last row may reach the viewport top.
+    const MAX_OVERSCROLL: f32 = CONTENT - LH;
 
     #[test]
     fn unchanged_row_keeps_scroll() {
-        assert_eq!(
-            geometry_shift_scroll(5000.0, 900, 900, LH, CONTENT, VH),
-            5000.0
-        );
+        assert_eq!(geometry_shift_scroll(5000.0, 900, 900, LH, MAX), 5000.0);
     }
 
     #[test]
@@ -446,27 +453,26 @@ d"
         // 63 extra rows materialized above the caret line (the 1130->1204
         // swing seen in the trace): scroll must increase by 63*LH so the
         // caret line stays put rather than jumping up.
-        let out = geometry_shift_scroll(5000.0, 909, 972, LH, CONTENT, VH);
+        let out = geometry_shift_scroll(5000.0, 909, 972, LH, MAX);
         assert!((out - (5000.0 + 63.0 * LH)).abs() < 1e-3);
     }
 
     #[test]
     fn rows_removed_above_caret_scroll_up_to_hold_line() {
-        let out = geometry_shift_scroll(5000.0, 972, 909, LH, CONTENT, VH);
+        let out = geometry_shift_scroll(5000.0, 972, 909, LH, MAX);
         assert!((out - (5000.0 - 63.0 * LH)).abs() < 1e-3);
     }
 
     #[test]
     fn clamps_at_top() {
         // A large upward correction can't drive scroll below zero.
-        assert_eq!(geometry_shift_scroll(100.0, 50, 0, LH, CONTENT, VH), 0.0);
+        assert_eq!(geometry_shift_scroll(100.0, 50, 0, LH, MAX), 0.0);
     }
 
     #[test]
     fn clamps_at_bottom() {
-        let max = (CONTENT - VH).max(0.0);
-        let out = geometry_shift_scroll(max, 0, 10_000, LH, CONTENT, VH);
-        assert_eq!(out, max);
+        let out = geometry_shift_scroll(MAX, 0, 10_000, LH, MAX);
+        assert_eq!(out, MAX);
     }
 
     #[test]
@@ -475,7 +481,7 @@ d"
         // [22000, 22700) — already visible, scroll unchanged.
         let scroll = 1000.0 * LH;
         assert_eq!(
-            clamp_scroll_to_caret_visible(scroll, 1010, LH, CONTENT, VH),
+            clamp_scroll_to_caret_visible(scroll, 1010, LH, VH, MAX),
             scroll
         );
     }
@@ -486,7 +492,7 @@ d"
         // negative screen y. The clamp must pull the scroll up so the caret
         // row sits at the viewport top.
         let scroll = 23049.0; // caret row 1006 -> top 22132 < scroll => above
-        let out = clamp_scroll_to_caret_visible(scroll, 1006, LH, CONTENT, VH);
+        let out = clamp_scroll_to_caret_visible(scroll, 1006, LH, VH, MAX);
         assert!((out - 1006.0 * LH).abs() < 1e-3, "got {out}");
     }
 
@@ -494,7 +500,7 @@ d"
     fn caret_below_viewport_scrolls_down_to_it() {
         let scroll = 1000.0 * LH; // viewport rows ~1000..1031
         let caret_row = 1080; // bottom = 1081*LH > scroll+VH
-        let out = clamp_scroll_to_caret_visible(scroll, caret_row, LH, CONTENT, VH);
+        let out = clamp_scroll_to_caret_visible(scroll, caret_row, LH, VH, MAX);
         assert!(
             (out - ((caret_row as f32 + 1.0) * LH - VH)).abs() < 1e-3,
             "got {out}"
@@ -503,6 +509,33 @@ d"
 
     #[test]
     fn visibility_clamp_never_goes_negative() {
-        assert_eq!(clamp_scroll_to_caret_visible(50.0, 0, LH, CONTENT, VH), 0.0);
+        assert_eq!(clamp_scroll_to_caret_visible(50.0, 0, LH, VH, MAX), 0.0);
+    }
+
+    #[test]
+    fn visible_caret_in_overscroll_keeps_scroll() {
+        // Viewport parked past the document bottom (scroll-past-end): rows
+        // 1190..1222 span the viewport, the caret sits on row 1200. The
+        // caret is visible, so the floor must leave the scroll alone rather
+        // than snapping back to the classic bottom.
+        let scroll = 1190.0 * LH;
+        assert!(scroll > MAX, "precondition: parked in the overscroll zone");
+        assert_eq!(
+            clamp_scroll_to_caret_visible(scroll, 1200, LH, VH, MAX_OVERSCROLL),
+            scroll
+        );
+    }
+
+    #[test]
+    fn line_hold_moves_freely_inside_overscroll_zone() {
+        let scroll = 1180.0 * LH;
+        assert!(scroll > MAX, "precondition: parked in the overscroll zone");
+        let out = geometry_shift_scroll(scroll, 1190, 1193, LH, MAX_OVERSCROLL);
+        assert!((out - (scroll + 3.0 * LH)).abs() < 1e-3, "got {out}");
+        // Still capped at the scroll-past-end ceiling.
+        assert_eq!(
+            geometry_shift_scroll(scroll, 0, 10_000, LH, MAX_OVERSCROLL),
+            MAX_OVERSCROLL
+        );
     }
 }

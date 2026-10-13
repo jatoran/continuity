@@ -96,6 +96,26 @@ keys = [\"F5\"]
 command = \"pane.layout_single\"
 
 [[binding]]
+keys = [\"F6\"]
+command = \"tab.new\"
+
+[[binding]]
+keys = [\"F7\"]
+command = \"tab.go_to_1\"
+
+[[binding]]
+keys = [\"F8\"]
+command = \"tab.go_to_2\"
+
+[[binding]]
+keys = [\"F9\"]
+command = \"pane.focus_left\"
+
+[[binding]]
+keys = [\"F10\"]
+command = \"pane.focus_right\"
+
+[[binding]]
 keys = [\"backspace\"]
 command = \"editor.delete_back\"
 

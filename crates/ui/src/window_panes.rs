@@ -134,7 +134,7 @@ impl Window {
             self.refresh_focused_viewport_unanchored();
             return;
         }
-        let overscroll_bottom = crate::window_font_picker::compute_overscroll_bottom_dip(
+        let overscroll_bottom = crate::window_view::scroll_extent::compute_overscroll_bottom_dip(
             self.view_options.scroll_past_end,
             r.h,
             line_height,
@@ -167,6 +167,20 @@ impl Window {
     /// load `panes[new]` into the scalars. The tree's `focused` field is
     /// updated as well.
     pub(crate) fn switch_focus(&mut self, new_pane: PaneId) {
+        let painted_body_rect = self.pane_body_rect(new_pane);
+        self.switch_focus_from_painted_rect(new_pane, painted_body_rect);
+    }
+
+    /// [`Self::switch_focus`] for callers that already reshaped the tree:
+    /// `painted_body_rect` is the body rect `new_pane` was last painted at
+    /// as a spectator. The incoming view adopts it unanchored (that is what
+    /// the user was looking at), then refreshes to the live rect through the
+    /// caret-line anchor only if the two differ.
+    pub(crate) fn switch_focus_from_painted_rect(
+        &mut self,
+        new_pane: PaneId,
+        painted_body_rect: Option<Rect>,
+    ) {
         if !self.tree.groups.contains_key(&new_pane) {
             return;
         }
@@ -217,6 +231,12 @@ impl Window {
             let group = &self.tree.groups[&new_pane];
             let buffer_id = self.tree.tabs[&group.active].buffer_id;
             self.apply_new_pane_state(buffer_id);
+            // Let the adopt below restore the active tab's bookmark, if it
+            // has one (e.g. a tab redistributed by a layout shortcut).
+            self.tab_session.adopted_tab = None;
+        }
+        if let Some(rect) = painted_body_rect {
+            self.adopt_spectator_viewport(rect);
         }
         self.adopt_focused_tab();
         self.refresh_focused_viewport();
@@ -395,6 +415,11 @@ impl Window {
                 .map(|(_, s)| s.clone())
                 .unwrap_or_else(|| "Untitled".to_string())
         };
+        let body_rects_before_close: Vec<(PaneId, Rect)> = self
+            .pane_outer_rects()
+            .into_iter()
+            .filter_map(|(pane, _)| self.pane_body_rect(pane).map(|body| (pane, body)))
+            .collect();
         let next = match close_pane(&mut self.tree, focused, now, &label_lookup) {
             Some(p) => p,
             None => return Ok(()),
@@ -402,9 +427,14 @@ impl Window {
         // `close_pane` picks the next leaf and writes it into
         // `tree.focused`. Rewind the scalar mirror long enough for
         // `switch_focus` to load that pane's saved state instead of
-        // treating the next leaf as already focused.
+        // treating the next leaf as already focused. The survivor grows
+        // into the closed pane's space; anchor from the rect it was painted
+        // at before the close.
         self.tree.focused = focused;
-        self.switch_focus(next);
+        let painted = body_rects_before_close
+            .into_iter()
+            .find_map(|(pane, body)| (pane == next).then_some(body));
+        self.switch_focus_from_painted_rect(next, painted);
         self.panes.remove(&focused);
         self.request_state_save();
         Ok(())
@@ -483,74 +513,6 @@ impl Window {
         }
     }
 
-    /// Move `tab` from `source_pane` into `target_pane` (inside the same
-    /// window). The tab keeps its `BufferId` and identity. The target
-    /// pane becomes focused and activates the moved tab. If the source
-    /// pane has no remaining tabs it collapses out of the tree (matching
-    /// the close-the-active-tab behaviour). No-op when source == target
-    /// or when either pane is unknown.
-    pub(crate) fn move_tab_between_panes(
-        &mut self,
-        tab: crate::pane_tree::TabId,
-        source_pane: crate::pane_tree::PaneId,
-        target_pane: crate::pane_tree::PaneId,
-    ) -> Result<(), Error> {
-        if source_pane == target_pane {
-            return Ok(());
-        }
-        // Snapshot the source group's existence + remove the moving tab.
-        let source_exists = self.tree.groups.contains_key(&source_pane);
-        if !source_exists || !self.tree.groups.contains_key(&target_pane) {
-            return Ok(());
-        }
-        let removed_from_source = if let Some(g) = self.tree.groups.get_mut(&source_pane) {
-            g.remove_tab(tab).is_some() || g.tabs.contains(&tab)
-        } else {
-            false
-        };
-        let _ = removed_from_source;
-        // If the tab was never in source, bail.
-        if !self.tree.tabs.contains_key(&tab) {
-            return Ok(());
-        }
-        // Append into target group; make it active + MRU front.
-        let now = self.now_ms();
-        if let Some(g) = self.tree.groups.get_mut(&target_pane) {
-            if !g.tabs.contains(&tab) {
-                g.tabs.push(tab);
-            }
-            g.mru.retain(|t| *t != tab);
-            g.mru.insert(0, tab);
-            g.active = tab;
-            let _ = now;
-        }
-        // If source pane is now empty, collapse it (mirror close_active_tab).
-        let source_empty = self
-            .tree
-            .groups
-            .get(&source_pane)
-            .is_some_and(|g| g.tabs.is_empty());
-        if source_empty {
-            // Use the same pane-collapse path as close_focused_pane, but
-            // for an arbitrary pane id. Briefly route through focus to
-            // reuse the existing close path.
-            let prev_focused = self.tree.focused;
-            self.tree.focused = source_pane;
-            let _ = self.close_focused_pane();
-            // close_focused_pane re-focuses to a sibling; if the user's
-            // drop target is still alive we honor it next.
-            self.tree.focused = prev_focused;
-        }
-        // Switch focus to the destination pane (the user expects to be
-        // editing the dropped tab now).
-        if self.tree.groups.contains_key(&target_pane) {
-            self.switch_focus(target_pane);
-            self.adopt_focused_tab();
-        }
-        self.request_state_save();
-        Ok(())
-    }
-
     /// Resolve the pane under the given client-coords (x, y), if any.
     /// Used by the file-drop path in `window_file.rs` to route a
     /// `WM_DROPFILES` to the pane the cursor is over.
@@ -566,3 +528,4 @@ impl Window {
 }
 
 mod close_reopen;
+mod move_tab;

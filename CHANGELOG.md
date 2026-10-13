@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.13
+
+- Typing no longer yanks the view when you have scrolled past the end of a note. With scroll-past-end on you can scroll until the last line sits near the top of the window; typing, deleting, or pressing Enter on a visible line used to snap the view back so the last line sat at the bottom of the window. The view now stays exactly where you parked it as long as the caret is on screen.
+- Split panes stay where you left them. Clicking back and forth between two panes used to swap their scroll positions on the second round trip, because the pane you were leaving was remembered with the other pane's position. Each pane now comes back exactly as you left it, including after you scroll an unfocused pane with the mouse wheel.
+- Clicking into a pane right after a split no longer shifts its text. A note with long wrapped paragraphs used to jump by however many extra wrapped rows the narrower pane added above the view.
+- Switching panes or tabs from the keyboard (Alt+arrows, Ctrl+Tab, Ctrl+1 to 9) no longer drags the view back to the caret when you had scrolled away to read, and neither does saving, zooming, or changing a setting. The view follows the caret only when you actually type or move it.
+- Going back to a tab after opening a new one with Ctrl+T returns to where you were in it instead of the top, and a tab dragged into another pane keeps its place.
+
 ## 0.4.12
 
 - Continuity now updates itself. Shortly after launch, and then once a day, it checks GitHub Releases for a newer version and shows a banner with Update now, Release notes, and Skip this version. Update now downloads the release, verifies its checksum, closes Continuity through the normal save path, installs in place (the installer for MSI and winget installs, an executable swap for portable and standalone copies), and reopens. Check for updates in the command palette runs the check on demand; `[updates] check = false` turns the background check off.

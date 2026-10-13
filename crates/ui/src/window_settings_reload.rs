@@ -239,6 +239,7 @@ impl Window {
         self.view_options.caret_tween_duration_ms = s.editor.caret_tween_duration_ms;
         self.view_options.smooth_scroll = s.editor.smooth_scroll;
         self.view_options.scroll_past_end = s.editor.scroll_past_end;
+        self.sync_view_scroll_extent();
         self.view_options.mouse_wheel_scroll_speed = s.editor.mouse_wheel_scroll_speed;
         self.view_options.ligatures = s.editor.ligatures;
         self.trim_trailing_whitespace_on_save = s.editor.trim_trailing_whitespace_on_save;

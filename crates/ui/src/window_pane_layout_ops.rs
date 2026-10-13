@@ -26,6 +26,9 @@ impl Window {
         crate::window_buffer_tab_repair::repair_pane_tree_structure(&mut self.tree, &self.editor);
         crate::window_buffer_tab_repair::repair_missing_buffer_tabs(&mut self.tree, &self.editor);
         self.adopt_focused_tab();
+        // Bookmark the focused tab before the mirror is rebuilt below, so
+        // switching back to it later restores its scroll and selection.
+        self.save_tab_view_bookmark_for_adopted();
         let old_body_rect = self.focused_body_rect();
         let line_height = self.effective_line_height();
         let old_geometry = (old_body_rect.w, old_body_rect.h, line_height);
@@ -62,6 +65,7 @@ impl Window {
         // rebuild scalars fresh for the new focused pane.
         self.panes.clear();
         self.buffer_id = buffer_id;
+        self.tab_session.adopted_tab = Some(active_tab);
         self.apply_right_edge_chrome_state(right_edge_chrome);
         self.remember_current_right_edge_chrome_state();
         let new_body_rect = self.focused_body_rect();
@@ -71,11 +75,12 @@ impl Window {
             view.viewport_width_dip = new_body_rect.w;
             view.viewport_height_dip = new_body_rect.h;
             view.line_height_dip = line_height;
-            view.overscroll_bottom_dip = crate::window_font_picker::compute_overscroll_bottom_dip(
-                self.view_options.scroll_past_end,
-                new_body_rect.h,
-                line_height,
-            );
+            view.overscroll_bottom_dip =
+                crate::window_view::scroll_extent::compute_overscroll_bottom_dip(
+                    self.view_options.scroll_past_end,
+                    new_body_rect.h,
+                    line_height,
+                );
         }
         // Approximate scroll using the caret's *source* line. This lets
         // the caret land near the top of the new pane without paying

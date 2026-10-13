@@ -197,38 +197,4 @@ impl Window {
             .round()
             .max(1.0)
     }
-
-    /// Scroll-past-end overscroll allowance (DIPs) for the focused view.
-    ///
-    /// When `[editor].scroll_past_end` is on this is `viewport_height -
-    /// effective_line_height` so the last line can reach the viewport top;
-    /// otherwise `0`. The value is zoom-correct because it derives from
-    /// [`Self::effective_line_height`], which folds in the per-pane zoom.
-    /// [`continuity_layout::ViewState`]'s clamp re-caps it and gates it to
-    /// `0` when the content already fits, so it is always safe to set.
-    #[must_use]
-    pub(crate) fn overscroll_bottom_dip(&self) -> f32 {
-        compute_overscroll_bottom_dip(
-            self.view_options.scroll_past_end,
-            self.surface.view.viewport_height_dip,
-            self.effective_line_height(),
-        )
-    }
-}
-
-/// Pure overscroll-allowance computation shared by the focused-view helper
-/// and the spectator-pane path (which works against a borrowed pane rather
-/// than `self.surface.view`). Returns `viewport_height - line_height` (clamped to
-/// `0`) when scroll-past-end is enabled, else `0`.
-#[must_use]
-pub(crate) fn compute_overscroll_bottom_dip(
-    scroll_past_end: bool,
-    viewport_height_dip: f32,
-    line_height_dip: f32,
-) -> f32 {
-    if scroll_past_end {
-        (viewport_height_dip - line_height_dip).max(0.0)
-    } else {
-        0.0
-    }
 }

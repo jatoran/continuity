@@ -8,7 +8,7 @@ design documents remain authoritative for detailed APIs.
 
 | Release train | Current version | Canonical source |
 |---|---:|---|
-| Native Windows desktop | `0.4.12` | `crates/app/Cargo.toml` |
+| Native Windows desktop | `0.4.13` | `crates/app/Cargo.toml` |
 | Embeddable SDK family | `0.2.41` | `sdk/release.toml` |
 
 The release trains are independent and are published as two tag series in the

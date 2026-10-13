@@ -11,6 +11,8 @@ use continuity_buffer::BufferId;
 use continuity_decorate::Language;
 use continuity_layout::ViewState;
 
+use crate::pane_tree::TabId;
+
 /// Runtime state we keep for every leaf pane.
 #[derive(Debug, Clone)]
 pub struct PerPaneState {
@@ -24,19 +26,27 @@ pub struct PerPaneState {
     pub language_revision: Option<u64>,
     /// Revision last submitted to the decoration worker pool.
     pub last_submitted_decoration_revision: Option<u64>,
+    /// Tab whose scroll / selection `view` describes. Restored into
+    /// `TabSessionState::adopted_tab` when the pane regains focus, so a
+    /// pane-focus switch is never mistaken for an in-pane tab switch (which
+    /// would bookmark the wrong tab with the wrong pane's view). `None`
+    /// when unknown; the next adopt then treats the pane's active tab as
+    /// freshly shown.
+    pub adopted_tab: Option<TabId>,
 }
 
 impl PerPaneState {
     /// Create a fresh per-pane state for `buffer_id` with a default view
-    /// state. The caller fills in viewport dimensions when the pane is
-    /// laid out.
-    pub fn new(buffer_id: BufferId, language: Language) -> Self {
+    /// state, describing `adopted_tab`. The caller fills in viewport
+    /// dimensions when the pane is laid out.
+    pub fn new(buffer_id: BufferId, language: Language, adopted_tab: Option<TabId>) -> Self {
         Self {
             buffer_id,
             view: ViewState::new(),
             language,
             language_revision: None,
             last_submitted_decoration_revision: None,
+            adopted_tab,
         }
     }
 }

@@ -16,3 +16,9 @@ fragment width advances keyed by `(content_stamp, FontStateId, locale,
 fragment, style)` behind sharded `RwLock`s so the projection worker and
 inline cold fallback can reuse DirectWrite measurement output without a
 single global lock.
+
+`view_state` holds the per-pane `ViewState` (scroll, zoom, soft wrap). Its
+clamp admits a scroll-past-end overscroll allowance re-capped to
+`viewport_h - line_height`; `compute_max_scroll_dip` / `ViewState::max_scroll_dip`
+expose that ceiling so UI scroll corrections cap at exactly what the wheel
+and `jump_to` admit.

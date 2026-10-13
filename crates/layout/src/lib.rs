@@ -14,4 +14,7 @@ pub use cache::{
 pub use error::Error;
 pub use factory::DWriteFactory;
 pub use run_cache::{RunCache, RunCacheKey, RunCacheLookup, RUN_CACHE_CAPACITY};
-pub use view_state::{ViewState, DEFAULT_SCROLL_ANIM_MS, DEFAULT_ZOOM_STEP, MAX_ZOOM, MIN_ZOOM};
+pub use view_state::{
+    compute_max_scroll_dip, ViewState, DEFAULT_SCROLL_ANIM_MS, DEFAULT_ZOOM_STEP, MAX_ZOOM,
+    MIN_ZOOM,
+};

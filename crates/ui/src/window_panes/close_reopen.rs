@@ -313,6 +313,10 @@ impl Window {
             self.save_current_right_edge_chrome_state();
             self.apply_new_pane_state(entry.buffer_id);
             self.refresh_focused_viewport();
+            // The reopened tab starts from a fresh view; bring the buffer's
+            // caret into it (the dispatcher's caret follow stands down on a
+            // tab change).
+            self.ensure_primary_caret_visible();
             self.refresh_language();
             self.maybe_submit_decoration();
             let _ = self.try_dispatch_projection_worker_early("reopen_closed_tab", "focus_change");

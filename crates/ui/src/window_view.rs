@@ -17,6 +17,7 @@ use crate::{Error, Window};
 mod caret_reveal;
 mod caret_visibility;
 pub(crate) mod geometry_anchor;
+pub(crate) mod scroll_extent;
 
 impl Window {
     /// Toggle soft wrap. Invalidates layouts for the now-stale wrap width.
@@ -47,8 +48,7 @@ impl Window {
         let line_height = self.effective_line_height();
         let dy = lines * line_height;
         let content_h = self.estimated_content_height();
-        self.surface.view.line_height_dip = line_height;
-        self.surface.view.overscroll_bottom_dip = self.overscroll_bottom_dip();
+        self.sync_view_scroll_extent();
         self.surface.view.scroll_instant(dy, content_h);
         self.request_state_save();
         Ok(())
@@ -64,8 +64,7 @@ impl Window {
         let delta = direction * (viewport_h - line_height).max(line_height);
         let target = self.surface.view.scroll_y_dip + delta;
         let content_h = self.estimated_content_height();
-        self.surface.view.line_height_dip = line_height;
-        self.surface.view.overscroll_bottom_dip = self.overscroll_bottom_dip();
+        self.sync_view_scroll_extent();
         if self.motion_policy().is_reduced_motion() || !self.view_options.smooth_scroll {
             self.surface.view.jump_to(target, content_h);
             let hwnd = self.hwnd();
@@ -90,8 +89,7 @@ impl Window {
     pub(crate) fn view_scroll_doc_start_impl(&mut self) -> Result<(), Error> {
         self.cancel_scroll_inertia();
         let content_h = self.estimated_content_height();
-        self.surface.view.line_height_dip = self.effective_line_height();
-        self.surface.view.overscroll_bottom_dip = self.overscroll_bottom_dip();
+        self.sync_view_scroll_extent();
         if self.motion_policy().is_reduced_motion() || !self.view_options.smooth_scroll {
             self.surface.view.jump_to(0.0, content_h);
             let hwnd = self.hwnd();
@@ -114,13 +112,14 @@ impl Window {
         self.cancel_scroll_inertia();
         let content_h = self.estimated_content_height() + END_OF_BUFFER_BOTTOM_PADDING_DIP;
         // MUST land the last line at the viewport BOTTOM (one EOF inset),
-        // never the top: this path passes `content_h` itself as the scroll
-        // target, so a non-zero overscroll allowance in the clamp would
-        // overshoot upward by that allowance. Zero it for the doc-end snap
-        // so Ctrl+End is unaffected by scroll-past-end.
-        self.surface.view.overscroll_bottom_dip = 0.0;
+        // never the top, so Ctrl+End is unaffected by scroll-past-end. The
+        // target is the explicit bottom (`content_h - viewport_h`), which
+        // the overscroll allowance cannot move; the allowance itself stays
+        // intact for every later clamp.
+        self.sync_view_scroll_extent();
+        let bottom = (content_h - self.surface.view.viewport_height_dip).max(0.0);
         if self.motion_policy().is_reduced_motion() || !self.view_options.smooth_scroll {
-            self.surface.view.jump_to(content_h, content_h);
+            self.surface.view.jump_to(bottom, content_h);
             let hwnd = self.hwnd();
             self.stop_scroll_anim(hwnd);
             self.request_state_save();
@@ -128,7 +127,7 @@ impl Window {
         }
         let now_ms = unsafe { GetTickCount64() };
         self.surface.view.scroll_animated(
-            content_h,
+            bottom,
             content_h,
             now_ms,
             u64::from(STRUCTURAL_MOTION_MS),

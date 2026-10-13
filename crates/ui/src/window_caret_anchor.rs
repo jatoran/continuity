@@ -21,7 +21,8 @@
 //! 3. Recomputes the anchored line's display-line index under the
 //!    post-reflow projection.
 //! 4. Adjusts `view.scroll_y_dip` so the line lands at the snapshotted
-//!    screen y, clamped into `[0, max_scroll]`. Only a visible-caret
+//!    screen y, clamped into `[0, max_scroll]` (the scroll-past-end
+//!    allowance included). Only a visible-caret
 //!    anchor is additionally clamped into the viewport (staying visible
 //!    wins over staying at the "right" y when the viewport shrank); an
 //!    off-screen anchor is never pulled into view — a reflow the user did
@@ -231,16 +232,19 @@ impl Window {
             .estimated_content_height()
             .max(display_line_after.total_display_rows.max(1) as f32 * line_height);
         let viewport_h = self.surface.view.viewport_height_dip;
+        // Post-reflow ceiling with the scroll-past-end allowance, so a view
+        // parked past the document bottom keeps its place across a reflow.
+        let max_scroll = self.max_scroll_dip(content_h);
         let new_scroll = match anchor.target {
             AnchorTarget::VisibleCaret => anchored_scroll(
                 new_line_top,
                 line_height,
                 anchor.screen_y,
                 viewport_h,
-                content_h,
+                max_scroll,
             ),
             AnchorTarget::ViewportTopLine | AnchorTarget::OffScreenCaret => {
-                anchored_scroll_without_reveal(new_line_top, anchor.screen_y, viewport_h, content_h)
+                anchored_scroll_without_reveal(new_line_top, anchor.screen_y, max_scroll)
             }
         };
         if crate::paint_trace::is_trace_enabled() {

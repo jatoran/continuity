@@ -222,6 +222,9 @@ impl Window {
         let total_source_lines = snap.rope_snapshot().rope().len_lines().max(1);
         let caret_source_line = sel.head.line as usize;
         let line_height = self.effective_line_height();
+        // Every `jump_to` below clamps against the cached scroll extent;
+        // keep its scroll-past-end allowance current.
+        self.sync_view_scroll_extent();
         // When the caret sits at the very end of the document — Enter or
         // typing that appends a new final line, or a click on the last
         // byte — the new caret line is the document's last display row.

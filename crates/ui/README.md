@@ -287,12 +287,24 @@ just to prove the caret is already visible; trace token
 The pure row-estimation helpers and focused tests live in
 `window_view/caret_visibility.rs`; `window_view.rs` keeps the command-facing
 scroll / zoom / reveal methods.
+`window_view/scroll_extent.rs` owns the focused view's scroll extent: the
+`[editor].scroll_past_end` allowance and `Window::max_scroll_dip`, the ceiling
+every unrequested scroll correction (reflow anchor, paint-time geometry
+anchor, caret visibility floor) caps at so a view parked past the document
+bottom is never pulled back.
+
+`window_commanding/caret_follow.rs` decides when the command dispatcher runs
+the caret reveal: only after a command that changed the focused tab's text
+revision or selections, or swapped the buffer under the same tab. A focused
+pane or tab change, `file.*`, `view.scroll_*`, `editor.select_all`, and the
+document-end motions never follow, so restored tab / pane scroll and
+view-only commands keep the view. Trace token `command_caret_follow`.
 
 Ctrl+End / Shift+Ctrl+End defer the exact bottom snap to the paint path:
 `editor.move_doc_end` / `editor.extend_doc_end` set
-`EditorSurface::pending_doc_end_scroll` after moving the caret, the generic
-`ensure_primary_caret_visible` post-hook approximates the bottom so the
-next paint's cold build covers the bottom rows, then `on_paint` snaps
+`EditorSurface::pending_doc_end_scroll` after moving the caret (they are
+excluded from the post-command caret follow, so the snap owns placement),
+then `on_paint` snaps
 `scroll_y_dip` to `frame_display.display_line_count() * LINE_HEIGHT_DIP
 + END_OF_BUFFER_BOTTOM_PADDING_DIP - viewport_h` against the canonical
 paint-frame `FrameDisplay`. If that
@@ -332,14 +344,20 @@ saved again so stale ids do not keep reappearing from session JSON. Trace events
 
 The same guard is centralized in
 [`Window::refresh_focused_viewport`]: when `view.viewport_*_dip == 0`
-(i.e. the view was just reset by `switch_focus` into a never-focused
-pane, `open_new_tab`, `split`, `adopt_buffer_as_new_tab`, or
-`reopen_closed_tab`), the anchor is skipped and the unanchored variant
-runs. This covers the click → `try_pane_body_focus_switch` →
-`switch_focus` path that previously paid the same row-index restore
-when clicking onto a pane that had no saved scalar state after
-`apply_layout_shortcut` cleared the `panes` map. Trace token
+(i.e. the view was just reset by `open_new_tab`, `split`,
+`adopt_buffer_as_new_tab`, or `reopen_closed_tab`), the anchor is skipped
+and the unanchored variant runs. Trace token
 `refresh_focused_viewport source=unanchored_view_reset` names the skip.
+
+`switch_focus` adopts the body rect the incoming pane was last painted at
+as a spectator (`Window::adopt_spectator_viewport` in
+`window_pane_state_mirror.rs`) before refreshing, so the refresh anchors
+only when the live rect differs (the close-pane survivor passes its
+pre-close rect through `switch_focus_from_painted_rect`). The same module
+keeps `TabSessionState::adopted_tab` naming the tab the focused mirror
+describes: `PerPaneState` carries it across focus switches, and
+`apply_new_pane_state` bookmarks the outgoing tab before replacing the
+mirror, so a pane-focus switch is never mistaken for a tab switch.
 
 `window_spectator_cache.rs` owns the per-pane spectator `FrameDisplay`
 cache used by `window_paint_spectators::build_spectator_pane_data`.
@@ -451,7 +469,8 @@ reflow: the caret line when its row overlaps the viewport, otherwise the
 source line at the viewport's top edge (`AnchorTarget::ViewportTopLine`,
 resolved in `window_caret_anchor/viewport_top.rs`), and it never pulls an
 off-screen caret into view (`anchored_scroll_without_reveal` in
-`window_caret_anchor/anchor_target.rs`). An explicit restore also drops the
+`window_caret_anchor/anchor_target.rs`). Both restore rules cap at
+`Window::max_scroll_dip`, scroll-past-end allowance included. An explicit restore also drops the
 paint-time `GeometryAnchorState` baselines so the next paint re-baselines
 instead of double-compensating. `resolve_caret_display_line` (a wrapper over
 `resolve_display_line_in_caret_frame`, which selects the frame with the real

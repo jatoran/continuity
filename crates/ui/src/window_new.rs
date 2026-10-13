@@ -88,6 +88,9 @@ impl Window {
         crate::window_buffer_tab_repair::repair_pane_tree_structure(&mut tree, &editor);
         crate::window_buffer_tab_repair::repair_missing_buffer_tabs(&mut tree, &editor);
         let buffer_id = tree.active_buffer();
+        // The focused-pane mirror starts out describing the focused group's
+        // active tab; record it so the first tab switch bookmarks that tab.
+        let initial_adopted_tab = tree.groups.get(&tree.focused).map(|group| group.active);
         let virtual_desktop = continuity_win::VirtualDesktopManager::new()
             .map_err(|e| {
                 eprintln!("continuity-ui: VirtualDesktopManager unavailable: {e}");
@@ -217,7 +220,10 @@ impl Window {
                 crate::window_outline_entries_cache::OutlineEntriesCache::default(),
             ),
             last_activation_tick: 0,
-            tab_session: crate::window_panes::TabSessionState::default(),
+            tab_session: crate::window_panes::TabSessionState {
+                adopted_tab: initial_adopted_tab,
+                ..crate::window_panes::TabSessionState::default()
+            },
         });
         // §H3 — install the persisted fold set into PaneModesState
         // *before* settings load runs (settings load may touch

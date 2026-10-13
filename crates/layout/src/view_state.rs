@@ -179,6 +179,22 @@ impl ViewState {
         self.scroll_target_dip = None;
     }
 
+    /// Largest scroll offset the clamp admits for `content_height_dip`,
+    /// including the scroll-past-end overscroll allowance. Every scroll
+    /// correction that is not a deliberate move (layout anchors, caret
+    /// visibility floors) must cap against this value rather than the
+    /// classic `content_h - viewport_h` bottom, or it yanks a view the user
+    /// parked in the overscroll zone back to the document bottom.
+    #[must_use]
+    pub fn max_scroll_dip(&self, content_height_dip: f32) -> f32 {
+        compute_max_scroll_dip(
+            content_height_dip,
+            self.viewport_height_dip,
+            self.overscroll_bottom_dip,
+            self.line_height_dip,
+        )
+    }
+
     /// `true` while an animation is still in progress.
     #[must_use]
     pub fn animating(&self) -> bool {
@@ -204,8 +220,8 @@ impl ViewState {
     }
 }
 
-/// Clamp a scroll position to the valid range, allowing an optional
-/// scroll-past-end overscroll allowance below the document bottom.
+/// Largest admissible scroll offset, allowing an optional scroll-past-end
+/// overscroll allowance below the document bottom.
 ///
 /// `base` (`content_h - viewport_h`) is the classic ceiling that lands the
 /// last line at the viewport bottom. The overscroll allowance is added on
@@ -216,8 +232,8 @@ impl ViewState {
 /// * It is re-capped to `viewport_h - line_height`, so the last line can
 ///   reach the viewport top but never scroll above it — regardless of how
 ///   large a value the caller supplied in `overscroll_bottom`.
-fn clamp_scroll(
-    scroll: f32,
+#[must_use]
+pub fn compute_max_scroll_dip(
     content_h: f32,
     viewport_h: f32,
     overscroll_bottom: f32,
@@ -231,7 +247,21 @@ fn clamp_scroll(
     } else {
         0.0
     };
-    scroll.clamp(0.0, base + allowance)
+    base + allowance
+}
+
+/// Clamp a scroll position into `[0, compute_max_scroll_dip(..)]`.
+fn clamp_scroll(
+    scroll: f32,
+    content_h: f32,
+    viewport_h: f32,
+    overscroll_bottom: f32,
+    line_height: f32,
+) -> f32 {
+    scroll.clamp(
+        0.0,
+        compute_max_scroll_dip(content_h, viewport_h, overscroll_bottom, line_height),
+    )
 }
 
 #[cfg(test)]
@@ -327,5 +357,22 @@ mod tests {
         let mut s = vp(0.0, 100.0);
         s.jump_to(500.0, 250.0);
         assert_eq!(s.scroll_y_dip, 150.0);
+    }
+
+    #[test]
+    fn max_scroll_includes_capped_overscroll_allowance() {
+        let mut s = vp(0.0, 100.0);
+        s.line_height_dip = 20.0;
+        // No allowance: the classic bottom.
+        assert_eq!(s.max_scroll_dip(250.0), 150.0);
+        // Allowance re-capped to viewport - line height (80), so the last
+        // line can reach the viewport top but not scroll above it.
+        s.overscroll_bottom_dip = 1_000.0;
+        assert_eq!(s.max_scroll_dip(250.0), 230.0);
+        // Content that fits the viewport never overscrolls.
+        assert_eq!(s.max_scroll_dip(60.0), 0.0);
+        // The clamp and the reported maximum agree.
+        s.jump_to(10_000.0, 250.0);
+        assert_eq!(s.scroll_y_dip, s.max_scroll_dip(250.0));
     }
 }

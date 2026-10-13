@@ -206,11 +206,12 @@ impl Window {
 
         let mut action = DocEndSnapPaintAction::default();
         if let Some(target) = step.jump_to {
-            // The doc-end snap must settle the last line at the viewport
-            // BOTTOM (one EOF inset), independent of scroll-past-end. Zero
-            // the overscroll allowance so the clamp cannot raise the snap
-            // target into the overscroll zone.
-            self.surface.view.overscroll_bottom_dip = 0.0;
+            // The doc-end snap settles the last line at the viewport BOTTOM
+            // (one EOF inset), independent of scroll-past-end. `target` is
+            // exactly `scroll_extent_h - viewport_h`, the clamp's base
+            // ceiling, so the overscroll allowance (which only raises the
+            // ceiling) can never move it — and must stay intact for every
+            // later clamp.
             self.surface.view.jump_to(target, scroll_extent_h);
             action.previous_scroll_y_dip = Some(previous_scroll_y_dip);
             if !authoritative {

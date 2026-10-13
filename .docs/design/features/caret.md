@@ -38,11 +38,18 @@ Implementation: `crates/ui/src/window_caret_anchor.rs::Window::with_caret_line_a
 - `ViewportTopLine` - the caret is off screen. The source line covering the viewport's first display row is resolved from the last painted frame, the promoted spectator frame, or a viewport realize over a cached row index (`window_caret_anchor/viewport_top.rs`), and its first display row is held at its (non-positive) screen y. Restored through `anchored_scroll_without_reveal`: clamped into `[0, max_scroll]` only, never pulled into the viewport.
 - `OffScreenCaret` - the caret is off screen and no projection could name the top line cheaply. The caret line's off-screen y is held, again without any pull-into-viewport rule.
 
+`max_scroll` in both restore rules is `Window::max_scroll_dip` (`crates/ui/src/window_view/scroll_extent.rs`): the classic `content_h - viewport_h` bottom plus the `[editor].scroll_past_end` allowance (`continuity_layout::compute_max_scroll_dip`), the same ceiling the wheel, the scrollbar, and `ViewState::jump_to` clamp against.
+It is derived from the live settings and viewport on every call, never from the allowance cached on `ViewState`.
+A scroll correction the user did not ask for must never cap at the classic bottom: that pulls a view parked in the scroll-past-end zone back down.
+
 The pre-2026-09 anchor always held the caret line and always clamped it into view, so any reflow that fired while the caret was off screen (a pane-focus switch whose saved viewport geometry predated a split or resize, a window resize, a sidebar toggle, a silent external-change reload) yanked the viewport to the caret. That was the "clicking back into a pane or window jumps the view" bug; `crates/ui/tests/pane_focus_keeps_scroll.rs` covers both the split-pane click and the resize.
 
 After an explicit restore the helper calls `GeometryAnchorState::reset_baselines()` so the paint-time geometry anchor (below) re-baselines against the next painted frame instead of compensating the same row delta a second time. Trace labels: `caret_anchor_capture` (`target=viewport_top_line` / `target=off_screen_caret`), `caret_anchor_restore`.
 
 **Paint-time geometry anchor (`window_view/geometry_anchor.rs`).** The implicit per-paint reflow (served frames alternating between cache / worker / inline projections) is held by the same rule: the caret line is held only when it overlapped the viewport at the previous paint; otherwise the previous paint's viewport-top source line (`previous_paint_top_line_anchor`, recorded only from frames whose whole-document row index is complete) is held. The baselines are dropped whenever the focused pane, tab, or buffer changes (`apply_pane_state`, `apply_new_pane_state`, `adopt_focused_tab` on a tab switch) so a baseline from another buffer is never compared against the new one. Trace label: `geometry_anchor_top_line_hold`.
+The same pass applies the paint-time visibility floor (`clamp_scroll_to_caret_visible`) when the post-edit reveal armed `pending_caret_reveal`, measured against the resolved frame.
+Both the line hold and the floor cap at `Window::max_scroll_dip`, so a caret that is visible in the scroll-past-end zone counts as revealed and typing there leaves the view where the user parked it (`crates/ui/tests/typing_in_overscroll_keeps_viewport.rs`).
+Trace label: `geometry_anchor_shift`.
 
 Single funnel: `window_panes.rs::refresh_focused_viewport` is wrapped, so every caller (WM_SIZE, pane resize, sidebar toggle, minimap appearance, distraction-free) inherits the anchor. Font-state callers wrap directly because the mutation happens before `invalidate_font_state` is invoked.
 
@@ -50,7 +57,8 @@ Future reflow-causing call sites must route through `with_caret_line_anchored`. 
 
 **Live drag-resize exception.** Inside a Win32 modal sizing loop (`WM_ENTERSIZEMOVE` → `WM_EXITSIZEMOVE`), `refresh_client_size` takes a cheap unanchored path (`refresh_focused_viewport_unanchored`) on every per-tick `WM_SIZE`. The per-tick anchor build runs a full `FrameDisplay` projection and dominates resize CPU. A single anchor is captured at `WM_ENTERSIZEMOVE` (via `capture_caret_anchor`) and restored once at `WM_EXITSIZEMOVE` against the final projection (via `restore_caret_anchor`), so the screen-y contract still holds for the final frame the user actually settles on. Intermediate frames during the drag are explicitly *not* anchored — that's the entire point of the optimisation, and it matches the perceptual fact that the user's eye is tracking the resize handle, not the caret line. The path remains anchored for every non-live caller (font change, soft-wrap toggle, pane resize commands, sidebar toggles, distraction-free, etc.). State: `Window::{is_live_resizing, resize_anchor, resize_changed}`.
 
-**View-reset short-circuit.** `refresh_focused_viewport` skips `with_caret_line_anchored` whenever `EditorSurface::view.viewport_*_dip == 0` — every caller that resets the per-pane `ViewState` (`switch_focus` no-saved-state branch, `open_new_tab`, `split`, `adopt_buffer_as_new_tab`, `reopen_closed_tab`, `apply_layout_shortcut`) leaves `scroll_y_dip = 0`, so the anchor's "preserve old screen y" semantic is inapplicable. Skipping avoids unnecessary row-index work at a new wrap and keeps clicks into never-painted panes or layout-shortcut keypresses on the unanchored reset path. Trace label `refresh_focused_viewport source=unanchored_view_reset` names the skip. Future reset-then-refresh callers automatically benefit because the guard is centralised in the helper. See `panes-tabs-windows.md` § "Focus-switch and layout-shortcut anchor short-circuit".
+**View-reset short-circuit.** `refresh_focused_viewport` skips `with_caret_line_anchored` whenever `EditorSurface::view.viewport_*_dip == 0` — every caller that resets the per-pane `ViewState` (`open_new_tab`, `split`, `adopt_buffer_as_new_tab`, `reopen_closed_tab`, `apply_layout_shortcut`) leaves `scroll_y_dip = 0`, so the anchor's "preserve old screen y" semantic is inapplicable.
+A pane-focus switch never reaches the anchor with stale geometry either: `switch_focus` first adopts the body rect the pane was last painted at as a spectator (`adopt_spectator_viewport`), so the refresh anchors only when that rect differs from the live one (see `panes-tabs-windows.md` § "Focus-switch and layout-shortcut anchor short-circuit"). Skipping avoids unnecessary row-index work at a new wrap and keeps clicks into never-painted panes or layout-shortcut keypresses on the unanchored reset path. Trace label `refresh_focused_viewport source=unanchored_view_reset` names the skip. Future reset-then-refresh callers automatically benefit because the guard is centralised in the helper. See `panes-tabs-windows.md` § "Focus-switch and layout-shortcut anchor short-circuit".
 
 ### Sticky vertical column (B2)
 `Window::move_line_selection(delta, extend)`:
@@ -84,6 +92,23 @@ The EOF visibility guard distinguishes user scroll-past-end overscroll
 from the editor's one-line EOF breathing-room inset. A viewport parked at
 the functional EOF inset still reveals an appended final line; only scroll
 positions beyond that inset suppress the reveal.
+
+Every scroll the reveal applies — the pre-paint `jump_to`, the paint-time visibility floor, the geometry-anchor line hold — admits the scroll-past-end allowance (`Window::max_scroll_dip`).
+A caret that is already visible in the overscroll zone is never "revealed" back to the classic document bottom.
+
+**Post-command caret follow.**
+The command dispatcher (`Window::dispatch_command_outcome`, `crates/ui/src/window_commanding.rs`) runs `ensure_primary_caret_visible` after a successful command only when the command changed what the focused tab shows (`crates/ui/src/window_commanding/caret_follow.rs`):
+
+| Change across the command | Follow the caret? | Why |
+|---|---|---|
+| Focused pane or adopted tab changed | No | Pane and tab switches restore their own saved view, which must stick with the caret off screen. |
+| Same tab, different buffer | Yes | Quick open and the find-in-all-buffers jump swap the buffer under the tab and rely on the follow. |
+| Same tab and buffer, text revision or selections changed | Yes | Typing, deletion, motion, undo. |
+| Nothing changed | No | Save, zoom, settings toggles have nothing to reveal. |
+
+`view.scroll_*`, `file.*`, `editor.select_all`, and the document-end motions are excluded outright (`is_caret_follow_command`): the user just moved the view, a save may still edit text through `trim_trailing_whitespace_on_save`, select-all must not scroll to the document end, and the document-end snap owns its own placement.
+Paths that need a reveal after a tab change call it explicitly (`reopen_closed_tab`).
+Trace label: `command_caret_follow id=… follow=…`.
 
 ### Blink (B5)
 `on_caret_blink_tick`:

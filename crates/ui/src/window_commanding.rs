@@ -3,11 +3,15 @@
 //! The `impl Context for Window` block lives in the sibling
 //! [`context`] submodule so this file stays under the 600-line cap.
 
+mod caret_follow;
 mod context;
 
 use continuity_command::{EDITOR_INSERT_CHAR, TAB_CLOSE};
 use serde_json::Value;
 
+use crate::window_commanding::caret_follow::{
+    is_caret_follow_command, should_follow_caret_after_command,
+};
 use crate::window_input_modifiers::active_modifiers;
 use crate::Window;
 
@@ -311,6 +315,8 @@ impl Window {
                 return DispatchOutcome::Skipped;
             }
         };
+        let caret_follow_before =
+            is_caret_follow_command(command).then(|| self.capture_caret_follow_state());
         let dispatch_result = if args.is_null() {
             match continuity_command::editor_operation_for_command(command) {
                 Some(operation) => self.dispatch_editor_operation(operation),
@@ -349,27 +355,24 @@ impl Window {
             );
         }
         // After successful caret/edit motion the viewport follows the
-        // primary caret so typing past the bottom auto-scrolls. Skip for
-        // explicit view-scroll commands (the user just moved the viewport;
-        // don't snap it back to the caret). Also skip the document-end
-        // motions: their viewport follow is owned by the deferred
-        // exact-bottom snap (`pending_doc_end_scroll`), and the generic
-        // reveal — which resolves the caret's display row from a possibly
-        // stale/partial projection — would otherwise under-scroll first
-        // and fight the snap on a soft-wrapped buffer.
-        // `editor.select_all` must not move the viewport: selecting the
-        // whole buffer leaves the primary caret at the document end, so the
-        // generic reveal would scroll to the bottom. The user expects the
-        // view to stay put while everything highlights.
-        let scroll_owned_by_doc_end_snap =
-            command == "editor.move_doc_end" || command == "editor.extend_doc_end";
-        let select_all_keeps_view = command == "editor.select_all";
-        if ok
-            && !command.starts_with("view.scroll_")
-            && !scroll_owned_by_doc_end_snap
-            && !select_all_keeps_view
-        {
-            self.ensure_primary_caret_visible();
+        // primary caret so typing past the bottom auto-scrolls — but only
+        // for commands that may place the caret and only when the command
+        // actually changed the focused tab's text or selections (see
+        // `caret_follow`).
+        if ok {
+            if let Some(before) = caret_follow_before.as_ref() {
+                let after = self.capture_caret_follow_state();
+                let should_follow = should_follow_caret_after_command(before, &after);
+                if crate::paint_trace::is_trace_enabled() {
+                    crate::paint_trace::log_event(
+                        "command_caret_follow",
+                        &format!("id={command} follow={should_follow}"),
+                    );
+                }
+                if should_follow {
+                    self.ensure_primary_caret_visible();
+                }
+            }
         }
         if ok {
             // Phase-10 source↔display motion-skip: after a basic char move

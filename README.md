@@ -130,19 +130,19 @@ The same editor engine, without the Windows application around it. One synchrono
 ### Install
 
 ```bash
-npm install @continuity-editor/editor@next   # browser, Electron, any JS host
-cargo add continuity-engine                  # Rust
+npm install @continuity-editor/editor   # browser, Electron, any JS host
+cargo add continuity-engine             # Rust
 ```
 
-The `@next` on the npm package is required. The SDK is a preview channel, so it publishes to the `next` dist-tag and has no `latest`; a bare `npm install @continuity-editor/editor` will not resolve.
+The SDK publishes to npm's `latest` dist-tag, so the bare package name is the one to use. The old `@next` tag stopped advancing at 0.2.39.
 
 `pip install continuity-editor` is not available yet. The Python wheel is currently built for Windows only, and shipping it without wheels for other platforms would make `pip install` fail confusingly on Linux and macOS.
 
 Every SDK artifact is also attached to its GitHub Release, if you would rather pin an exact file:
 
 ```powershell
-gh release download sdk-v0.2.34 --repo jatoran/continuity --dir continuity-sdk
-npm install ./continuity-sdk/continuity-editor-0.2.34.tgz
+gh release download sdk-v<version> --repo jatoran/continuity --dir continuity-sdk
+npm install ./continuity-sdk/continuity-editor-<version>.tgz
 ```
 
 Each SDK release carries the npm tarball, the `continuity-text` / `continuity-buffer` / `continuity-engine` crates, a Windows C archive (DLL plus header), a Python wheel, a CycloneDX SBOM, `release-manifest.json`, and `SHA256SUMS.txt`, all covered by GitHub build provenance attestation.

@@ -1,8 +1,9 @@
 # continuity-editor for Python
 
-Headless, synchronous Python access to the Continuity editor engine for
-automation, language tooling, and applications that provide their own storage
-and presentation. It creates no files, database, threads, or GUI objects.
+`continuity-editor` gives Python programs the Continuity editor engine without
+a UI: document text, carets, inserting and deleting text, and undo history, for
+scripts, tooling, and applications that handle their own saving and display.
+It creates no files, database, threads, or GUI objects.
 
 This package is not a Qt, Tk, or GTK widget. A Python desktop host that needs
 the Continuity visual editor embeds the separately distributed

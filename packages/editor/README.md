@@ -1,9 +1,11 @@
 # @continuity-editor/editor
 
-Accessible `<continuity-editor>` Web Component and synchronous,
-storage-neutral Continuity editor engine compiled to WebAssembly. The package
-contains the component, TypeScript declarations, styles, source map, optimized
-WASM, license, and per-file integrity metadata.
+`@continuity-editor/editor` is a Markdown editor for web pages and Electron apps, packaged as the `<continuity-editor>` Web Component.
+It is the editor from Continuity, a Markdown notes app for Windows, with its Rust engine compiled to WebAssembly.
+Markdown renders in place as you type, and input goes through a real textarea, so typing, IME, the clipboard and accessibility all use the browser's own text input.
+The editor never saves anything itself: your application gets every change and decides where it goes.
+
+The package contains the component, TypeScript declarations, styles, a source map, the optimized WASM module, the license, and per-file integrity metadata.
 
 ## Browser use
 
@@ -181,13 +183,13 @@ controlled reconciliation defer until `compositionend`, then apply through the
 revision guard so a stale echo cannot duplicate the just-composed word. This is
 what keeps predictive mobile keyboards (Android GBoard, iOS Safari) from
 re-injecting and compounding the document on the space key. A composition
-commit — and any other textarea-first mutation, such as an autocorrect
-`insertReplacementText` — reconciles as a minimal splice and adopts the live
+commit - and any other textarea-first mutation, such as an autocorrect
+`insertReplacementText` - reconciles as a minimal splice and adopts the live
 textarea caret into the engine, so the caret never jumps away from the
 committed word and distant lines are untouched. A pointer tap taken while a
 composition is still active is hit-tested against the live composing line and
 replayed against the fresh snapshot only after `compositionend` reconciles, so
-the caret lands on the tapped character rather than a stale-mapped byte — the
+the caret lands on the tapped character rather than a stale-mapped byte - the
 fix carries no Android/Gboard/user-agent branch. The `composing`
 property reports whether a composition is currently active.
 
@@ -196,7 +198,7 @@ text lives only in the internal textarea and no `continuity-change` has been
 emitted for it. Every path that ends a composition folds it in, and teardown is
 one of them: `destroy()` commits first and emits the change, so unmounting
 mid-composition cannot lose the run. That matters most where it is least
-exotic — Android keyboards hold one composition open across ordinary typing, so
+exotic - Android keyboards hold one composition open across ordinary typing, so
 the uncommitted run is routinely the last word typed. `commitComposition()`
 does the same on demand and returns whether there was anything to fold, for
 checkpointing before a manual save or a navigation; teardown does not need it.
@@ -332,7 +334,7 @@ beside the list marker and breaks across following rows instead of stranding
 the marker on a row by itself. Inactive headings have a level-specific size
 hierarchy, task markers are clickable, and hovering inline or fenced code
 reveals a Copy control. On touch-primary devices (`pointer: coarse`) the
-fenced-block Copy control is always visible — touch has no hover — and inline
+fenced-block Copy control is always visible - touch has no hover - and inline
 controls stay tap-revealed. Copying tries the async Clipboard API, then a
 selection-based fallback that also works in insecure LAN contexts; only if
 both are rejected does the component emit `continuity-request` with
@@ -340,8 +342,8 @@ both are rejected does the component emit `continuity-request` with
 
 On touch-primary devices the editor also shows a bottom quick-action command
 rail (set `command-rail="on"` or `"off"` to override the automatic default).
-The rail executes editor-owned engine commands — undo, redo, indent, outdent,
-bullet, task, bold, italic, inline code, heading cycle, and more — without
+The rail executes editor-owned engine commands - undo, redo, indent, outdent,
+bullet, task, bold, italic, inline code, heading cycle, and more - without
 dismissing the virtual keyboard. The checkmark action creates a full
 Markdown task (`- [ ] `); its rail id stays `checkbox` so saved arrangements
 survive. The bullet and task actions keep the caret over the same character
@@ -359,7 +361,7 @@ persists in `localStorage` under `continuity-editor.command-rail`, scoped by
 rail hides while the editor is read-only, and `part="command-rail"` /
 `part="command-rail-settings"` /
 `part="command-rail-button command-rail-button-<id>"` allow host styling. Rail and copy-control
-chrome is sized in `px` — not `rem` — so a host page with a dense root
+chrome is sized in `px` - not `rem` - so a host page with a dense root
 font-size cannot shrink touch targets; defaults are 48px buttons in a 56px
 rail. Hosts retune with `--continuity-rail-height` (rail plus content inset
 together), `--continuity-rail-button-size`, and
@@ -385,7 +387,7 @@ const dispose = editor.registerRailAction({
 An action names exactly one behavior, resolved in this order: `command` runs a
 storage-neutral engine command through the same resolver as the keyboard
 shortcuts, `run` calls back with the element, and an action with neither raises
-`continuity-request` with `kind: "railAction"` and the `actionId` — the route
+`continuity-request` with `kind: "railAction"` and the `actionId` - the route
 for a declarative host that cannot pass a callback. `icon` is a factory that
 returns an element the host builds itself; the editor never accepts markup
 strings into its shadow root. `isEnabled` is re-evaluated on every commit and
@@ -418,7 +420,7 @@ same predicate picks the scroller in JavaScript, so the stylesheet and the code
 cannot disagree.
 
 This is forced, not preferred. The platform's long-press selection hit-tests the
-invisible textarea, whose layout cannot be made to match the projection — folded
+invisible textarea, whose layout cannot be made to match the projection - folded
 Markdown markers shorten projected text, headings render at up to 1.45em, the
 projection box is 14px narrower, and a textarea has no per-line font-size to
 reconcile them with. Nothing refuses that gesture on an editable element:
@@ -458,7 +460,7 @@ Paste degrades rather than dying. In order: `clipboard.readText()`;
 honour; the text this editor last copied or cut; and finally a
 `continuity-request` of kind `pasteText`. The fallback to the editor's own last
 copy is what keeps paste alive where a permissions policy denies
-`clipboard-read` — an embedding frame that did not delegate it is the usual
+`clipboard-read` - an embedding frame that did not delegate it is the usual
 cause, and a document cannot grant itself what its parent withheld, so no
 page-side code can lift it. Only cross-application paste needs the frame to add
 `allow="clipboard-read"`. Copy failures fall back through the textarea's own
@@ -487,8 +489,8 @@ with `part="selection-handle selection-handle-start"` /
 
 Keyboard visibility on Android is not a function of DOM focus. The system back
 gesture hides the IME without blurring, so the textarea is still focused
-afterwards and Chrome re-raises the keyboard for any touch resolving against it
-— including a long-press that only meant to select. Focus never moves, so no
+afterwards and Chrome re-raises the keyboard for any touch resolving against it,
+including a long-press that only meant to select. Focus never moves, so no
 focus policy can reach it. The editor holds the textarea at `inputmode="none"`
 on a coarse pointer, the one state Chrome will not raise the IME from, and lifts
 it where a touch has resolved as typing: a completed tap, `insertText()`, or the
@@ -498,14 +500,14 @@ That attribute is not symmetric, which is why the gate is not a reflex. Applied
 to a field focused *with the IME showing*, `inputmode="none"` dismisses the
 keyboard rather than refusing a future one, so a selection gesture that always
 applied it closed the keyboard a writer was typing on. The editor now tracks
-keyboard state explicitly — typing intent, plus visual-viewport occlusion, which
-is the signal Android actually gives for the IME — and a selection gesture
+keyboard state explicitly - typing intent, plus visual-viewport occlusion, which
+is the signal Android actually gives for the IME - and a selection gesture
 closes the gate only while the keyboard is down. With no evidence either way it
 answers "down", the conservative side, so a dismissed keyboard still cannot be
 re-raised by a long-press, a selection drag, or an adjust-handle grab.
 
-A selection made with the keyboard down needs the keyboard for every next step —
-typing over it, and every button on the action bar — and the only gesture that
+A selection made with the keyboard down needs the keyboard for every next step -
+typing over it, and every button on the action bar - and the only gesture that
 raises one used to collapse it on the way. So the first resolved touch tap
 *inside* the highlight raises the keyboard and changes nothing else: the range,
 the highlight, and the whole bar survive. The next tap places a caret as normal,
@@ -528,7 +530,7 @@ from `--continuity-indent-guide` and `--continuity-indent-guide-active`.
 The column semantics match the native desktop editor: a guide marks where an
 *enclosing* parent's content starts. The body's own left edge is the top-level
 parent, so a line indented exactly once draws one rule there and a top-level
-line draws none — a page of singly-indented content stays legible as indented
+line draws none - a page of singly-indented content stays legible as indented
 however far you scroll into it. A blank line inherits the columns its two
 non-blank neighbours share, and the caret's line draws its deepest column in the
 active colour.
@@ -536,7 +538,7 @@ active colour.
 The offset-0 rule sits flush at the text origin rather than a few pixels left of
 it. A background is clipped to its painting area, so a negative gradient stop
 paints nothing, and the only way to move the rule left is padding or a border on
-the line — both shift the content edge and with it the tab-stop grid origin. Add
+the line - both shift the content edge and with it the tab-stop grid origin. Add
 inline padding to the host's own container if you want more breathing room to
 the left of the guides.
 
@@ -564,8 +566,8 @@ them all, and jump between them with `setSelections({ reveal: true })`.
 Each set is themed independently. A rectangle resolves
 `var(--continuity-decoration-<id>, var(--continuity-decoration))`, so defining
 `--continuity-decoration-find-active` recolours that set alone, and each carries
-`part="decoration decoration-<id>"`. The id must therefore be a CSS identifier —
-a letter followed by letters, digits, hyphens, or underscores — and anything
+`part="decoration decoration-<id>"`. The id must therefore be a CSS identifier -
+a letter followed by letters, digits, hyphens, or underscores - and anything
 else is rejected. Ranges are positions, not anchors: they do not follow edits,
 so re-set them on `continuity-change`, which a find bar does anyway. Only
 ranges inside the realized window paint, which is also the only part of them a
@@ -582,15 +584,15 @@ editor.addEventListener("continuity-viewport", ({ detail }) => {
   paintHeadingTrail(headingChainAbove(detail.firstLine));
 });
 
-// The same window, without waiting for a frame — on mount, or straight after a
+// The same window, without waiting for a frame - on mount, or straight after a
 // programmatic jump.
 const visible = editor.visibleLineRange();   // { startLine, endLine } | null
 ```
 
 This is the primitive behind scroll-linked host chrome: a sticky heading trail,
 a reading-position marker, a "you are here" tick in an outline. It is the same
-split as decorations — the host locates, the editor answers where the reader
-is — and for the same reason. Pixels do not convert to lines outside the
+split as decorations - the host locates, the editor answers where the reader
+is - and for the same reason. Pixels do not convert to lines outside the
 projection: a heading renders at up to 1.45em, wrapped rows carry a measured
 pixel hanging indent, unrealized lines are laid out against the projection's own
 font metrics, and either the textarea or the touch shield owns scrolling
@@ -717,8 +719,7 @@ The package is assembled and installed from its tarball by
 packed component contract, accessibility-tree and browser performance gates,
 10,000-line load/edit/newline/wrap and caret-follow coverage, then the packed Electron IPC persistence
 smoke. Set `CONTINUITY_BROWSER_CPU_PROFILE=1` for a diagnostic Chrome hot-frame
-report, then rerun without profiling for release measurements. The package is
-not yet published to a registry. `wasm-check` also gates edited 10,000-line
+report, then rerun without profiling for release measurements. `wasm-check` also gates edited 10,000-line
 viewport projection, installed package size, total JavaScript, and the lazy
 entry. SDK release staging requires the full packed browser gate.
 

@@ -1,7 +1,8 @@
 # text
 
-Text-domain primitives: `Position`, `Range`, `Selection`, `EditOp`, and
-operations over a `ropey::Rope`.
+The basic text types of the Continuity editor engine: positions, ranges,
+selections, and edit operations (`Position`, `Range`, `Selection`, `EditOp`),
+plus operations over a `ropey::Rope`.
 
 Layer: foundation (no internal deps). Consumers: `buffer`, `decorate`,
 `core`, `layout`, anywhere text is read or modified.

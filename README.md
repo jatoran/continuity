@@ -1,85 +1,82 @@
 # Continuity
 
-Continuity is a native Windows markdown notes editor for writing notes. Period. Code notes included, but this is not trying to be a code editor.
+Continuity is a Markdown notes editor for Windows.
+It handles code notes fine, but it is not trying to be a code editor.
 
-**[⬇ Download for Windows](https://github.com/jatoran/continuity/releases/latest)** - grab `continuity-<version>-setup.msi`. See [Downloads](#downloads) for the portable and standalone builds.
+**[Download for Windows](https://github.com/jatoran/continuity/releases/latest)** - grab `continuity-<version>-setup.msi`, or run `winget install Continuity.Continuity`.
+See [Downloads](#downloads) for the portable and standalone builds.
 
 ![Continuity](assets/media/hero.png)
 
-I wanted something with the speed, ephemerality, and safety I like in Sublime Text, but aimed at notes: better Windows virtual desktop behavior, WYSIWYG markdown editing, and no "did I save?" anxiety. Every keystroke is written to a local SQLite database; saving a file is export, not durability.
+I wanted something with the speed, ephemerality, and safety I like in Sublime Text, but aimed at notes: better Windows virtual desktop behavior, WYSIWYG markdown editing, and no "did I save?" anxiety.
+Continuity saves every keystroke to a local database as you type, so if it crashes or gets force-closed, your notes, tabs and caret position are all there when you open it again.
+You can still save a note to a `.md` file whenever you want one on disk, but saving is not what keeps your work safe.
+
+It is early software and runs on Windows 10 and 11 only, and the builds are not code-signed yet, so Windows SmartScreen may warn you the first time you run one.
 
 ## Markdown renders as you type
 
-The source stays plain markdown. The caret line always shows you the raw text, everything else renders.
+The text is always plain Markdown, and Continuity renders it in place instead of in a separate preview pane.
+The line you are on shows its raw Markdown so you can edit it, and the rest of the note shows formatted headings, lists, checkboxes, links, code and images.
 
 ![Live markdown rendering](assets/media/live-markdown.gif)
 
-## There is no save button
+The rendering is my own flavor of WYSIWYG.
+Tables stay drawn as a grid that you edit cell by cell, with a right-click menu for adding and removing rows and columns, and a cell can hold a formula like `=SUM(A1:A3)`.
 
-Every keystroke goes to a local SQLite database, so there is nothing to lose. Below, the process is hard-killed mid-sentence and reopened. The note, the caret position, and the open tab all come back.
+## If it crashes
+
+In the recording below, Continuity is killed in the middle of a sentence and started again.
+The note, the open tab and the caret position all come back, and the tab is still marked unsaved because the text was never written to a file.
 
 ![Crash safety](assets/media/crash-safety.gif)
 
-The markdown surface is my own flavor of WYSIWYG. The source stays plain markdown, but Continuity projects it through a custom live renderer so headings, lists, checkboxes, links, tables, inline code, and images can feel integrated instead of bolted on.
+## What is in this repository
 
-It is built in Rust as a small Win32 app with DirectWrite/Direct2D rendering, rope-backed text, explicit worker threads, bounded caches, and SQLite WAL persistence. WYSIWYG adds performance pressure, so I benchmark and optimize the projection/rendering path to keep large notes responsive.
-
-## Two things live in this repository
-
-Continuity ships as two independent products built on one shared Rust editor engine.
+This repository holds two things built on the same Rust editor engine: the Windows app, and an SDK that puts the same editor inside other applications.
 
 | | What it is | Platform | Releases |
 |---|---|---|---|
-| **Continuity for Windows** | The native Win32 notes application. The end-user product. | Windows 10/11 | `v*` tags - [latest](https://github.com/jatoran/continuity/releases/latest), [all](https://github.com/jatoran/continuity/releases?q=tag%3Av&expanded=true) |
-| **Continuity SDK** | An embeddable editor for your own app: Web Component + WASM, Rust, C, Python, and a native Win32 child control. | Browser, Electron, Windows, Linux, macOS | `sdk-v*` tags - [all](https://github.com/jatoran/continuity/releases?q=tag%3Asdk-v&expanded=true) |
+| **Continuity for Windows** | The notes app. | Windows 10/11 | `v*` tags - [latest](https://github.com/jatoran/continuity/releases/latest), [all](https://github.com/jatoran/continuity/releases?q=tag%3Av&expanded=true) |
+| **Continuity SDK** | The same editor for use inside your own app, as a Web Component, a Rust crate, a C library, a Python module or a Win32 child control. | Browser, Electron, Windows, Linux, macOS | `sdk-v*` tags - [all](https://github.com/jatoran/continuity/releases?q=tag%3Asdk-v&expanded=true) |
 
-They version separately and release separately, because they change at different rates and answer to different consumers. The desktop app is the one to download if you just want a notes editor. The SDK is the one to reach for if you want Continuity's editing behavior inside something you are building.
-
-Both are early software and still changing quickly.
+If you want a notes editor, download the Windows app.
+The SDK is for developers who want Continuity's editor inside something they are building.
+The two have separate version numbers and separate releases, because they change at different rates and are used by different people.
+Both are early and still changing quickly.
 
 ## Continuity for Windows
 
 ### Features
 
-- Native Win32 editor for Windows 10 and Windows 11.
-- Plain text and markdown source stays canonical.
-- Live markdown rendering for headings, emphasis, lists, checkboxes, links, code blocks, tables, and inline images.
-- Integrated markdown table editing with a more spreadsheet-like feel, so pipe tables can be worked with without constantly fighting raw markdown alignment.
-- Note-friendly markdown niceties such as inline code handling and copyable code snippets.
-- Every keystroke is durable to a local SQLite WAL database.
-- Saving is export. The database is the truth.
-- Multi-pane, multi-tab, multi-window session restore.
-- Vaults: point Continuity at a folder and it autosaves every note in it, remembers the open tabs, and reconciles changes made outside the app.
-- Portable mode that keeps settings, themes, keymap, notes, and backups beside the executable.
-- Installed mode with Start Menu shortcut, optional desktop shortcut, uninstall support, and Windows Default Apps registration for markdown/text files.
-- Configurable themes, keymap, settings, fonts, wrapping, and view behavior.
-- Fast large-buffer projection and soft-wrap work aimed at keeping writing responsive.
+- Markdown renders in place as you type, including headings, emphasis, lists, checkboxes, links, code blocks, tables and inline images.
+- The text stays plain Markdown or plain text, and nothing is converted to another format.
+- Tables are drawn as a grid you edit cell by cell, with a right-click menu for rows and columns and simple formulas in cells.
+- Code blocks and inline code have a copy button.
+- Every keystroke is saved to a local SQLite database as you type, and saving to a file is there for when you want a file.
+- Panes, tabs and windows all reopen the way you left them.
+- Windows reopen on the virtual desktop they were on, and starting Continuity never switches you to a different desktop.
+- Open a folder as a vault and Continuity saves every note in it automatically, remembers which notes were open, and picks up changes other programs make to those files.
+- A portable mode that keeps your notes, settings, themes, keybindings and backups in the folder next to the exe.
+- An MSI installer with a Start Menu shortcut, an optional desktop shortcut, a normal uninstall, and an entry in Windows Default Apps for Markdown and text files.
+- Continuity checks GitHub Releases for new versions, shows a banner when one is out, and installs it when you click.
+- Themes, keybindings, fonts, wrapping and view behavior are all configurable.
 
 ### Find
 
-Live match highlighting across the buffer, with regex, whole-word, case, and scope toggles.
+Find highlights every match in the note as you type, with toggles for regex, whole word, match case, and searching only the selection.
 
 ![Find](assets/media/find.png)
 
-### Performance notes
+### Performance
 
-These are enforced in CI, not aspirational. A build that misses one fails the push.
+Continuity is written in Rust and talks to Windows directly, with no browser engine or UI framework in between.
+Text is drawn with DirectWrite and Direct2D, and notes are stored in SQLite.
+Rendering Markdown while you type adds work to every keystroke, so typing has a budget.
+A key press has to reach the screen within 8 ms, and the typed text has to reach the database within 400 ms, both at the 99th percentile.
+The checks that run before every push measure both, along with the size of the exe, which has to stay under 9 MiB, and a build that goes over any of them fails.
 
-| Gate | p99 budget |
-|---|---:|
-| Keypress to pixel | 8 ms |
-| Edit application | 4 ms |
-| `WM_PAINT` to frame ready | 2 ms |
-| Incremental markdown parse | 1 ms |
-| Cold start, empty | 120 ms |
-| Stripped binary | 9 MiB |
-
-There is also a heap assertion of zero new allocations per keystroke in steady state.
-
-- Text input: `WM_CHAR` p99 around 2-4 ms in recent release traces.
-- Edit application: p99 around 4 ms for normal typing/edit paths.
-- Large-buffer row counts: roughly 10k-line soft-wrapped buffers cold-walk in about 50-55 ms in recent local traces.
-- Rendering: viewport-first projection keeps large notes visible and editable while the full document index catches up.
+Large notes show the part on screen first, so you can read and edit while the rest of the note is still being laid out.
 
 ### Install
 
@@ -87,26 +84,32 @@ There is also a heap assertion of zero new allocations per keystroke in steady s
 winget install Continuity.Continuity
 ```
 
-winget installs the MSI, registers it with Add/Remove Programs, and picks up new versions through `winget upgrade`. The downloads below are the same builds for anyone who prefers a file.
+winget installs the MSI, registers it with Add/Remove Programs, and picks up new versions through `winget upgrade`.
+The downloads below are the same builds for anyone who prefers a file.
 
 ### Downloads
 
-GitHub Releases are the normal way to get builds without winget. Desktop releases are tagged `v<version>`.
+Every build is on GitHub Releases, and desktop releases are tagged `v<version>`.
 
-[**releases/latest**](https://github.com/jatoran/continuity/releases/latest) always resolves to the newest desktop release, which is the link to use. Both products publish into one repository and the release list is strictly chronological, so SDK releases - which ship far more often - are interleaved with desktop ones. SDK releases never claim the "Latest" badge, so `releases/latest` cannot land you on one. To browse only desktop releases, filter the list with [`tag:v`](https://github.com/jatoran/continuity/releases?q=tag%3Av&expanded=true).
+[**releases/latest**](https://github.com/jatoran/continuity/releases/latest) always points at the newest desktop release, so that is the link to use.
+The SDK publishes to the same release list and releases far more often, so its releases sit in between the desktop ones, but an SDK release never takes the "Latest" badge.
+To see only desktop releases, filter the list with [`tag:v`](https://github.com/jatoran/continuity/releases?q=tag%3Av&expanded=true).
 
 - `continuity-<version>-setup.msi`: recommended for normal use. Installs under Program Files and supports in-place upgrades.
 - `continuity-<version>-portable.zip`: no-install build. Extract the folder and run `continuity.exe`; app data stays in that folder.
 - `continuity-<version>-standalone.zip`: just `continuity.exe`; settings, themes, and notes use your normal Windows AppData.
 - `SHA256SUMS.txt`: hashes for release assets.
 
-Unsigned builds may trigger Windows SmartScreen until release signing is in place.
+The builds are not code-signed yet, so Windows SmartScreen may warn you before the first run.
 
 ## Continuity SDK
 
-The same editor engine, without the Windows application around it. One synchronous Rust core owns text, selections, undo, revisions, and markdown projection; each surface is a thin adapter over it. Embedding is storage-neutral: the SDK creates no database, no files, and no background workers, and your application stays in charge of persistence.
+The Continuity SDK is the editor from the Windows app, packaged for use inside other applications.
+It runs in web pages and Electron as a Web Component, and in Rust, C and Python programs as a library.
+One Rust core handles the text, selections, undo history and how Markdown is displayed, and each package below is a thin layer over it, so the editor behaves the same in all of them.
+The SDK does not create a database, files or background workers; your application decides where and how to save.
 
-| Host | Use | Visual |
+| Host | Use | Editor UI |
 |---|---|---|
 | Browser, Electron, or webview | `<continuity-editor>` Web Component | Yes |
 | React, Svelte, Vue, Preact, vanilla | Framework adapters over the same WASM engine | Yes |
@@ -134,9 +137,11 @@ npm install @continuity-editor/editor   # browser, Electron, any JS host
 cargo add continuity-engine             # Rust
 ```
 
-The SDK publishes to npm's `latest` dist-tag, so the bare package name is the one to use. The old `@next` tag stopped advancing at 0.2.39.
+The npm package is published under the normal `latest` tag, so the plain package name gets the current version.
+The old `@next` tag stopped at 0.2.39.
 
-`pip install continuity-editor` is not available yet. The Python wheel is currently built for Windows only, and shipping it without wheels for other platforms would make `pip install` fail confusingly on Linux and macOS.
+`pip install continuity-editor` is not available yet.
+The Python wheel is only built for Windows so far, and publishing it without wheels for other platforms would make `pip install` fail in a confusing way on Linux and macOS.
 
 Every SDK artifact is also attached to its GitHub Release, if you would rather pin an exact file:
 
@@ -149,9 +154,10 @@ Each SDK release carries the npm tarball, the `continuity-text` / `continuity-bu
 
 The C ABI ships as a Windows DLL plus `continuity_engine.h` in the release archive; it is not on a package registry.
 
-SDK releases never take the repository's "Latest" badge, which belongs to the desktop application; that holds on every channel. A `preview`-channel SDK release is additionally marked as a GitHub prerelease, which is a statement about maturity, not about which product is the headline.
+SDK releases never take the repository's "Latest" badge, which always belongs to the Windows app.
+An SDK release on the `preview` channel is also marked as a GitHub prerelease.
 
-Full integration contracts, per-surface APIs, supported targets, and version history: [EMBEDDING.md](EMBEDDING.md). Browser and framework examples: [`packages/editor/README.md`](packages/editor/README.md).
+[EMBEDDING.md](EMBEDDING.md) covers the full integration contract, the API of each package, supported targets and version history, and [`packages/editor/README.md`](packages/editor/README.md) has browser and framework examples.
 
 ## Build
 

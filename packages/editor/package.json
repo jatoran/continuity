@@ -1,7 +1,7 @@
 {
   "name": "@continuity-editor/editor",
   "version": "0.2.41",
-  "description": "Accessible Continuity Web Component and synchronous WebAssembly editor engine",
+  "description": "The Continuity Markdown editor as an accessible Web Component, with its Rust engine compiled to WebAssembly",
   "type": "module",
   "license": "MIT",
   "repository": {

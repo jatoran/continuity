@@ -78,7 +78,7 @@
           <RegistryValue Root="HKLM" Key="Software\Continuity" Name="InstallDir" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
           <RegistryValue Root="HKLM" Key="Software\RegisteredApplications" Name="Continuity" Type="string" Value="Software\Continuity\Capabilities" />
           <RegistryValue Root="HKLM" Key="Software\Continuity\Capabilities" Name="ApplicationName" Type="string" Value="Continuity" />
-          <RegistryValue Root="HKLM" Key="Software\Continuity\Capabilities" Name="ApplicationDescription" Type="string" Value="Native markdown notes editor" />
+          <RegistryValue Root="HKLM" Key="Software\Continuity\Capabilities" Name="ApplicationDescription" Type="string" Value="Markdown notes editor" />
           <RegistryValue Root="HKLM" Key="Software\Continuity\Capabilities\FileAssociations" Name=".md" Type="string" Value="Continuity.Markdown" />
           <RegistryValue Root="HKLM" Key="Software\Continuity\Capabilities\FileAssociations" Name=".markdown" Type="string" Value="Continuity.Markdown" />
           <RegistryValue Root="HKLM" Key="Software\Continuity\Capabilities\FileAssociations" Name=".mdown" Type="string" Value="Continuity.Markdown" />

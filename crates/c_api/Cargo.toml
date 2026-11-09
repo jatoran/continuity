@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Versioned C ABI for the synchronous Continuity editor engine"
+description = "C interface to the Continuity editor engine, with a versioned ABI"
 publish = false
 
 [lib]

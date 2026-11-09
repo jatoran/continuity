@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Headless Python binding for the synchronous Continuity editor engine"
+description = "Python module for the Continuity editor engine, without a UI"
 publish = false
 
 [lib]
